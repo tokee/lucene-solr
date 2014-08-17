@@ -390,9 +390,13 @@ public class MultiDocValues {
     final AppendingPackedLongBuffer firstSegments;
     // for every segment, segmentOrd -> globalOrd
     final LongValues segmentToGlobalOrds[];
+    // Used by sparse. Leftover from 4.7.1. TODO: Use segmentToGlobalOrds instead to save memory
+    final MonotonicAppendingLongBuffer[] ordDeltas;
     // ram usage
     final long ramBytesUsed;
-    
+
+    final long maxOrdCount;
+
     /** 
      * Creates an ordinal map that allows mapping ords to/from a merged
      * space from <code>subs</code>.
@@ -410,7 +414,7 @@ public class MultiDocValues {
       // slow anyway
       globalOrdDeltas = new MonotonicAppendingLongBuffer(PackedInts.COMPACT);
       firstSegments = new AppendingPackedLongBuffer(PackedInts.COMPACT);
-      final MonotonicAppendingLongBuffer[] ordDeltas = new MonotonicAppendingLongBuffer[subs.length];
+      ordDeltas = new MonotonicAppendingLongBuffer[subs.length];
       for (int i = 0; i < ordDeltas.length; i++) {
         ordDeltas[i] = new MonotonicAppendingLongBuffer(acceptableOverheadRatio);
       }
@@ -424,8 +428,10 @@ public class MultiDocValues {
       }
       MultiTermsEnum mte = new MultiTermsEnum(slices);
       mte.reset(indexes);
+      long maxOrdCount = -1;
       long globalOrd = 0;
-      while (mte.next() != null) {        
+      while (mte.next() != null) {
+        long ordCount = 0;
         TermsEnumWithSlice matches[] = mte.getMatchArray();
         for (int i = 0; i < mte.getMatchCount(); i++) {
           int segmentIndex = matches[i].index;
@@ -438,18 +444,21 @@ public class MultiDocValues {
           }
           // for each per-segment ord, map it back to the global term.
           while (segmentOrds[segmentIndex] <= segmentOrd) {
+            ordCount++;
             ordDeltaBits[segmentIndex] |= delta;
             ordDeltas[segmentIndex].add(delta);
             segmentOrds[segmentIndex]++;
           }
         }
         globalOrd++;
+        maxOrdCount = Math.max(maxOrdCount, ordCount);
       }
       firstSegments.freeze();
       globalOrdDeltas.freeze();
       for (int i = 0; i < ordDeltas.length; ++i) {
         ordDeltas[i].freeze();
       }
+      this.maxOrdCount = maxOrdCount;
       // ordDeltas is typically the bottleneck, so let's see what we can do to make it faster
       segmentToGlobalOrds = new LongValues[subs.length];
       long ramBytesUsed = BASE_RAM_BYTES_USED + globalOrdDeltas.ramBytesUsed() + firstSegments.ramBytesUsed() + RamUsageEstimator.shallowSizeOf(segmentToGlobalOrds);
@@ -508,6 +517,14 @@ public class MultiDocValues {
       return segmentToGlobalOrds[segmentIndex];
     }
 
+    // Used by sparse. TODO: Can we use the standard getGlobalOrds instead?
+    /** 
+     * Given a segment number and segment ordinal, returns
+     * the corresponding global ordinal.
+     */
+    public long getGlobalOrd(int segmentIndex, long segmentOrd) {
+      return segmentOrd + ordDeltas[segmentIndex].get(segmentOrd);
+    }
     /**
      * Given global ordinal, returns the ordinal of the first segment which contains
      * this ordinal (the corresponding to the segment return {@link #getFirstSegmentNumber}).
@@ -529,6 +546,24 @@ public class MultiDocValues {
      */
     public long getValueCount() {
       return globalOrdDeltas.size();
+    }
+
+    /**
+     * @return the maximum number of ordinals for any docID.
+     */
+    public long getMaxOrdCount() {
+      return maxOrdCount;
+    }
+
+    /**
+     * Sparse Faceting: Returns the total number of ordinals in all segments for this map..
+     */
+    public long getSegmentOrdinalsCount() {
+      long segmentOrdinalsCount = 0;
+      for (MonotonicAppendingLongBuffer soc: ordDeltas) {
+        segmentOrdinalsCount += soc.size();
+      }
+      return segmentOrdinalsCount;
     }
 
     @Override
