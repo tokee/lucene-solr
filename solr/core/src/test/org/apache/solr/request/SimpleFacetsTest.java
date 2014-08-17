@@ -1856,6 +1856,39 @@ public class SimpleFacetsTest extends SolrTestCaseJ4 {
     doFacetPrefix("tt_s1", "{!threads=2}", "facet.method","fcs");   // specific number of threads
   }
 
+  /**
+   * Simulates distributed faceting by performing a second request for specific terms in the facet.
+   */
+  @Test
+  public void testTwoPhaseFaceting() {
+    final String pre = "//lst[@name='foo_s']";
+
+    // First phase
+    assertQ("test plain facet request",
+             req("q", "*:*"
+                 ,"facet", "true"
+                 ,"facet.sparse", "true"
+                 ,"facet.field", "foo_s"
+                 ,"facet.mincount","1"
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=3]"
+             ,pre+"/int[1][@name='A'][.='6']"
+             ,pre+"/int[2][@name='B'][.='6']"
+             ,pre+"/int[3][@name='C'][.='2']"
+             );
+
+    // Second phase (we only want A here)
+    assertQ("test plain facet request",
+             req("q", "*:*"
+                 ,"facet", "true"
+                 ,"facet.sparse", "true"
+                 ,"facet.field", "{!terms=A}foo_s"
+                 ,"facet.mincount","1"
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=1]"
+             ,pre+"/int[1][@name='A'][.='6']"
+             );
+  }
 
   static void indexFacetPrefix(String idPrefix, String f) {
     add_doc("id", idPrefix+"1",  f, "AAA");

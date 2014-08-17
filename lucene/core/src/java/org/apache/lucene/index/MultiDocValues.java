@@ -328,6 +328,8 @@ public class MultiDocValues {
     // for every segment, segmentOrd -> (globalOrd - segmentOrd)
     final MonotonicAppendingLongBuffer ordDeltas[];
     
+    // Used by sparse. Leftover from 4.7.1. TODO: Use segmentToGlobalOrds instead to save memory
+    final MonotonicAppendingLongBuffer[] ordDeltas;
     /** 
      * Creates an ordinal map that allows mapping ords to/from a merged
      * space from <code>subs</code>.
@@ -355,8 +357,10 @@ public class MultiDocValues {
       }
       MultiTermsEnum mte = new MultiTermsEnum(slices);
       mte.reset(indexes);
+      long maxOrdCount = -1;
       long globalOrd = 0;
-      while (mte.next() != null) {        
+      while (mte.next() != null) {
+        long ordCount = 0;
         TermsEnumWithSlice matches[] = mte.getMatchArray();
         for (int i = 0; i < mte.getMatchCount(); i++) {
           int segmentIndex = matches[i].index;
@@ -369,19 +373,22 @@ public class MultiDocValues {
           }
           // for each per-segment ord, map it back to the global term.
           while (segmentOrds[segmentIndex] <= segmentOrd) {
+            ordCount++;
             ordDeltas[segmentIndex].add(delta);
             segmentOrds[segmentIndex]++;
           }
         }
         globalOrd++;
+        maxOrdCount = Math.max(maxOrdCount, ordCount);
       }
       firstSegments.freeze();
       globalOrdDeltas.freeze();
       for (int i = 0; i < ordDeltas.length; ++i) {
         ordDeltas[i].freeze();
       }
+      this.maxOrdCount = maxOrdCount;
     }
-    
+
     /** 
      * Given a segment number and segment ordinal, returns
      * the corresponding global ordinal.
@@ -390,6 +397,14 @@ public class MultiDocValues {
       return segmentOrd + ordDeltas[segmentIndex].get(segmentOrd);
     }
 
+    // Used by sparse. TODO: Can we use the standard getGlobalOrds instead?
+    /** 
+     * Given a segment number and segment ordinal, returns
+     * the corresponding global ordinal.
+     */
+    public long getGlobalOrd(int segmentIndex, long segmentOrd) {
+      return segmentOrd + ordDeltas[segmentIndex].get(segmentOrd);
+    }
     /**
      * Given global ordinal, returns the ordinal of the first segment which contains
      * this ordinal (the corresponding to the segment return {@link #getFirstSegmentNumber}).
@@ -413,6 +428,26 @@ public class MultiDocValues {
       return globalOrdDeltas.size();
     }
     
+
+    /**
+     * @return the maximum number of ordinals for any docID.
+     */
+    public long getMaxOrdCount() {
+      return maxOrdCount;
+    }
+
+    /**
+     * Sparse Faceting: Returns the total number of ordinals in all segments for this map..
+     */
+    public long getSegmentOrdinalsCount() {
+      long segmentOrdinalsCount = 0;
+      for (MonotonicAppendingLongBuffer soc: ordDeltas) {
+        segmentOrdinalsCount += soc.size();
+      }
+      return segmentOrdinalsCount;
+    }
+
+    @Override
     /** 
      * Returns total byte size used by this ordinal map. 
      */

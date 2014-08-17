@@ -235,7 +235,9 @@ public class FacetComponent extends SearchComponent
             if (dff.limit > 0) {
               // set the initial limit higher to increase accuracy
               dff.initialLimit = (int)(dff.initialLimit * 1.5) + 10;
-              dff.initialMincount = 0;      // TODO: we could change this to 1, but would then need more refinement for small facet result sets?
+//              dff.initialMincount = 0;      // TODO: we could change this to 1, but would then need more refinement for small facet result sets?
+              // When mincount > 0, it never makes sense to make distributed requests with mincount=0
+              dff.initialMincount = Math.min(dff.minCount, 1);
             } else {
               // if limit==-1, then no need to artificially lower mincount to 0 if it's 1
               dff.initialMincount = Math.min(dff.minCount, 1);

@@ -18,7 +18,9 @@ package org.apache.solr.request;
  */
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.lucene.index.AtomicReaderContext;
 import org.apache.lucene.index.DocValues;
@@ -35,6 +37,10 @@ import org.apache.lucene.util.CharsRef;
 import org.apache.lucene.util.UnicodeUtil;
 import org.apache.solr.common.params.FacetParams;
 import org.apache.solr.common.util.NamedList;
+import org.apache.solr.request.sparse.SparseCounterInt;
+import org.apache.solr.request.sparse.SparseCounterPool;
+import org.apache.solr.request.sparse.SparseKeys;
+import org.apache.solr.request.sparse.ValueCounter;
 import org.apache.solr.schema.FieldType;
 import org.apache.solr.schema.SchemaField;
 import org.apache.solr.search.DocSet;
@@ -55,7 +61,290 @@ import org.apache.solr.util.LongPriorityQueue;
  */
 public class DocValuesFacets {
   private DocValuesFacets() {}
-  
+
+  /**************** Sparse implementation start *******************/
+  // This is a fully equivalent to {@link UnInvertedField#getCounts}
+  public static NamedList<Integer> getCounts(
+      SolrIndexSearcher searcher, DocSet docs, String fieldName, int offset, int limit, int minCount, boolean missing,
+      String sort, String prefix, SparseKeys sparseKeys, SparseCounterPool pool) throws IOException {
+    if (!sparseKeys.sparse) { // Skip sparse part completely
+      return getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix);
+    }
+
+    SchemaField schemaField = searcher.getSchema().getField(fieldName);
+    final int hitCount = docs.size();
+    FieldType ft = schemaField.getType();
+    NamedList<Integer> res = new NamedList<Integer>();
+
+    final SortedSetDocValues si; // for term lookups only
+    OrdinalMap ordinalMap = null; // for mapping per-segment ords to global ones
+    if (schemaField.multiValued()) {
+      si = searcher.getAtomicReader().getSortedSetDocValues(fieldName);
+      if (si instanceof MultiSortedSetDocValues) {
+        ordinalMap = ((MultiSortedSetDocValues)si).mapping;
+      }
+    } else {
+      SortedDocValues single = searcher.getAtomicReader().getSortedDocValues(fieldName);
+      si = single == null ? null : DocValues.singleton(single);
+      if (single instanceof MultiSortedDocValues) {
+        ordinalMap = ((MultiSortedDocValues)single).mapping;
+      }
+    }
+    if (si == null) {
+      return finalize(res, searcher, schemaField, docs, -1, missing);
+    }
+    if (si.getValueCount() >= Integer.MAX_VALUE) {
+      throw new UnsupportedOperationException("Currently this faceting method is limited to " + Integer.MAX_VALUE + " unique terms");
+    }
+
+    // TODO: Not sure if null-handling of ordinalMap is correct guessing of cutoff
+    final boolean probablySparse = minCount > 0 && si.getValueCount() >= sparseKeys.minTags &&
+        (1.0 * hitCount / searcher.maxDoc()) *
+            (ordinalMap == null ? si.getValueCount() : ordinalMap.getSegmentOrdinalsCount()) <
+            sparseKeys.fraction * si.getValueCount() * sparseKeys.cutOff;
+    if (!probablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
+      pool.incSkipCount("minCount=" + minCount + ", hits=" + hitCount + "/" + searcher.maxDoc()
+          + ", terms=" + (si == null ? "N/A" : si.getValueCount()) + ", ordCount="
+          + (ordinalMap == null ? "N/A" : ordinalMap.getSegmentOrdinalsCount()));
+      return getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix);
+    }
+    pool.incSparseCalls();
+    long sparseTotalTime = System.nanoTime();
+
+    final BytesRef prefixRef;
+    if (prefix == null) {
+      prefixRef = null;
+    } else if (prefix.length()==0) {
+      prefix = null;
+      prefixRef = null;
+    } else {
+      prefixRef = new BytesRef(prefix);
+    }
+
+    int startTermIndex, endTermIndex;
+    if (prefix!=null) {
+      startTermIndex = (int) si.lookupTerm(prefixRef);
+      if (startTermIndex<0) startTermIndex=-startTermIndex-1;
+      prefixRef.append(UnicodeUtil.BIG_TERM);
+      endTermIndex = (int) si.lookupTerm(prefixRef);
+      assert endTermIndex < 0;
+      endTermIndex = -endTermIndex-1;
+    } else {
+      startTermIndex=-1;
+      endTermIndex=(int) si.getValueCount();
+    }
+
+    final int nTerms=endTermIndex-startTermIndex;
+    int missingCount = -1;
+    final CharsRef charsRef = new CharsRef(10);
+    if (nTerms>0 && hitCount >= minCount) {
+
+      // count collection array only needs to be as big as the number of terms we are
+      // going to collect counts for.
+      // TODO: Figure out maxCountForAny
+      final long maxCountForAnyTag = ordinalMap == null ?
+          (sparseKeys.packed ? getMaxCountForAnyTag(si, searcher.maxDoc()) : Integer.MAX_VALUE) : // Counting max is only needed for packed
+          ordinalMap.getMaxOrdCount();
+      final ValueCounter counts = pool.acquire((int) si.getValueCount()+1, maxCountForAnyTag, sparseKeys); // Do we need the +1?
+      if (!probablySparse) {
+        counts.disableSparseTracking();
+      }
+//      final int[] counts = new int[nTerms];
+
+      long sparseCollectTime = System.nanoTime();
+      Filter filter = docs.getTopFilter();
+      List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
+      for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
+        AtomicReaderContext leaf = leaves.get(subIndex);
+        DocIdSet dis = filter.getDocIdSet(leaf, null); // solr docsets already exclude any deleted docs
+        DocIdSetIterator disi = null;
+        if (dis != null) {
+          disi = dis.iterator();
+        }
+        if (disi != null) {
+          if (schemaField.multiValued()) {
+            SortedSetDocValues sub = leaf.reader().getSortedSetDocValues(fieldName);
+            if (sub == null) {
+              sub = DocValues.emptySortedSet();
+            }
+            final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
+            if (singleton != null) {
+              // some codecs may optimize SORTED_SET storage for single-valued fields
+              accumSingle(counts, startTermIndex, singleton, disi, subIndex, ordinalMap);
+            } else {
+              accumMulti(counts, startTermIndex, sub, disi, subIndex, ordinalMap);
+            }
+          } else {
+            SortedDocValues sub = leaf.reader().getSortedDocValues(fieldName);
+            if (sub == null) {
+              sub = DocValues.emptySorted();
+            }
+            accumSingle(counts, startTermIndex, sub, disi, subIndex, ordinalMap);
+          }
+        }
+      }
+      pool.incCollectTime(System.nanoTime() - sparseCollectTime);
+
+      if (startTermIndex == -1) {
+        missingCount = (int) counts.get(0);
+      }
+
+      // IDEA: we could also maintain a count of "other"... everything that fell outside
+      // of the top 'N'
+
+      int off=offset;
+      int lim=limit>=0 ? limit : Integer.MAX_VALUE;
+
+      if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
+        int maxsize = limit>0 ? offset+limit : Integer.MAX_VALUE-1;
+        maxsize = Math.min(maxsize, nTerms);
+        LongPriorityQueue queue = new LongPriorityQueue(Math.min(maxsize,1000), maxsize, Long.MIN_VALUE);
+
+//        int min=mincount-1;  // the smallest value in the top 'N' values
+
+        long sparseExtractTime = System.nanoTime();
+        try {
+          if (counts.iterate(startTermIndex==-1?1:0, nTerms, minCount, new SparseCounterInt.TopCallback(minCount-1, queue))) {
+            pool.incWithinCount();
+          } else {
+            pool.incExceededCount();
+          }
+        } catch (ArrayIndexOutOfBoundsException e) {
+          throw new ArrayIndexOutOfBoundsException(String.format(
+              "Logic error: Out of bounds with startTermIndex=%d, nTerms=%d, minCount=%d and counts=%s",
+              startTermIndex, nTerms, minCount, counts));
+        }
+        pool.incExtractTime(System.nanoTime() - sparseExtractTime);
+
+/*        for (int i=(startTermIndex==-1)?1:0; i<nTerms; i++) {
+          int c = counts[i];
+          if (c>min) {
+            // NOTE: we use c>min rather than c>=min as an optimization because we are going in
+            // index order, so we already know that the keys are ordered.  This can be very
+            // important if a lot of the counts are repeated (like zero counts would be).
+
+            // smaller term numbers sort higher, so subtract the term number instead
+            long pair = (((long)c)<<32) + (Integer.MAX_VALUE - i);
+            boolean displaced = queue.insert(pair);
+            if (displaced) min=(int)(queue.top() >>> 32);
+          }
+        }*/
+
+        // if we are deep paging, we don't have to order the highest "offset" counts.
+        int collectCount = Math.max(0, queue.size() - off);
+        assert collectCount <= lim;
+
+        // the start and end indexes of our list "sorted" (starting with the highest value)
+        int sortedIdxStart = queue.size() - (collectCount - 1);
+        int sortedIdxEnd = queue.size() + 1;
+        final long[] sorted = queue.sort(collectCount);
+
+        for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
+          long pair = sorted[i];
+          int c = (int)(pair >>> 32);
+          int tnum = Integer.MAX_VALUE - (int)pair;
+          BytesRef br = si.lookupOrd(startTermIndex+tnum);
+          ft.indexedToReadable(br, charsRef);
+          res.add(charsRef.toString(), c);
+        }
+
+      } else {
+        // add results in index order
+        int i=(startTermIndex==-1)?1:0;
+        if (minCount<=0) {
+          // if mincount<=0, then we won't discard any terms and we know exactly
+          // where to start.
+          i+=off;
+          off=0;
+        }
+
+        for (; i<nTerms; i++) {
+          int c = (int) counts.get(i);
+          if (c<minCount || --off>=0) continue;
+          if (--lim<0) break;
+          BytesRef br = si.lookupOrd(startTermIndex+i);
+          ft.indexedToReadable(br, charsRef);
+          res.add(charsRef.toString(), c);
+        }
+      }
+      pool.release(counts);
+    }
+
+    pool.incTotalTime(System.nanoTime() - sparseTotalTime);
+    return finalize(res, searcher, schemaField, docs, missingCount, missing);
+  }
+
+  // TODO: Find a better solution for caching as this map will grow with each index update
+  // TODO: Do not use maxDoc as key! Couple this to the underlying reader
+  private static final Map<Integer, Long> maxCounts = new HashMap<Integer, Long>();
+  // This is expensive so we remember the result
+  private static long getMaxCountForAnyTag(SortedSetDocValues si, int maxDoc) {
+    synchronized (maxCounts) {
+      if (maxCounts.containsKey(maxDoc)) {
+        return maxCounts.get(maxDoc);
+      }
+    }
+    // TODO: Find a way to avoid race condition where the max is calculated more than once
+    // TODO: We assume int as max to same space. We should switch to long if maxDoc*valueCount > Integer.MAX_VALUE
+    final int[] counters = new int[(int) si.getValueCount()];
+    long ord;
+    for (int d = 0 ; d < maxDoc ; d++) {
+      si.setDocument(d);
+      while ((ord = si.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
+        counters[((int) ord)]++;
+      }
+    }
+    long max = 0;
+    for (int i = 0 ; i < counters.length ; i++) {
+      if (counters[i] > max) {
+        max = counters[i];
+      }
+    }
+    synchronized (maxCounts) {
+      maxCounts.put(maxDoc, max);
+    }
+    return max;
+  }
+
+  static void accumSingle(ValueCounter counts, int startTermIndex, SortedDocValues si, DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
+    int doc;
+    while ((doc = disi.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+      int term = si.getOrd(doc);
+      if (map != null && term >= 0) {
+        term = (int) map.getGlobalOrd(subIndex, term);
+      }
+      int arrIdx = term-startTermIndex;
+      if (arrIdx>=0 && arrIdx<counts.size()) {
+        counts.inc(arrIdx);
+      }
+    }
+  }
+  static void accumMulti(ValueCounter counts, int startTermIndex, SortedSetDocValues si, DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
+    int doc;
+    while ((doc = disi.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+      si.setDocument(doc);
+      // strange do-while to collect the missing count (first ord is NO_MORE_ORDS)
+      int term = (int) si.nextOrd();
+      if (term < 0) {
+        if (startTermIndex == -1) {
+          counts.inc(0); // missing count
+        }
+        continue;
+      }
+
+      do {
+        if (map != null) {
+          term = (int) map.getGlobalOrd(subIndex, term);
+        }
+        int arrIdx = term-startTermIndex;
+        if (arrIdx>=0 && arrIdx<counts.size()) counts.inc(arrIdx);
+      } while ((term = (int) si.nextOrd()) >= 0);
+    }
+  }
+
+  /**************** Sparse implementation end *******************/
+
+
   public static NamedList<Integer> getCounts(SolrIndexSearcher searcher, DocSet docs, String fieldName, int offset, int limit, int mincount, boolean missing, String sort, String prefix) throws IOException {
     SchemaField schemaField = searcher.getSchema().getField(fieldName);
     FieldType ft = schemaField.getType();

@@ -119,6 +119,11 @@ public class DocTermOrds {
   /** Don't uninvert terms that exceed this count. */
   protected final int maxTermDocFreq;
 
+  /**
+   * During uninversion, this is the maximum termDocFreq encountered for any term.
+   */
+  protected int maxEncounteredTermDocFreq = 0;
+
   /** Field we are uninverting. */
   protected final String field;
 
@@ -247,6 +252,13 @@ public class DocTermOrds {
   }
 
   /**
+   * @return the maximum termDocFreq encountered for any term during uninversion.
+   */
+  public int getMaxEncounteredTermDocFreq() {
+    return maxEncounteredTermDocFreq;
+  }
+
+  /**
    * Returns {@code true} if no terms were indexed.
    */
   public boolean isEmpty() {
@@ -363,6 +375,7 @@ public class DocTermOrds {
       }
 
       final int df = te.docFreq();
+      maxEncounteredTermDocFreq = Math.max(maxEncounteredTermDocFreq, df);
       if (df <= maxTermDocFreq) {
 
         docsEnum = te.docs(liveDocs, docsEnum, DocsEnum.FLAG_NONE);
@@ -651,6 +664,10 @@ public class DocTermOrds {
     @Override
     public long totalTermFreq() throws IOException {
       return termsEnum.totalTermFreq();
+    }
+
+    public long getTermInstances() {
+      return termInstances;
     }
 
     @Override
