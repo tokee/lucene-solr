@@ -228,13 +228,11 @@ public class UnInvertedField extends DocTermOrds {
       return getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix);
     }
 
-    DocSet docs = baseDocs;
-    final int baseSize = docs.size();
+    final int baseSize = baseDocs.size();
     final int maxDoc = searcher.maxDoc();
 
-    final boolean probablySparse = mincount > 0 &&  numTermsInField >= sparseKeys.minTags &&
-      (1.0 * baseSize / maxDoc) * termInstances < sparseKeys.fraction * numTermsInField * sparseKeys.cutOff;
-    if (!probablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
+    final boolean probablyWithinCutoff = isProbablyWithinCutoff(mincount, baseSize, sparseKeys);
+    if (!probablyWithinCutoff && sparseKeys.fallbackToBase) { // Fallback to standard
       pool.incSkipCount("minCount=" + mincount + ", hits=" + baseSize + "/" + maxDoc + ", terms=" + numTermsInField
           + ", ordCount=" + termInstances);
       return getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix);
@@ -252,130 +250,9 @@ public class UnInvertedField extends DocTermOrds {
     //System.out.println("GET COUNTS field=" + field + " baseSize=" + baseSize + " minCount=" + mincount + " maxDoc=" + maxDoc + " numTermsInField=" + numTermsInField);
     if (baseSize >= mincount) {
 
-      final int[] index = this.index;
-      // tricky: we add more more element than we need because we will reuse this array later
-      // for ordering term ords before converting to term labels.
-      final ValueCounter counts = pool.acquire(numTermsInField + 1, getMaxEncounteredTermDocFreq(), sparseKeys);
-      if (!probablySparse) {
-        counts.disableSparseTracking();
-      }
-//      final int[] counts = new int[numTermsInField + 1];
+      CountedTerms countedTerms = countTerms(searcher, prefix, pool, baseDocs, sparseKeys, baseSize, maxDoc, probablyWithinCutoff);
 
-      //
-      // If there is prefix, find it's start and end term numbers
-      //
-      int startTerm = 0;
-      int endTerm = numTermsInField;  // one past the end
-
-      TermsEnum te = getOrdTermsEnum(searcher.getAtomicReader());
-      if (te != null && prefix != null && prefix.length() > 0) {
-        final BytesRef prefixBr = new BytesRef(prefix);
-        if (te.seekCeil(prefixBr) == TermsEnum.SeekStatus.END) {
-          startTerm = numTermsInField;
-        } else {
-          startTerm = (int) te.ord();
-        }
-        prefixBr.append(UnicodeUtil.BIG_TERM);
-        if (te.seekCeil(prefixBr) == TermsEnum.SeekStatus.END) {
-          endTerm = numTermsInField;
-        } else {
-          endTerm = (int) te.ord();
-        }
-      }
-
-      /***********
-      // Alternative 2: get the docSet of the prefix (could take a while) and
-      // then do the intersection with the baseDocSet first.
-      if (prefix != null && prefix.length() > 0) {
-        docs = searcher.getDocSet(new ConstantScorePrefixQuery(new Term(field, ft.toInternal(prefix))), docs);
-        // The issue with this method are problems of returning 0 counts for terms w/o
-        // the prefix.  We can't just filter out those terms later because it may
-        // mean that we didn't collect enough terms in the queue (in the sorted case).
-      }
-      ***********/
-
-      long sparseCollectTime = System.nanoTime();
-      boolean doNegative = baseSize > maxDoc >> 1 && termInstances > 0
-              && startTerm==0 && endTerm==numTermsInField
-              && docs instanceof BitDocSet;
-
-      if (doNegative) {
-        FixedBitSet bs = ((BitDocSet)docs).getBits().clone();
-        bs.flip(0, maxDoc);
-        // TODO: when iterator across negative elements is available, use that
-        // instead of creating a new bitset and inverting.
-        docs = new BitDocSet(bs, maxDoc - baseSize);
-        // simply negating will mean that we have deleted docs in the set.
-        // that should be OK, as their entries in our table should be empty.
-        //System.out.println("  NEG");
-      }
-
-      // For the biggest terms, do straight set intersections
-      for (TopTerm tt : bigTerms.values()) {
-        //System.out.println("  do big termNum=" + tt.termNum + " term=" + tt.term.utf8ToString());
-        // TODO: counts could be deferred if sorted==false
-        if (tt.termNum >= startTerm && tt.termNum < endTerm) {
-          counts.set(tt.termNum, searcher.numDocs(new TermQuery(new Term(field, tt.term)), docs));
-          //System.out.println("    count=" + counts[tt.termNum]);
-        } else {
-          //System.out.println("SKIP term=" + tt.termNum);
-        }
-      }
-
-      // TODO: we could short-circuit counting altogether for sorted faceting
-      // where we already have enough terms from the bigTerms
-
-      // TODO: we could shrink the size of the collection array, and
-      // additionally break when the termNumber got above endTerm, but
-      // it would require two extra conditionals in the inner loop (although
-      // they would be predictable for the non-prefix case).
-      // Perhaps a different copy of the code would be warranted.
-
-      if (termInstances > 0) {
-        DocIterator iter = docs.iterator();
-        while (iter.hasNext()) {
-          int doc = iter.nextDoc();
-          //System.out.println("iter doc=" + doc);
-          int code = index[doc];
-
-          if ((code & 0xff)==1) {
-            //System.out.println("  ptr");
-            int pos = code>>>8;
-            int whichArray = (doc >>> 16) & 0xff;
-            byte[] arr = tnums[whichArray];
-            int tnum = 0;
-            for(;;) {
-              int delta = 0;
-              for(;;) {
-                byte b = arr[pos++];
-                delta = (delta << 7) | (b & 0x7f);
-                if ((b & 0x80) == 0) break;
-              }
-              if (delta == 0) break;
-              tnum += delta - TNUM_OFFSET;
-              //System.out.println("    tnum=" + tnum);
-              counts.inc(tnum);
-            }
-          } else {
-            //System.out.println("  inlined");
-            int tnum = 0;
-            int delta = 0;
-            for (;;) {
-              delta = (delta << 7) | (code & 0x7f);
-              if ((code & 0x80)==0) {
-                if (delta==0) break;
-                tnum += delta - TNUM_OFFSET;
-                //System.out.println("    tnum=" + tnum);
-                counts.inc(tnum);
-                delta = 0;
-              }
-              code >>>= 8;
-            }
-          }
-        }
-      }
       final CharsRef charsRef = new CharsRef();
-      pool.incCollectTime(System.nanoTime() - sparseCollectTime);
 
       int off=offset;
       int lim=limit>=0 ? limit : Integer.MAX_VALUE;
@@ -388,7 +265,8 @@ public class UnInvertedField extends DocTermOrds {
 //        int min=mincount-1;  // the smallest value in the top 'N' values
         //System.out.println("START=" + startTerm + " END=" + endTerm);
 
-        extractTopCount(counts, startTerm, endTerm, mincount, doNegative, queue, pool);
+        extractTopCount(countedTerms.counts, countedTerms.startTerm, countedTerms.endTerm, mincount,
+            countedTerms.doNegative, queue, pool);
 
         // now select the right page from the results
 
@@ -442,31 +320,32 @@ public class UnInvertedField extends DocTermOrds {
         for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
           int idx = indirect[i];
           int tnum = (int)sorted[idx];
-          final String label = getReadableValue(getTermValue(te, tnum), ft, charsRef);
+          final String label = getReadableValue(getTermValue(countedTerms.te, tnum), ft, charsRef);
           //System.out.println("  label=" + label);
           res.setName(idx - sortedIdxStart, label);
         }
 
       } else {
         // add results in index order
-        int i=startTerm;
+        int i = countedTerms.startTerm;
         if (mincount<=0) {
           // if mincount<=0, then we won't discard any terms and we know exactly
           // where to start.
-          i=startTerm+off;
+          i= countedTerms.startTerm+off;
           off=0;
         }
 
-        for (; i<endTerm; i++) {
-          int c = (int) (doNegative ? maxTermCounts[i] - counts.get(i) : counts.get(i));
+        for (; i < countedTerms.endTerm; i++) {
+          int c = (int) (countedTerms.doNegative ? maxTermCounts[i] - countedTerms.counts.get(i) :
+              countedTerms.counts.get(i));
           if (c<mincount || --off>=0) continue;
           if (--lim<0) break;
 
-          final String label = getReadableValue(getTermValue(te, i), ft, charsRef);
+          final String label = getReadableValue(getTermValue(countedTerms.te, i), ft, charsRef);
           res.add(label, c);
         }
       }
-      pool.release(counts);
+      pool.release(countedTerms.counts);
     }
 
 
@@ -480,6 +359,205 @@ public class UnInvertedField extends DocTermOrds {
     pool.incTotalTime(System.nanoTime() - sparseTotalTime);
     return res;
   }
+
+  public CountedTerms countTerms(SolrIndexSearcher searcher, String prefix, SparseCounterPool pool, DocSet docs,
+                                  SparseKeys sparseKeys, int baseSize, int maxDoc, boolean probablyWithinCutoff)
+      throws IOException {
+    final int[] index = this.index;
+    // tricky: we add more more element than we need because we will reuse this array later
+    // for ordering term ords before converting to term labels.
+    final ValueCounter counts = pool.acquire(numTermsInField + 1, getMaxEncounteredTermDocFreq(), sparseKeys);
+    if (!probablyWithinCutoff) {
+      counts.disableSparseTracking();
+    }
+//      final int[] counts = new int[numTermsInField + 1];
+
+    //
+    // If there is prefix, find it's start and end term numbers
+    //
+    int startTerm = 0;
+    int endTerm = numTermsInField;  // one past the end
+
+    TermsEnum te = getOrdTermsEnum(searcher.getAtomicReader());
+    if (te != null && prefix != null && prefix.length() > 0) {
+      final BytesRef prefixBr = new BytesRef(prefix);
+      if (te.seekCeil(prefixBr) == TermsEnum.SeekStatus.END) {
+        startTerm = numTermsInField;
+      } else {
+        startTerm = (int) te.ord();
+      }
+      prefixBr.append(UnicodeUtil.BIG_TERM);
+      if (te.seekCeil(prefixBr) == TermsEnum.SeekStatus.END) {
+        endTerm = numTermsInField;
+      } else {
+        endTerm = (int) te.ord();
+      }
+    }
+
+    /***********
+    // Alternative 2: get the docSet of the prefix (could take a while) and
+    // then do the intersection with the baseDocSet first.
+    if (prefix != null && prefix.length() > 0) {
+      docs = searcher.getDocSet(new ConstantScorePrefixQuery(new Term(field, ft.toInternal(prefix))), docs);
+      // The issue with this method are problems of returning 0 counts for terms w/o
+      // the prefix.  We can't just filter out those terms later because it may
+      // mean that we didn't collect enough terms in the queue (in the sorted case).
+    }
+    ***********/
+
+    long sparseCollectTime = System.nanoTime();
+    boolean doNegative = baseSize > maxDoc >> 1 && termInstances > 0
+            && startTerm==0 && endTerm==numTermsInField
+            && docs instanceof BitDocSet;
+
+    if (doNegative) {
+      FixedBitSet bs = ((BitDocSet)docs).getBits().clone();
+      bs.flip(0, maxDoc);
+      // TODO: when iterator across negative elements is available, use that
+      // instead of creating a new bitset and inverting.
+      docs = new BitDocSet(bs, maxDoc - baseSize);
+      // simply negating will mean that we have deleted docs in the set.
+      // that should be OK, as their entries in our table should be empty.
+      //System.out.println("  NEG");
+    }
+
+    // For the biggest terms, do straight set intersections
+    for (TopTerm tt : bigTerms.values()) {
+      //System.out.println("  do big termNum=" + tt.termNum + " term=" + tt.term.utf8ToString());
+      // TODO: counts could be deferred if sorted==false
+      if (tt.termNum >= startTerm && tt.termNum < endTerm) {
+        counts.set(tt.termNum, searcher.numDocs(new TermQuery(new Term(field, tt.term)), docs));
+        //System.out.println("    count=" + counts[tt.termNum]);
+      } else {
+        //System.out.println("SKIP term=" + tt.termNum);
+      }
+    }
+
+    // TODO: we could short-circuit counting altogether for sorted faceting
+    // where we already have enough terms from the bigTerms
+
+    // TODO: we could shrink the size of the collection array, and
+    // additionally break when the termNumber got above endTerm, but
+    // it would require two extra conditionals in the inner loop (although
+    // they would be predictable for the non-prefix case).
+    // Perhaps a different copy of the code would be warranted.
+
+    if (termInstances > 0) {
+      DocIterator iter = docs.iterator();
+      while (iter.hasNext()) {
+        int doc = iter.nextDoc();
+        //System.out.println("iter doc=" + doc);
+        int code = index[doc];
+
+        if ((code & 0xff)==1) {
+          //System.out.println("  ptr");
+          int pos = code>>>8;
+          int whichArray = (doc >>> 16) & 0xff;
+          byte[] arr = tnums[whichArray];
+          int tnum = 0;
+          for(;;) {
+            int delta = 0;
+            for(;;) {
+              byte b = arr[pos++];
+              delta = (delta << 7) | (b & 0x7f);
+              if ((b & 0x80) == 0) break;
+            }
+            if (delta == 0) break;
+            tnum += delta - TNUM_OFFSET;
+            //System.out.println("    tnum=" + tnum);
+            counts.inc(tnum);
+          }
+        } else {
+          //System.out.println("  inlined");
+          int tnum = 0;
+          int delta = 0;
+          for (;;) {
+            delta = (delta << 7) | (code & 0x7f);
+            if ((code & 0x80)==0) {
+              if (delta==0) break;
+              tnum += delta - TNUM_OFFSET;
+              //System.out.println("    tnum=" + tnum);
+              counts.inc(tnum);
+              delta = 0;
+            }
+            code >>>= 8;
+          }
+        }
+      }
+    }
+    pool.incCollectTime(System.nanoTime() - sparseCollectTime);
+    return new CountedTerms(counts, startTerm, endTerm, doNegative, te);
+  }
+
+  /*
+   * Sparse: Returns the raw term counts. Used by second phase of distributed faceting.
+   */
+  public CountedTerms getCountsIfSparse(
+      SolrIndexSearcher searcher, DocSet baseDocs, Integer mincount, String prefix, SparseKeys sparseKeys,
+      SparseCounterPool pool) throws IOException {
+    if (!sparseKeys.sparse) {
+      return null;
+    }
+
+    final int baseSize = baseDocs.size();
+
+    final boolean probablyWithinCutoff = isProbablyWithinCutoff(mincount, baseSize, sparseKeys);
+    if (!probablyWithinCutoff && sparseKeys.fallbackToBase) { // Fallback to standard
+      return null;
+    }
+
+    pool.incSparseCalls();
+
+    return baseSize >= mincount ?
+        countTerms(searcher, prefix, pool, baseDocs, sparseKeys, baseSize, searcher.maxDoc(), probablyWithinCutoff) :
+        null;
+  }
+
+  /**
+   * Returns the count for the given term from the result of a previous call to {@link #countTerms}.
+   * @param countedTerms counts for all terms in a field.
+   * @param term         the term to get counts for.
+   * @return the count for the term or -1 if the term could not be located.
+   * @throws IOException if the term could not be located.
+   */
+  public long getTermCount(CountedTerms countedTerms, BytesRef term) throws IOException {
+
+    for (TopTerm tt : bigTerms.values()) {
+      if (tt.term.equals(term)) {
+        return countedTerms.counts.get(tt.termNum);
+      }
+    }
+    System.out.println("UnInvertedField.getTermCount under active implementation - 20140818");
+    return -1;
+    // TODO: Implement this
+    //return lookupTerm(te, termNum);
+  }
+
+  /**
+   * Represents the result of a facet counter update, as performed by sparse faceting.
+   */
+  public static class CountedTerms {
+    public final ValueCounter counts;
+    public final int startTerm;
+    public final int endTerm;
+    public final boolean doNegative;
+    public final TermsEnum te;
+
+    public CountedTerms(ValueCounter counts, int startTerm, int endTerm, boolean doNegative, TermsEnum te) {
+      this.counts = counts;
+      this.startTerm = startTerm;
+      this.endTerm = endTerm;
+      this.doNegative = doNegative;
+      this.te = te;
+    }
+  }
+
+  private boolean isProbablyWithinCutoff(Integer mincount, int baseSize, SparseKeys sparseKeys) {
+    final int maxDoc = searcher.maxDoc();
+    return mincount > 0 &&  numTermsInField >= sparseKeys.minTags &&
+      (1.0 * baseSize / maxDoc) * termInstances < sparseKeys.fraction * numTermsInField * sparseKeys.cutOff;
+  }
+
   private void extractTopCount(final ValueCounter counts, final int startTerm, final int endTerm, final int minCount,
                                final boolean doNegative, final LongPriorityQueue queue, SparseCounterPool pool) {
     long sparseExtractTime = System.nanoTime();
@@ -909,7 +987,7 @@ public class UnInvertedField extends DocTermOrds {
   }
 
   /** may return a reused BytesRef */
-  BytesRef getTermValue(TermsEnum te, int termNum) throws IOException {
+  public BytesRef getTermValue(TermsEnum te, int termNum) throws IOException {
     //System.out.println("getTermValue termNum=" + termNum + " this=" + this + " numTerms=" + numTermsInField);
     if (bigTerms.size() > 0) {
       // see if the term is one of our big terms.

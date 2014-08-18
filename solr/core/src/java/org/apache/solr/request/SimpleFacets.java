@@ -367,56 +367,9 @@ public class SimpleFacets {
     NamedList<Integer> counts;
     SchemaField sf = searcher.getSchema().getField(field);
     FieldType ft = sf.getType();
-
-    // determine what type of faceting method to use
-    final String methodStr = params.getFieldParam(field, FacetParams.FACET_METHOD);
-    FacetMethod method = null;
-    if (FacetParams.FACET_METHOD_enum.equals(methodStr)) {
-      method = FacetMethod.ENUM;
-    } else if (FacetParams.FACET_METHOD_fcs.equals(methodStr)) {
-      method = FacetMethod.FCS;
-    } else if (FacetParams.FACET_METHOD_fc.equals(methodStr)) {
-      method = FacetMethod.FC;
-    }
-
-    if (method == FacetMethod.ENUM && TrieField.getMainValuePrefix(ft) != null) {
-      // enum can't deal with trie fields that index several terms per value
-      method = sf.multiValued() ? FacetMethod.FC : FacetMethod.FCS;
-    }
-
-    if (method == null && ft instanceof BoolField) {
-      // Always use filters for booleans... we know the number of values is very small.
-      method = FacetMethod.ENUM;
-    }
-
     final boolean multiToken = sf.multiValued() || ft.multiValuedFieldCache();
-    
-    if (method == null && ft.getNumericType() != null && !sf.multiValued()) {
-      // the per-segment approach is optimal for numeric field types since there
-      // are no global ords to merge and no need to create an expensive
-      // top-level reader
-      method = FacetMethod.FCS;
-    }
+    final FacetMethod method = getFacetMethod(field);
 
-    if (ft.getNumericType() != null && sf.hasDocValues()) {
-      // only fcs is able to leverage the numeric field caches
-      method = FacetMethod.FCS;
-    }
-
-    if (method == null) {
-      // TODO: default to per-segment or not?
-      method = FacetMethod.FC;
-    }
-
-    if (method == FacetMethod.FCS && multiToken) {
-      // only fc knows how to deal with multi-token fields
-      method = FacetMethod.FC;
-    }
-    
-    if (method == FacetMethod.ENUM && sf.hasDocValues()) {
-      // only fc can handle docvalues types
-      method = FacetMethod.FC;
-    }
 
     if (params.getFieldBool(field, GroupParams.GROUP_FACET, false)) {
       counts = getGroupedCounts(searcher, base, field, multiToken, offset,limit, mincount, missing, sort, prefix);
@@ -467,10 +420,77 @@ public class SimpleFacets {
     return counts;
   }
 
+  /**
+   * Resolve the faceting method based on requested mode and field capabilities.
+   * @param field the field to resolve the facet method for.
+   * @return the method that should be used for performing faceting on the given field.
+   */
+  private FacetMethod getFacetMethod(String field) {
+    SchemaField sf = searcher.getSchema().getField(field);
+    FieldType ft = sf.getType();
+    final boolean multiToken = sf.multiValued() || ft.multiValuedFieldCache();
+
+    // determine what type of faceting method to use
+    final String methodStr = params.getFieldParam(field, FacetParams.FACET_METHOD);
+    FacetMethod method = null;
+    if (methodStr != null) {
+      switch (methodStr) {
+        case FacetParams.FACET_METHOD_enum:
+          method = FacetMethod.ENUM;
+          break;
+        case FacetParams.FACET_METHOD_fcs:
+          method = FacetMethod.FCS;
+          break;
+        case FacetParams.FACET_METHOD_fc:
+          method = FacetMethod.FC;
+          break;
+      }
+    }
+
+    if (method == FacetMethod.ENUM && TrieField.getMainValuePrefix(ft) != null) {
+      // enum can't deal with trie fields that index several terms per value
+      method = sf.multiValued() ? FacetMethod.FC : FacetMethod.FCS;
+    }
+
+    if (method == null && ft instanceof BoolField) {
+      // Always use filters for booleans... we know the number of values is very small.
+      method = FacetMethod.ENUM;
+    }
+
+
+    if (method == null && ft.getNumericType() != null && !sf.multiValued()) {
+      // the per-segment approach is optimal for numeric field types since there
+      // are no global ords to merge and no need to create an expensive
+      // top-level reader
+      method = FacetMethod.FCS;
+    }
+
+    if (ft.getNumericType() != null && sf.hasDocValues()) {
+      // only fcs is able to leverage the numeric field caches
+      method = FacetMethod.FCS;
+    }
+
+    if (method == null) {
+      // TODO: default to per-segment or not?
+      method = FacetMethod.FC;
+    }
+
+    if (method == FacetMethod.FCS && multiToken) {
+      // only fc knows how to deal with multi-token fields
+      method = FacetMethod.FC;
+    }
+
+    if (method == FacetMethod.ENUM && sf.hasDocValues()) {
+      // only fc can handle docvalues types
+      method = FacetMethod.FC;
+    }
+    return method;
+  }
+
   private void handleSparseStats(
       NamedList<Integer> counts, String designation, SparseCounterPool pool, SparseKeys sparseKeys) {
     if (sparseKeys.showStats) {
-      counts.add(designation + pool, 9000);
+      counts.add(designation + " " + pool, 9000);
     }
     if (sparseKeys.resetStats) {
       pool.clear();
