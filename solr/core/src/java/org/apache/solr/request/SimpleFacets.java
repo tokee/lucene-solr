@@ -132,7 +132,7 @@ public class SimpleFacets {
 
   public SimpleFacets(SolrQueryRequest req,
                       DocSet docs,
-                      SolrParams params) {
+                        SolrParams params) {
     this(req,docs,params,null);
   }
 
@@ -255,7 +255,7 @@ public class SimpleFacets {
   public NamedList<Object> getFacetCounts() {
 
     // if someone called this method, benefit of the doubt: assume true
-    if (!params.getBool(FacetParams.FACET,true))
+    if (!params.getBool(FacetParams.FACET, true))
       return null;
 
     facetResponse = new SimpleOrderedMap<>();
@@ -334,7 +334,7 @@ public class SimpleFacets {
   }
 
   enum FacetMethod {
-    ENUM, FC, FCS;
+    ENUM, FC, FCS
   }
 
   public NamedList<Integer> getTermCounts(String field) throws IOException {
@@ -363,58 +363,56 @@ public class SimpleFacets {
     String sort = params.getFieldParam(field, FacetParams.FACET_SORT, limit>0 ? FacetParams.FACET_SORT_COUNT : FacetParams.FACET_SORT_INDEX);
     String prefix = params.getFieldParam(field,FacetParams.FACET_PREFIX);
 
-
-    NamedList<Integer> counts;
     SchemaField sf = searcher.getSchema().getField(field);
     FieldType ft = sf.getType();
     final boolean multiToken = sf.multiValued() || ft.multiValuedFieldCache();
-    final FacetMethod method = getFacetMethod(field);
-
 
     if (params.getFieldBool(field, GroupParams.GROUP_FACET, false)) {
-      counts = getGroupedCounts(searcher, base, field, multiToken, offset,limit, mincount, missing, sort, prefix);
-    } else {
-      assert method != null;
-      switch (method) {
-        case ENUM:
-          assert TrieField.getMainValuePrefix(ft) == null;
-          counts = getFacetTermEnumCounts(searcher, base, field, offset, limit, mincount, missing, sort, prefix);
-          break;
-        case FCS:
-          assert !multiToken;
-          if (ft.getNumericType() != null && !sf.multiValued()) {
-            // force numeric faceting
-            if (prefix != null && !prefix.isEmpty()) {
-              throw new SolrException(ErrorCode.BAD_REQUEST, FacetParams.FACET_PREFIX + " is not supported on numeric types");
-            }
-            counts = NumericFacets.getCounts(searcher, base, field, offset, limit, mincount, missing, sort);
-          } else {
-            // TODO: Add sparse counter support to segment faceting
-            PerSegmentSingleValuedFaceting ps = new PerSegmentSingleValuedFaceting(searcher, base, field, offset, limit, mincount, missing, sort, prefix);
-            Executor executor = threads == 0 ? directExecutor : facetExecutor;
-            ps.setNumThreads(threads);
-            counts = ps.getFacetCounts(executor);
+      return getGroupedCounts(searcher, base, field, multiToken, offset,limit, mincount, missing, sort, prefix);
+    }
+
+    final FacetMethod method = getFacetMethod(field);
+    assert method != null;
+    NamedList<Integer> counts;
+    switch (method) {
+      case ENUM:
+        assert TrieField.getMainValuePrefix(ft) == null;
+        counts = getFacetTermEnumCounts(searcher, base, field, offset, limit, mincount, missing, sort, prefix);
+        break;
+      case FCS:
+        assert !multiToken;
+        if (ft.getNumericType() != null && !sf.multiValued()) {
+          // force numeric faceting
+          if (prefix != null && !prefix.isEmpty()) {
+            throw new SolrException(ErrorCode.BAD_REQUEST, FacetParams.FACET_PREFIX + " is not supported on numeric types");
           }
-          break;
-        case FC:
-          SparseCounterPool pool = poolController.acquire(field, sparseKeys.poolSize);
-          if (sf.hasDocValues()) {
-            counts = DocValuesFacets.getCounts(
-                searcher, base, field, offset,limit, mincount, missing, sort, prefix, sparseKeys, pool);
-            handleSparseStats(counts, "_sparse_stats_docval", pool, sparseKeys);
-          } else if (multiToken || TrieField.getMainValuePrefix(ft) != null) {
-            UnInvertedField uif = UnInvertedField.getUnInvertedField(field, searcher);
-            counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix, sparseKeys, pool);
-            handleSparseStats(counts, "_sparse_stats_fc_m", pool, sparseKeys);
-          } else {
-            counts = getFieldCacheCounts(
-                searcher, base, field, offset,limit, mincount, missing, sort, prefix, sparseKeys, pool);
-            handleSparseStats(counts, "_sparse_stats_fc_s", pool, sparseKeys);
-          }
-          break;
-        default:
-          throw new AssertionError();
-      }
+          counts = NumericFacets.getCounts(searcher, base, field, offset, limit, mincount, missing, sort);
+        } else {
+          // TODO: Add sparse counter support to segment faceting
+          PerSegmentSingleValuedFaceting ps = new PerSegmentSingleValuedFaceting(searcher, base, field, offset, limit, mincount, missing, sort, prefix);
+          Executor executor = threads == 0 ? directExecutor : facetExecutor;
+          ps.setNumThreads(threads);
+          counts = ps.getFacetCounts(executor);
+        }
+        break;
+      case FC:
+        SparseCounterPool pool = poolController.acquire(field, sparseKeys.poolSize);
+        if (sf.hasDocValues()) {
+          counts = DocValuesFacets.getCounts(
+              searcher, base, field, offset,limit, mincount, missing, sort, prefix, sparseKeys, pool);
+          handleSparseStats(counts, "_sparse_stats_docval", pool, sparseKeys);
+        } else if (multiToken || TrieField.getMainValuePrefix(ft) != null) {
+          UnInvertedField uif = UnInvertedField.getUnInvertedField(field, searcher);
+          counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix, sparseKeys, pool);
+          handleSparseStats(counts, "_sparse_stats_fc_m", pool, sparseKeys);
+        } else {
+          counts = getFieldCacheCounts(
+              searcher, base, field, offset,limit, mincount, missing, sort, prefix, sparseKeys, pool);
+          handleSparseStats(counts, "_sparse_stats_fc_s", pool, sparseKeys);
+        }
+        break;
+      default:
+        throw new AssertionError();
     }
 
     return counts;
@@ -678,15 +676,6 @@ public class SimpleFacets {
     if (!sparseKeys.sparse) { // Fallback to standard
       return getFieldCacheCounts(searcher, docs, fieldName, offset, limit, mincount, missing, sort, prefix);
     }
-
-    // TODO: If the number of terms is high compared to docs.size(), and zeros==false,
-    //  we should use an alternate strategy to avoid
-    //  1) creating another huge int[] for the counts
-    //  2) looping over that huge int[] looking for the rare non-zeros.
-    //
-    // Yet another variation: if docs.size() is small and termvectors are stored,
-    // then use them instead of the FieldCache.
-    //
 
     // TODO: this function is too big and could use some refactoring, but
     // we also need a facet cache, and refactoring of SimpleFacets instead of
