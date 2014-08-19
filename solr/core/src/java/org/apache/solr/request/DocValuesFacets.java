@@ -29,14 +29,17 @@ import org.apache.lucene.index.MultiDocValues.MultiSortedSetDocValues;
 import org.apache.lucene.index.MultiDocValues.OrdinalMap;
 import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
+import org.apache.lucene.index.Term;
 import org.apache.lucene.search.DocIdSet;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.Filter;
+import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.CharsRef;
 import org.apache.lucene.util.UnicodeUtil;
 import org.apache.solr.common.params.FacetParams;
 import org.apache.solr.common.util.NamedList;
+import org.apache.solr.common.util.StrUtils;
 import org.apache.solr.request.sparse.SparseCounterInt;
 import org.apache.solr.request.sparse.SparseCounterPool;
 import org.apache.solr.request.sparse.SparseKeys;
@@ -63,12 +66,14 @@ public class DocValuesFacets {
   private DocValuesFacets() {}
 
   /**************** Sparse implementation start *******************/
-  // This is a fully equivalent to {@link UnInvertedField#getCounts}
+  // This is a equivalent to {@link UnInvertedField#getCounts} with the extension that it also handles
+  // termLists
   public static NamedList<Integer> getCounts(
       SolrIndexSearcher searcher, DocSet docs, String fieldName, int offset, int limit, int minCount, boolean missing,
-      String sort, String prefix, SparseKeys sparseKeys, SparseCounterPool pool) throws IOException {
+      String sort, String prefix, String termList, SparseKeys sparseKeys, SparseCounterPool pool) throws IOException {
     if (!sparseKeys.sparse) { // Skip sparse part completely
-      return getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix);
+      return termList == null ? getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
+          SimpleFacets.fallbackGetListedTermCounts(searcher, fieldName, termList, docs);
     }
 
     SchemaField schemaField = searcher.getSchema().getField(fieldName);
@@ -106,7 +111,8 @@ public class DocValuesFacets {
       pool.incSkipCount("minCount=" + minCount + ", hits=" + hitCount + "/" + searcher.maxDoc()
           + ", terms=" + (si == null ? "N/A" : si.getValueCount()) + ", ordCount="
           + (ordinalMap == null ? "N/A" : ordinalMap.getSegmentOrdinalsCount()));
-      return getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix);
+      return termList == null ? getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
+          SimpleFacets.fallbackGetListedTermCounts(searcher, fieldName, termList, docs);
     }
     pool.incSparseCalls();
     long sparseTotalTime = System.nanoTime();
@@ -184,6 +190,14 @@ public class DocValuesFacets {
         }
       }
       pool.incCollectTime(System.nanoTime() - sparseCollectTime);
+
+      if (termList != null) {
+        try {
+          return extractSpecificCounts(searcher, si, fieldName, docs, counts, termList);
+        } finally  {
+          pool.release(counts);
+        }
+      }
 
       if (startTermIndex == -1) {
         missingCount = (int) counts.get(0);
@@ -274,6 +288,33 @@ public class DocValuesFacets {
 
     pool.incTotalTime(System.nanoTime() - sparseTotalTime);
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
+  }
+
+  private static NamedList<Integer> extractSpecificCounts(
+      SolrIndexSearcher searcher, SortedSetDocValues si, String field, DocSet docs, ValueCounter counts, String termList) throws IOException {
+    FieldType ft = searcher.getSchema().getFieldType(field);
+    List<String> terms = StrUtils.splitSmart(termList, ",", true);
+    NamedList<Integer> res = new NamedList<>();
+    for (String term : terms) {
+      String internal = ft.toInternal(term);
+      long index = si.lookupTerm(new BytesRef(term));
+      // TODO: Remove err-out after sufficiently testing
+      int count;
+      if (index >= counts.size()) {
+        System.err.println("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + field + " was "
+            + index + " but the counts only went to ordinal " + counts.size());
+        count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
+      } else if (index < 0) {
+        System.err.println("DocValuesFacet.extractSpecificCounts: The ordinal for " + term + " in field " + field
+            + " could not be resolved precisely (was " + index + ")");
+        count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
+      } else {
+        // Why only int as count?
+        count = (int) counts.get((int) index);
+      }
+      res.add(term, count);
+    }
+    return res;
   }
 
   // TODO: Find a better solution for caching as this map will grow with each index update

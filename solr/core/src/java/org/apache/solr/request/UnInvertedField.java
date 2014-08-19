@@ -19,6 +19,7 @@ package org.apache.solr.request;
 
 import java.io.IOException;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -36,6 +37,7 @@ import org.apache.lucene.util.UnicodeUtil;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.params.FacetParams;
 import org.apache.solr.common.util.NamedList;
+import org.apache.solr.common.util.StrUtils;
 import org.apache.solr.core.SolrCore;
 import org.apache.solr.handler.component.FieldFacetStats;
 import org.apache.solr.handler.component.StatsValues;
@@ -223,9 +225,11 @@ public class UnInvertedField extends DocTermOrds {
   // The sparse code if proof-of-concept and hacked on by copying and modifying the existing count-code
   public NamedList<Integer> getCounts(
       SolrIndexSearcher searcher, DocSet baseDocs, int offset, int limit, Integer mincount, boolean missing,
-      String sort, String prefix, SparseKeys sparseKeys, SparseCounterPool pool) throws IOException {
+      String sort, String prefix, String termList, SparseKeys sparseKeys, SparseCounterPool pool) throws IOException {
     if (!sparseKeys.sparse) { // Fallback to standard
-      return getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix);
+      return termList == null ?
+          getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix) :
+          SimpleFacets.fallbackGetListedTermCounts(searcher, field, termList, baseDocs);
     }
 
     final int baseSize = baseDocs.size();
@@ -235,7 +239,9 @@ public class UnInvertedField extends DocTermOrds {
     if (!probablyWithinCutoff && sparseKeys.fallbackToBase) { // Fallback to standard
       pool.incSkipCount("minCount=" + mincount + ", hits=" + baseSize + "/" + maxDoc + ", terms=" + numTermsInField
           + ", ordCount=" + termInstances);
-      return getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix);
+      return termList == null ?
+          getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix) :
+          SimpleFacets.fallbackGetListedTermCounts(searcher, field, termList, baseDocs);
     }
 
     pool.incSparseCalls();
@@ -251,6 +257,11 @@ public class UnInvertedField extends DocTermOrds {
     if (baseSize >= mincount) {
 
       CountedTerms countedTerms = countTerms(searcher, prefix, pool, baseDocs, sparseKeys, baseSize, maxDoc, probablyWithinCutoff);
+      if (termList != null) {
+        return SimpleFacets.fallbackGetListedTermCounts(searcher, field, termList, baseDocs);
+        // TODO: Switch to optimized version when finished
+        //return extractSpecificCounts(countedTerms, termList, baseDocs);
+      }
 
       final CharsRef charsRef = new CharsRef();
 
@@ -513,6 +524,22 @@ public class UnInvertedField extends DocTermOrds {
         null;
   }
 
+  private NamedList<Integer> extractSpecificCounts(
+      CountedTerms countedTerms, String termList, DocSet docs) throws IOException {
+    FieldType ft = searcher.getSchema().getFieldType(field);
+    List<String> terms = StrUtils.splitSmart(termList, ",", true);
+    NamedList<Integer> res = new NamedList<>();
+    for (String term : terms) {
+      String internal = ft.toInternal(term);
+      long count = getTermCount(countedTerms, new BytesRef(internal));
+      if (count == -1) {
+        count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
+      }
+      res.add(term, (int)count);
+    }
+    return res;
+  }
+
   /**
    * Returns the count for the given term from the result of a previous call to {@link #countTerms}.
    * @param countedTerms counts for all terms in a field.
@@ -527,10 +554,32 @@ public class UnInvertedField extends DocTermOrds {
         return countedTerms.counts.get(tt.termNum);
       }
     }
+
     System.out.println("UnInvertedField.getTermCount under active implementation - 20140818");
     return -1;
     // TODO: Implement this
     //return lookupTerm(te, termNum);
+    /*
+    si.lookupTerm(new BytesRef(term));
+// TODO: Remove err-out after sufficiently testing
+int count;
+if (index >= counts.size()) {
+  System.err.println("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + field + " was "
+      + index + " but the counts only went to ordinal " + counts.size());
+  count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
+} else if (index < 0) {
+  System.err.println("DocValuesFacet.extractSpecificCounts: The ordinal for " + term + " in field " + field
+      + " could not be resolved precisely (was " + index + ")");
+  count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
+} else {
+  // Why only int as count?
+  count = (int) counts.get((int) index);
+}
+res.add(term, count);
+}
+return res;
+      */
+
   }
 
   /**
