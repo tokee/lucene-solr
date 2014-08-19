@@ -341,8 +341,11 @@ public class SimpleFacets {
     return getTermCounts(field, this.docs);
   }
 
-  private static SparseCounterPoolController poolController = null;
   public NamedList<Integer> getTermCounts(String field, DocSet base) throws IOException {
+    return getTermCounts(field, base, null);
+  }
+  private static SparseCounterPoolController poolController = null;
+  public NamedList<Integer> getTermCounts(String field, DocSet base, String termList) throws IOException {
     final SparseKeys sparseKeys = new SparseKeys(field, params);
     if (poolController == null) {
       poolController = new SparseCounterPoolController(sparseKeys.poolMaxCount);
@@ -372,16 +375,24 @@ public class SimpleFacets {
 
 
     if (params.getFieldBool(field, GroupParams.GROUP_FACET, false)) {
-      counts = getGroupedCounts(searcher, base, field, multiToken, offset,limit, mincount, missing, sort, prefix);
+      counts = termList == null ?
+          getGroupedCounts(searcher, base, field, multiToken, offset,limit, mincount, missing, sort, prefix) :
+          getListedTermCounts(field, termList, base);
     } else {
       assert method != null;
       switch (method) {
         case ENUM:
           assert TrieField.getMainValuePrefix(ft) == null;
-          counts = getFacetTermEnumCounts(searcher, base, field, offset, limit, mincount, missing, sort, prefix);
+          counts = termList == null ?
+              getFacetTermEnumCounts(searcher, base, field, offset, limit, mincount, missing, sort, prefix) :
+              getListedTermCounts(field, termList, base);
           break;
         case FCS:
           assert !multiToken;
+          if (termList != null) {
+            counts = getListedTermCounts(field, termList, base);
+            break;
+          }
           if (ft.getNumericType() != null && !sf.multiValued()) {
             // force numeric faceting
             if (prefix != null && !prefix.isEmpty()) {
@@ -400,13 +411,18 @@ public class SimpleFacets {
           SparseCounterPool pool = poolController.acquire(field, sparseKeys.poolSize);
           if (sf.hasDocValues()) {
             counts = DocValuesFacets.getCounts(
-                searcher, base, field, offset,limit, mincount, missing, sort, prefix, sparseKeys, pool);
+                searcher, base, field, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
             handleSparseStats(counts, "_sparse_stats_docval", pool, sparseKeys);
+          } else if (termList != null) {
+            counts = getListedTermCounts(field, termList, base);
+            break;
           } else if (multiToken || TrieField.getMainValuePrefix(ft) != null) {
             UnInvertedField uif = UnInvertedField.getUnInvertedField(field, searcher);
-            counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix, sparseKeys, pool);
+            // TODO: Sparse: Add optimized termList handling to multi token field faceting
+            counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
             handleSparseStats(counts, "_sparse_stats_fc_m", pool, sparseKeys);
           } else {
+            // TODO: Sparse: Add optimized termList handling to single token field faceting
             counts = getFieldCacheCounts(
                 searcher, base, field, offset,limit, mincount, missing, sort, prefix, sparseKeys, pool);
             handleSparseStats(counts, "_sparse_stats_fc_s", pool, sparseKeys);
@@ -418,6 +434,19 @@ public class SimpleFacets {
     }
 
     return counts;
+  }
+
+  public static NamedList<Integer> fallbackGetListedTermCounts(
+      SolrIndexSearcher searcher, String field, String termList, DocSet base) throws IOException {
+    FieldType ft = searcher.getSchema().getFieldType(field);
+    List<String> terms = StrUtils.splitSmart(termList, ",", true);
+    NamedList<Integer> res = new NamedList<>();
+    for (String term : terms) {
+      String internal = ft.toInternal(term);
+      int count = searcher.numDocs(new TermQuery(new Term(field, internal)), base);
+      res.add(term, count);
+    }
+    return res;
   }
 
   /**
@@ -597,11 +626,12 @@ public class SimpleFacets {
           public NamedList call() throws Exception {
             try {
               NamedList<Object> result = new SimpleOrderedMap<>();
-              if(termList != null) {
+              result.add(workerKey, getTermCounts(workerFacetValue, workerBase, termList));
+/*              if(termList != null) {
                 result.add(workerKey, getListedTermCounts(workerFacetValue, termList, workerBase));
               } else {
                 result.add(workerKey, getTermCounts(workerFacetValue, workerBase));
-              }
+              }*/
               return result;
             } catch (SolrException se) {
               throw se;
@@ -645,7 +675,7 @@ public class SimpleFacets {
     return getListedTermCounts(field, termList, this.docs);
   }
 
-  private NamedList getListedTermCounts(String field, String termList, DocSet base) throws IOException {
+  private NamedList<Integer> getListedTermCounts(String field, String termList, DocSet base) throws IOException {
     FieldType ft = searcher.getSchema().getFieldType(field);
     List<String> terms = StrUtils.splitSmart(termList, ",", true);
     NamedList<Integer> res = new NamedList<>();
@@ -678,15 +708,6 @@ public class SimpleFacets {
     if (!sparseKeys.sparse) { // Fallback to standard
       return getFieldCacheCounts(searcher, docs, fieldName, offset, limit, mincount, missing, sort, prefix);
     }
-
-    // TODO: If the number of terms is high compared to docs.size(), and zeros==false,
-    //  we should use an alternate strategy to avoid
-    //  1) creating another huge int[] for the counts
-    //  2) looping over that huge int[] looking for the rare non-zeros.
-    //
-    // Yet another variation: if docs.size() is small and termvectors are stored,
-    // then use them instead of the FieldCache.
-    //
 
     // TODO: this function is too big and could use some refactoring, but
     // we also need a facet cache, and refactoring of SimpleFacets instead of
