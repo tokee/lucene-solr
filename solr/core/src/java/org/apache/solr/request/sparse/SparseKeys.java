@@ -71,6 +71,7 @@ public class SparseKeys {
    * If false, all sparse counters will be {@link SparseCounterInt}.
    */
   public static final String PACKED = "facet.sparse.packed";
+  // TODO: Change this to true when we are sure it is stable
   public static boolean DEFAULT_PACKED = false;
 
   /**
