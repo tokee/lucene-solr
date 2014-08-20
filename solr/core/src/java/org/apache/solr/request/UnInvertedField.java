@@ -256,11 +256,13 @@ public class UnInvertedField extends DocTermOrds {
     //System.out.println("GET COUNTS field=" + field + " baseSize=" + baseSize + " minCount=" + mincount + " maxDoc=" + maxDoc + " numTermsInField=" + numTermsInField);
     if (baseSize >= mincount) {
 
-      CountedTerms countedTerms = countTerms(searcher, prefix, pool, baseDocs, sparseKeys, baseSize, maxDoc, probablyWithinCutoff);
+      TermsEnum te = getOrdTermsEnum(searcher.getAtomicReader());
+
+      CountedTerms countedTerms = countTerms(
+          searcher, te, prefix, pool, baseDocs, sparseKeys, baseSize, maxDoc, probablyWithinCutoff);
       if (termList != null) {
-        return SimpleFacets.fallbackGetListedTermCounts(searcher, field, termList, baseDocs);
-        // TODO: Switch to optimized version when finished
-        //return extractSpecificCounts(countedTerms, termList, baseDocs);
+        //return SimpleFacets.fallbackGetListedTermCounts(searcher, field, termList, baseDocs);
+        return extractSpecificCounts(countedTerms, termList, baseDocs);
       }
 
       final CharsRef charsRef = new CharsRef();
@@ -371,8 +373,9 @@ public class UnInvertedField extends DocTermOrds {
     return res;
   }
 
-  public CountedTerms countTerms(SolrIndexSearcher searcher, String prefix, SparseCounterPool pool, DocSet docs,
-                                  SparseKeys sparseKeys, int baseSize, int maxDoc, boolean probablyWithinCutoff)
+  public CountedTerms countTerms(
+      SolrIndexSearcher searcher, TermsEnum te, String prefix, SparseCounterPool pool,
+      DocSet docs, SparseKeys sparseKeys, int baseSize, int maxDoc, boolean probablyWithinCutoff)
       throws IOException {
     final int[] index = this.index;
     // tricky: we add more more element than we need because we will reuse this array later
@@ -389,7 +392,6 @@ public class UnInvertedField extends DocTermOrds {
     int startTerm = 0;
     int endTerm = numTermsInField;  // one past the end
 
-    TermsEnum te = getOrdTermsEnum(searcher.getAtomicReader());
     if (te != null && prefix != null && prefix.length() > 0) {
       final BytesRef prefixBr = new BytesRef(prefix);
       if (te.seekCeil(prefixBr) == TermsEnum.SeekStatus.END) {
@@ -503,7 +505,7 @@ public class UnInvertedField extends DocTermOrds {
   /*
    * Sparse: Returns the raw term counts. Used by second phase of distributed faceting.
    */
-  public CountedTerms getCountsIfSparse(
+/*  public CountedTerms getCountsIfSparse(
       SolrIndexSearcher searcher, DocSet baseDocs, Integer mincount, String prefix, SparseKeys sparseKeys,
       SparseCounterPool pool) throws IOException {
     if (!sparseKeys.sparse) {
@@ -522,7 +524,7 @@ public class UnInvertedField extends DocTermOrds {
     return baseSize >= mincount ?
         countTerms(searcher, prefix, pool, baseDocs, sparseKeys, baseSize, searcher.maxDoc(), probablyWithinCutoff) :
         null;
-  }
+  }*/
 
   private NamedList<Integer> extractSpecificCounts(
       CountedTerms countedTerms, String termList, DocSet docs) throws IOException {
@@ -535,6 +537,7 @@ public class UnInvertedField extends DocTermOrds {
       if (count == -1) {
         count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
       }
+      // Sad we have to use int
       res.add(term, (int)count);
     }
     return res;
@@ -548,38 +551,22 @@ public class UnInvertedField extends DocTermOrds {
    * @throws IOException if the term could not be located.
    */
   public long getTermCount(CountedTerms countedTerms, BytesRef term) throws IOException {
-
     for (TopTerm tt : bigTerms.values()) {
       if (tt.term.equals(term)) {
         return countedTerms.counts.get(tt.termNum);
       }
     }
-
-    System.out.println("UnInvertedField.getTermCount under active implementation - 20140818");
-    return -1;
-    // TODO: Implement this
-    //return lookupTerm(te, termNum);
-    /*
-    si.lookupTerm(new BytesRef(term));
-// TODO: Remove err-out after sufficiently testing
-int count;
-if (index >= counts.size()) {
-  System.err.println("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + field + " was "
-      + index + " but the counts only went to ordinal " + counts.size());
-  count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
-} else if (index < 0) {
-  System.err.println("DocValuesFacet.extractSpecificCounts: The ordinal for " + term + " in field " + field
-      + " could not be resolved precisely (was " + index + ")");
-  count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
-} else {
-  // Why only int as count?
-  count = (int) counts.get((int) index);
-}
-res.add(term, count);
-}
-return res;
-      */
-
+    long index = countedTerms.te.seekExact(term) ? countedTerms.te.ord() : -1;
+    if (index >= countedTerms.counts.size()) {
+      System.err.println("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + field + " was "
+          + index + " but the counts only went to ordinal " + countedTerms.counts.size());
+      return -1;
+    } else if (index < 0) {
+      System.err.println("DocValuesFacet.extractSpecificCounts: The ordinal for " + term + " in field " + field
+          + " could not be resolved precisely (was " + index + ")");
+      return -1;
+    }
+    return countedTerms.counts.get((int) index);
   }
 
   /**

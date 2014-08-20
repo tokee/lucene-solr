@@ -1882,6 +1882,8 @@ public class SimpleFacetsTest extends SolrTestCaseJ4 {
              req("q", "*:*"
                  ,"facet", "true"
                  ,"facet.sparse", "true"
+                 ,"facet.sparse.mintags", "1" // Force sparse
+                 ,"facet.sparse.cutoff", "99999" // Force sparse
                  ,"facet.field", "{!terms=A}foo_s"
                  ,"facet.mincount","1"
                  )
