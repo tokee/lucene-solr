@@ -186,8 +186,9 @@ public class SparseCounterPacked implements ValueCounter {
   }
 
   @Override
-  public boolean iterate(final int start, final int end, final int minValue, final Callback callback) {
-    if (tracksPos == tracksMax || minValue == 0) { // Not sparse or all values
+  public boolean iterate(
+      final int start, final int end, final int minValue, boolean doNegative, final Callback callback) {
+    if (tracksPos == tracksMax || minValue == 0 | doNegative) { // Not sparse or all values
       callback.setOrdered(true);
       for (int counter = start ; counter < end ; counter++) {
         final long value = counts.get(counter);

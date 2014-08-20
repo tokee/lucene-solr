@@ -262,7 +262,7 @@ public class UnInvertedField extends DocTermOrds {
           searcher, te, prefix, pool, baseDocs, sparseKeys, baseSize, maxDoc, probablyWithinCutoff);
       if (termList != null) {
         //return SimpleFacets.fallbackGetListedTermCounts(searcher, field, termList, baseDocs);
-        return extractSpecificCounts(countedTerms, termList, baseDocs);
+        return extractSpecificCounts(countedTerms, termList, countedTerms.doNegative, baseDocs);
       }
 
       final CharsRef charsRef = new CharsRef();
@@ -527,13 +527,13 @@ public class UnInvertedField extends DocTermOrds {
   }*/
 
   private NamedList<Integer> extractSpecificCounts(
-      CountedTerms countedTerms, String termList, DocSet docs) throws IOException {
+      CountedTerms countedTerms, String termList, boolean doNegative, DocSet docs) throws IOException {
     FieldType ft = searcher.getSchema().getFieldType(field);
     List<String> terms = StrUtils.splitSmart(termList, ",", true);
     NamedList<Integer> res = new NamedList<>();
     for (String term : terms) {
       String internal = ft.toInternal(term);
-      long count = getTermCount(countedTerms, new BytesRef(internal));
+      long count = getTermCount(countedTerms, new BytesRef(internal), doNegative);
       if (count == -1) {
         count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
       }
@@ -545,15 +545,19 @@ public class UnInvertedField extends DocTermOrds {
 
   /**
    * Returns the count for the given term from the result of a previous call to {@link #countTerms}.
+   *
    * @param countedTerms counts for all terms in a field.
    * @param term         the term to get counts for.
+   * @param doNegative
    * @return the count for the term or -1 if the term could not be located.
    * @throws IOException if the term could not be located.
    */
-  public long getTermCount(CountedTerms countedTerms, BytesRef term) throws IOException {
+  public long getTermCount(CountedTerms countedTerms, BytesRef term, boolean doNegative) throws IOException {
     for (TopTerm tt : bigTerms.values()) {
       if (tt.term.equals(term)) {
-        return countedTerms.counts.get(tt.termNum);
+        return doNegative ?
+            maxTermCounts[tt.termNum] - countedTerms.counts.get(tt.termNum) :
+            countedTerms.counts.get(tt.termNum);
       }
     }
     long index = countedTerms.te.seekExact(term) ? countedTerms.te.ord() : -1;
@@ -566,7 +570,9 @@ public class UnInvertedField extends DocTermOrds {
           + " could not be resolved precisely (was " + index + ")");
       return -1;
     }
-    return countedTerms.counts.get((int) index);
+    return doNegative ?
+        maxTermCounts[(int)index] - countedTerms.counts.get((int) index) :
+        countedTerms.counts.get((int) index);
   }
 
   /**
@@ -597,7 +603,7 @@ public class UnInvertedField extends DocTermOrds {
   private void extractTopCount(final ValueCounter counts, final int startTerm, final int endTerm, final int minCount,
                                final boolean doNegative, final LongPriorityQueue queue, SparseCounterPool pool) {
     long sparseExtractTime = System.nanoTime();
-    if (counts.iterate(startTerm, endTerm, minCount,
+    if (counts.iterate(startTerm, endTerm, minCount, doNegative,
         new ValueCounter.TopCallback(maxTermCounts, minCount-1, doNegative, queue))) {
       pool.incWithinCount();
     } else {

@@ -800,7 +800,8 @@ public class SimpleFacets {
 
         int min=mincount-1;  // the smallest value in the top 'N' values
         long sparseExtractTime = System.nanoTime();
-        if (counts.iterate((startTermIndex==-1)?1:0, nTerms, mincount, new ValueCounter.TopCallback(min, queue))) {
+        if (counts.iterate(
+            (startTermIndex==-1)?1:0, nTerms, mincount, false, new ValueCounter.TopCallback(min, queue))) {
           counterPool.incWithinCount();
         } else {
           counterPool.incExceededCount();
