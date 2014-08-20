@@ -1972,7 +1972,7 @@ public class SimpleFacetsTest extends SolrTestCaseJ4 {
              ,pre+"/int[2][@name='uniqueTerm0'][.='1']"
              );
 
-    // Second phase (we only want A here)
+    // Second phase sparse (we only want A here)
     assertQ("test plain facet request",
              req("q", "*:*"
                  ,"facet", "true"
@@ -1985,6 +1985,21 @@ public class SimpleFacetsTest extends SolrTestCaseJ4 {
              ,"*[count(//lst[@name='facet_fields']/lst/int)=2]"
              ,pre+"/int[1][@name='uniqueTerm" + (DOCS-1) + "'][.='1']"
              ,pre+"/int[2][@name='uniqueTerm0'][.='1']"
+             );
+
+    // Second phase sparse tiny
+    assertQ("test plain facet request",
+             req("q", "id:10010"
+                 ,"facet", "true"
+                 ,"facet.sparse", "true"
+                 ,"facet.sparse.mintags", "1" // Force sparse
+                 ,"facet.sparse.cutoff", "99999" // Force sparse
+                 ,"facet.field", "{!terms=uniqueTerm10,mod10Term0}dist_s"
+                 ,"facet.mincount","1"
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=2]"
+             ,pre+"/int[1][@name='uniqueTerm10'][.='1']"
+             ,pre+"/int[2][@name='mod10Term0'][.='1']"
              );
 
   }
