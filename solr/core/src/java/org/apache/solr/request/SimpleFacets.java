@@ -377,6 +377,10 @@ public class SimpleFacets {
           getListedTermCounts(field, termList, base);
     }
 
+    if (termList != null && !(sparseKeys.sparse && sparseKeys.termLookup)) {
+      return getListedTermCounts(field, termList, base);
+    }
+
     final FacetMethod method = getFacetMethod(field);
     assert method != null;
     NamedList<Integer> counts;
