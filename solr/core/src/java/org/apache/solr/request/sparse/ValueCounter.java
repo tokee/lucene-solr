@@ -74,10 +74,12 @@ public interface ValueCounter {
    * @param start    the start index of the counters to iterate, inclusive.
    * @param end      the end index of the counters to iterate, exclusive.
    * @param minValue the minimum value for the counter in order to trigger a callback.
+   * @param doNegative signals whether the counts are the negative of the real counts.
+   *                   Only affects iteration, not the values themselves.
    * @param callback a handler for matching counters.
    * @return true if the iteration was performed in an optimized manner, else false. Implementation-specific.
    */
-  boolean iterate(int start, int end, int minValue, Callback callback);
+  boolean iterate(int start, int end, int minValue, boolean doNegative, Callback callback);
 
   /**
    * If the caller has knowledge that the result set will be large, this method should be called.

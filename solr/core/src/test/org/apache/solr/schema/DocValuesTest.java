@@ -24,6 +24,7 @@ import org.apache.lucene.queries.function.FunctionValues;
 import org.apache.lucene.util.LuceneTestCase.SuppressCodecs;
 import org.apache.solr.SolrTestCaseJ4;
 import org.apache.solr.core.SolrCore;
+import org.apache.solr.request.sparse.SparseKeys;
 import org.apache.solr.search.SolrIndexSearcher;
 import org.apache.solr.util.RefCounted;
 import org.junit.BeforeClass;
@@ -39,7 +40,17 @@ public class DocValuesTest extends SolrTestCaseJ4 {
 
   public void setUp() throws Exception {
     super.setUp();
+    toggleSparse();
     assertU(delQ("*:*"));
+  }
+
+  private void toggleSparse() {
+    if (random().nextBoolean()) {
+      System.out.println("Tweaking defaults for sparse faceting to ensure usage");
+      SparseKeys.SPARSE_DEFAULT = true;
+      SparseKeys.MINTAGS_DEFAULT = 1;
+      SparseKeys.CUTOFF_DEFAULT = 9999;
+    }
   }
 
   public void testDocValues() throws IOException {

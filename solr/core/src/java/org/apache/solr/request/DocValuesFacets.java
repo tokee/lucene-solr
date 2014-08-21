@@ -218,7 +218,8 @@ public class DocValuesFacets {
 
         long sparseExtractTime = System.nanoTime();
         try {
-          if (counts.iterate(startTermIndex==-1?1:0, nTerms, minCount, new SparseCounterInt.TopCallback(minCount-1, queue))) {
+          if (counts.iterate(startTermIndex==-1?1:0, nTerms, minCount, false,
+              new SparseCounterInt.TopCallback(minCount-1, queue))) {
             pool.incWithinCount();
           } else {
             pool.incExceededCount();

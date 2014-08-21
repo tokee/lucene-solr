@@ -23,14 +23,14 @@ public class SparseKeys {
    * If true, sparse facet counting is enabled.
    */
   public static final String SPARSE = "facet.sparse";
-  public static final boolean SPARSE_DEFAULT = false;
+  public static boolean SPARSE_DEFAULT = false;
 
   /**
    * The minimum number of tags in a sparse counter. If there are less tags than this, sparse will be disabled for
    * that part.
    */
   public static final String MINTAGS = "facet.sparse.mintags";
-  public static final int MINTAGS_DEFAULT = 10*1000;
+  public static int MINTAGS_DEFAULT = 10*1000;
 
   /**
    * If specified (not -1), this is the maximum number any facet term counter will reach for a single shard.
@@ -50,13 +50,13 @@ public class SparseKeys {
    * has a chance of not being the correct ones. Only enable this if the consequences are understood.
    */
   public static final String MAXTRACKED = "facet.sparse.maxtracked";
-  public static final int MAXTRACKED_DEFAULT = -1;
+  public static int MAXTRACKED_DEFAULT = -1;
 
   /**
    * The size of the sparse tracker, relative to the total amount of unique tags in the facet.
    */
   public static final String FRACTION = "facet.sparse.fraction";
-  public static final double FRACTION_DEFAULT = 0.08; // 8%
+  public static double FRACTION_DEFAULT = 0.08; // 8%
 
   /**
    * If the <em>estimated number</em> (based on hitcount) of unique tags in the search result exceeds this fraction
@@ -64,21 +64,22 @@ public class SparseKeys {
    * from documents to tags are distributed randomly.
    */
   public static final String CUTOFF = "facet.sparse.cutoff";
-  public static final double CUTOFF_DEFAULT = 0.90; // 90%
+  public static double CUTOFF_DEFAULT = 0.90; // 90%
 
   /**
    * If true and the {@link #PACKED_BITLIMIT} holds, use {@link SparseCounterPacked} for counting.
    * If false, all sparse counters will be {@link SparseCounterInt}.
    */
   public static final String PACKED = "facet.sparse.packed";
-  public static final boolean DEFAULT_PACKED = false;
+  // TODO: Change this to true when we are sure it is stable
+  public static boolean DEFAULT_PACKED = false;
 
   /**
    * If {@link #PACKED} is true, counters where the maximum value of any counter is <= 2^PACKED_BITLIMIT will be
    * represented with a {@link SparseCounterPacked}.
    */
   public static final String PACKED_BITLIMIT = "facet.sparse.packed.bitlimit";
-  public static final int DEFAULT_PACKED_BITLIMIT = 24;
+  public static int DEFAULT_PACKED_BITLIMIT = 24;
   /**
    * Setting this parameter to true will add a special tag with statistics. Only for patch testing!
    */
@@ -93,14 +94,14 @@ public class SparseKeys {
    * Optional. Default is unlimited.
    */
   public static final String POOL_MAX_COUNT = "facet.sparse.pools.max";
-  public static final int POOL_MAX_COUNT_DEFAULT = Integer.MAX_VALUE;
+  public static int POOL_MAX_COUNT_DEFAULT = Integer.MAX_VALUE;
 
   /**
    * Maximum number of counters to store for re-use for each field.
    * Default is 2. Setting this to 0 disables re-use.
    */
   public static final String POOL_SIZE = "facet.sparse.pool.size";
-  public static final int POOL_SIZE_DEFAULT = 2;
+  public static int POOL_SIZE_DEFAULT = 2;
 
   /**
    * If true, queries that activates non-sparseness will be redirected to the standard Solr facet implementations.
@@ -109,7 +110,7 @@ public class SparseKeys {
    * Setting this to false is likely to result in lower performance.
    */
   public static final String FALLBACK_BASE = "facet.sparse.fallbacktobase";
-  public static final boolean FALLBACK_BASE_DEFAULT = true;
+  public static boolean FALLBACK_BASE_DEFAULT = true;
   
   final public String field;
   

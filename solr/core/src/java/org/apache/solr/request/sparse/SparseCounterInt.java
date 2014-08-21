@@ -199,16 +199,17 @@ public class SparseCounterInt implements ValueCounter {
   }
 
   @Override
-  public boolean iterate(final int start, final int end, final int minValue, final Callback callback) {
+  public boolean iterate(
+      final int start, final int end, final int minValue, final boolean doNegative, final Callback callback) {
     if (start < 0 || end > size()) {
       throw new ArrayIndexOutOfBoundsException(String.format(
           "iterate(start=%d, end=%d, minValue=%d, callback) called on counter with size=%d",
           start, end, minValue, size()));
     }
-    if (tracksPos == tracksMax || minValue == 0) { // Not sparse or all values
+    if (tracksPos == tracksMax || minValue == 0 | doNegative) { // Not sparse or all values
       callback.setOrdered(true);
       for (int counter = start ; counter < end ; counter++) {
-        if (counts[counter] >= minValue) {
+        if (doNegative || counts[counter] >= minValue) {
           callback.handle(counter, counts[counter]);
         }
       }
