@@ -26,6 +26,16 @@ public class SparseKeys {
   public static boolean SPARSE_DEFAULT = false;
 
   /**
+   * If true, sparse facet term lookup is enabled (if SPARSE == true). Term lookup is used by the second phase in
+   * distributed faceting and is normally performed like facet.method=enum. With this option enabled, faceting calls
+   * that qualifies as sparse will use the sparse implementation for resolving counts for terms.
+   * </p><p>
+   * Highly experimental as of 20140821. Enable with care!
+   */
+  public static final String TERMLOOKUP = "facet.sparse.termlookup";
+  public static boolean TERMLOOKUP_DEFAULT = false;
+
+  /**
    * The minimum number of tags in a sparse counter. If there are less tags than this, sparse will be disabled for
    * that part.
    */
@@ -129,11 +139,13 @@ public class SparseKeys {
 
   final public boolean showStats;
   final public boolean resetStats;
+  final public boolean termLookup;
 
   public SparseKeys(String field, SolrParams params) {
     this.field = field;
     
     sparse = params.getFieldBool(field, SPARSE, SPARSE_DEFAULT);
+    termLookup = params.getFieldBool(field, TERMLOOKUP, TERMLOOKUP_DEFAULT);
     fallbackToBase = params.getFieldBool(field, FALLBACK_BASE, FALLBACK_BASE_DEFAULT);
     minTags = params.getFieldInt(field, MINTAGS, MINTAGS_DEFAULT);
     fraction = params.getFieldDouble(field, FRACTION, FRACTION_DEFAULT);

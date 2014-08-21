@@ -1884,6 +1884,7 @@ public class SimpleFacetsTest extends SolrTestCaseJ4 {
                  ,"facet.sparse", "true"
                  ,"facet.sparse.mintags", "1" // Force sparse
                  ,"facet.sparse.cutoff", "99999" // Force sparse
+                 ,"facet.sparse.termlookup", "true" // Force sparse
                  ,"facet.field", "foo_s"
                  ,"facet.mincount","1"
                  )
@@ -1912,6 +1913,7 @@ public class SimpleFacetsTest extends SolrTestCaseJ4 {
                  ,"facet.sparse", "true"
                  ,"facet.sparse.mintags", "1" // Force sparse
                  ,"facet.sparse.cutoff", "99999" // Force sparse
+                 ,"facet.sparse.termlookup", "true" // Force sparse
                  ,"facet.field", "{!terms=A}foo_s"
                  ,"facet.mincount","1"
                  )
@@ -1952,6 +1954,7 @@ public class SimpleFacetsTest extends SolrTestCaseJ4 {
                  ,"facet.sparse", "true"
                  ,"facet.sparse.mintags", "1" // Force sparse
                  ,"facet.sparse.cutoff", "99999" // Force sparse
+                 ,"facet.sparse.termlookup", "true" // Force sparse
                  ,"facet.field", "dist_s"
                  ,"facet.mincount","1"
                  )
@@ -1979,6 +1982,7 @@ public class SimpleFacetsTest extends SolrTestCaseJ4 {
                  ,"facet.sparse", "true"
                  ,"facet.sparse.mintags", "1" // Force sparse
                  ,"facet.sparse.cutoff", "99999" // Force sparse
+                 ,"facet.sparse.termlookup", "true" // Force sparse
                  ,"facet.field", "{!terms=uniqueTerm" + (DOCS-1) + ",uniqueTerm0}dist_s"
                  ,"facet.mincount","1"
                  )
@@ -1994,6 +1998,7 @@ public class SimpleFacetsTest extends SolrTestCaseJ4 {
                  ,"facet.sparse", "true"
                  ,"facet.sparse.mintags", "1" // Force sparse
                  ,"facet.sparse.cutoff", "99999" // Force sparse
+                 ,"facet.sparse.termlookup", "true" // Force sparse
                  ,"facet.field", "{!terms=uniqueTerm10,mod10Term0}dist_s"
                  ,"facet.mincount","1"
                  )
