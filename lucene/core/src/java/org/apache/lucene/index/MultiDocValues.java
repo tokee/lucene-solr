@@ -327,10 +327,10 @@ public class MultiDocValues {
     final AppendingPackedLongBuffer firstSegments;
     // for every segment, segmentOrd -> (globalOrd - segmentOrd)
     final MonotonicAppendingLongBuffer ordDeltas[];
-    
-    // Used by sparse. Leftover from 4.7.1. TODO: Use segmentToGlobalOrds instead to save memory
-    final MonotonicAppendingLongBuffer[] ordDeltas;
-    /** 
+
+    final long maxOrdCount;
+
+    /**
      * Creates an ordinal map that allows mapping ords to/from a merged
      * space from <code>subs</code>.
      * @param owner a cache key
@@ -389,14 +389,6 @@ public class MultiDocValues {
       this.maxOrdCount = maxOrdCount;
     }
 
-    /** 
-     * Given a segment number and segment ordinal, returns
-     * the corresponding global ordinal.
-     */
-    public long getGlobalOrd(int segmentIndex, long segmentOrd) {
-      return segmentOrd + ordDeltas[segmentIndex].get(segmentOrd);
-    }
-
     // Used by sparse. TODO: Can we use the standard getGlobalOrds instead?
     /** 
      * Given a segment number and segment ordinal, returns
@@ -447,8 +439,7 @@ public class MultiDocValues {
       return segmentOrdinalsCount;
     }
 
-    @Override
-    /** 
+    /**
      * Returns total byte size used by this ordinal map. 
      */
     public long ramBytesUsed() {

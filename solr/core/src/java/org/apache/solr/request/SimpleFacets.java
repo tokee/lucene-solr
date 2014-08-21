@@ -785,11 +785,12 @@ public class SimpleFacets {
         int sortedIdxEnd = queue.size() + 1;
         final long[] sorted = queue.sort(collectCount);
 
+        BytesRef br = new BytesRef(10);
         for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
           long pair = sorted[i];
           int c = (int)(pair >>> 32);
           int tnum = Integer.MAX_VALUE - (int)pair;
-          BytesRef br = si.lookupOrd(startTermIndex+tnum);
+          si.lookupOrd(startTermIndex+tnum, br);
           ft.indexedToReadable(br, charsRef);
           res.add(charsRef.toString(), c);
         }
@@ -804,11 +805,12 @@ public class SimpleFacets {
           off=0;
         }
 
+        BytesRef br = new BytesRef(10);
         for (; i<nTerms; i++) {
           int c = (int) counts.get(i);
           if (c<mincount || --off>=0) continue;
           if (--lim<0) break;
-          BytesRef br = si.lookupOrd(startTermIndex+i);
+          si.lookupOrd(startTermIndex+i, br);
           ft.indexedToReadable(br, charsRef);
           res.add(charsRef.toString(), c);
         }

@@ -165,7 +165,7 @@ public class DocValuesFacets {
           if (schemaField.multiValued()) {
             SortedSetDocValues sub = leaf.reader().getSortedSetDocValues(fieldName);
             if (sub == null) {
-              sub = DocValues.emptySortedSet();
+              sub = DocValues.EMPTY_SORTED_SET;
             }
             final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
             if (singleton != null) {
@@ -177,7 +177,7 @@ public class DocValuesFacets {
           } else {
             SortedDocValues sub = leaf.reader().getSortedDocValues(fieldName);
             if (sub == null) {
-              sub = DocValues.emptySorted();
+              sub = DocValues.EMPTY_SORTED;
             }
             accumSingle(counts, startTermIndex, sub, disi, subIndex, ordinalMap);
           }
@@ -239,11 +239,12 @@ public class DocValuesFacets {
         int sortedIdxEnd = queue.size() + 1;
         final long[] sorted = queue.sort(collectCount);
 
+        BytesRef br = new BytesRef(10);
         for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
           long pair = sorted[i];
           int c = (int)(pair >>> 32);
           int tnum = Integer.MAX_VALUE - (int)pair;
-          BytesRef br = si.lookupOrd(startTermIndex+tnum);
+           si.lookupOrd(startTermIndex+tnum, br);
           ft.indexedToReadable(br, charsRef);
           res.add(charsRef.toString(), c);
         }
@@ -258,11 +259,12 @@ public class DocValuesFacets {
           off=0;
         }
 
+        BytesRef br = new BytesRef(10);
         for (; i<nTerms; i++) {
           int c = (int) counts.get(i);
           if (c<minCount || --off>=0) continue;
           if (--lim<0) break;
-          BytesRef br = si.lookupOrd(startTermIndex+i);
+          si.lookupOrd(startTermIndex+i, br);
           ft.indexedToReadable(br, charsRef);
           res.add(charsRef.toString(), c);
         }
