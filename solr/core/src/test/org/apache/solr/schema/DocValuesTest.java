@@ -40,17 +40,7 @@ public class DocValuesTest extends SolrTestCaseJ4 {
 
   public void setUp() throws Exception {
     super.setUp();
-    toggleSparse();
     assertU(delQ("*:*"));
-  }
-
-  private void toggleSparse() {
-    if (random().nextBoolean()) {
-      System.out.println("Tweaking defaults for sparse faceting to ensure usage");
-      SparseKeys.SPARSE_DEFAULT = true;
-      SparseKeys.MINTAGS_DEFAULT = 1;
-      SparseKeys.CUTOFF_DEFAULT = 9999;
-    }
   }
 
   public void testDocValues() throws IOException {
@@ -148,87 +138,6 @@ public class DocValuesTest extends SolrTestCaseJ4 {
         "//result/doc[6]/str[@name='id'][.='2']",
         "//result/doc[7]/str[@name='id'][.='7']"
         );
-  }
-
-  public void testDocValuesSparseFaceting() {
-    //final String UP = "uniqueTerm://";
-    final String UP = "uniqueTerm";
-    final int DOCS = 1000;
-    for (int i = 0 ; i < DOCS ; i++) {
-      // *_s = multi string, *_s1 = single string
-      assertU(adoc("id", Integer.toString(10000 + i), "stringdv", UP + i));
-    }
-    assertU(commit());
-
-    final String pre = "//lst[@name='stringdv']";
-    // First phase non-sparse
-    assertQ("test plain facet request",
-             req("q", "*:*"
-                 ,"facet", "true"
-                 ,"facet.sparse", "false"
-                 ,"facet.field", "stringdv"
-                 ,"facet.mincount","1"
-                 )
-             ,pre+"/int[2][@name='" + UP + "1'][.='1']"
-             );
-
-    // First phase sparse
-    assertQ("test plain facet request",
-             req("q", "*:*"
-                 ,"facet", "true"
-                 ,"facet.sparse", "true"
-                 ,"facet.sparse.mintags", "1" // Force sparse
-                 ,"facet.sparse.cutoff", "99999" // Force sparse
-                 ,"facet.sparse.termlookup", "true" // Force sparse
-                 ,"facet.field", "stringdv"
-                 ,"facet.mincount","1"
-                 )
-             ,pre+"/int[2][@name='" + UP + "1'][.='1']"
-             );
-
-    // Second phase non-sparse
-    assertQ("test plain facet request",
-             req("q", "*:*"
-                 ,"facet", "true"
-                 ,"facet.sparse", "false"
-                 ,"facet.field", "{!terms=" + UP + "" + (DOCS-1) + "," + UP + "0}stringdv"
-                 ,"facet.mincount","1"
-                 )
-             ,"*[count(//lst[@name='facet_fields']/lst/int)=2]"
-             ,pre+"/int[1][@name='" + UP + "999'][.='1']"
-             ,pre+"/int[2][@name='" + UP + "0'][.='1']"
-             );
-
-    // Second phase sparse (we only want A here)
-    assertQ("test plain facet request",
-             req("q", "*:*"
-                 ,"facet", "true"
-                 ,"facet.sparse", "true"
-                 ,"facet.sparse.mintags", "1" // Force sparse
-                 ,"facet.sparse.cutoff", "99999" // Force sparse
-                 ,"facet.sparse.termlookup", "true" // Force sparse
-                 ,"facet.field", "{!terms=" + UP + "" + (DOCS-1) + "," + UP + "0}stringdv"
-                 ,"facet.mincount","1"
-                 )
-             ,"*[count(//lst[@name='facet_fields']/lst/int)=2]"
-             ,pre+"/int[1][@name='" + UP + "0'][.='1']"
-             );
-
-    // Second phase sparse tiny
-    assertQ("test plain facet request",
-             req("q", "id:10010"
-                 ,"facet", "true"
-                 ,"facet.sparse", "true"
-                 ,"facet.sparse.mintags", "1" // Force sparse
-                 ,"facet.sparse.cutoff", "99999" // Force sparse
-                 ,"facet.sparse.termlookup", "true" // Force sparse
-                 ,"facet.field", "{!terms=" + UP + "10,mod10Term0}stringdv"
-                 ,"facet.mincount","1"
-                 )
-             ,"*[count(//lst[@name='facet_fields']/lst/int)=2]"
-             ,pre+"/int[1][@name='" + UP + "10'][.='1']"
-             );
-
   }
 
   public void testDocValuesFaceting() {

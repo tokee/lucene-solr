@@ -32,6 +32,7 @@
     <dynamicField name="*_is_dv" type="int"    indexed="false" stored="false" docValues="true"  multiValued="true"/>
     <dynamicField name="*_s"     type="string" indexed="true"  stored="false" docValues="false"/>
     <dynamicField name="*_s_dv"  type="string" indexed="false" stored="false" docValues="true"/>
+    <dynamicField name="*_i_s_dv"  type="string" indexed="true" stored="false" docValues="true"/>
     <dynamicField name="*_ss"    type="string" indexed="true"  stored="false" docValues="false" multiValued="true"/>
     <dynamicField name="*_ss_dv" type="string" indexed="false" stored="false" docValues="true"  multiValued="true"/>
     <dynamicField name="*_f"     type="float"  indexed="true"  stored="false" docValues="false"/>
