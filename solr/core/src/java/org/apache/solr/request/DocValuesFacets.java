@@ -291,13 +291,15 @@ public class DocValuesFacets {
   }
 
   private static NamedList<Integer> extractSpecificCounts(
-      SolrIndexSearcher searcher, SortedSetDocValues si, String field, DocSet docs, ValueCounter counts, String termList) throws IOException {
+      SolrIndexSearcher searcher, SortedSetDocValues si, String field, DocSet docs, ValueCounter counts,
+      String termList) throws IOException {
     FieldType ft = searcher.getSchema().getFieldType(field);
     List<String> terms = StrUtils.splitSmart(termList, ",", true);
     NamedList<Integer> res = new NamedList<>();
     for (String term : terms) {
       String internal = ft.toInternal(term);
-      long index = si.lookupTerm(new BytesRef(term));
+      // TODO: Check if +1 is always the case (what about startTermIndex with prefix queries?)
+      long index = 1+si.lookupTerm(new BytesRef(term));
       // TODO: Remove err-out after sufficiently testing
       int count;
       if (index >= counts.size()) {
@@ -685,7 +687,7 @@ public class DocValuesFacets {
     for (int ord = 1; ord < segCounts.length; ord++) {
       int count = segCounts[ord];
       if (count != 0) {
-        counts[1+(int) ordMap.get(ord-1)] += count;
+        counts[1+(int) ordMap.get(ord - 1)] += count;
       }
     }
   }
