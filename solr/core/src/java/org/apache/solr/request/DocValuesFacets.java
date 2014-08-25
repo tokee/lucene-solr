@@ -301,6 +301,7 @@ public class DocValuesFacets {
     List<String> terms = StrUtils.splitSmart(termList, ",", true);
     NamedList<Integer> res = new NamedList<>();
     for (String term : terms) {
+      final long startTime = System.nanoTime();
       String internal = ft.toInternal(term);
       // TODO: Check if +1 is always the case (what about startTermIndex with prefix queries?)
       long index = 1+si.lookupTerm(new BytesRef(term));
@@ -310,11 +311,11 @@ public class DocValuesFacets {
         System.err.println("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + field + " was "
             + index + " but the counts only go from 0 to ordinal " + counts.size());
         count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
-        pool.incTermLookup(term, false);
+        pool.incTermLookup(term, false, System.nanoTime()-startTime);
       } else {
         // Why only int as count?
         count = (int) counts.get((int) index);
-        pool.incTermLookup(term, true);
+        pool.incTermLookup(term, true, System.nanoTime()-startTime);
       }
       res.add(term, count);
     }

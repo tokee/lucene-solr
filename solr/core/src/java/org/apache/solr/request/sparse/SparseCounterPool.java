@@ -86,6 +86,9 @@ public class SparseCounterPool {
   long termCountsLookups = 0;
   long termFallbackLookups = 0;
 
+  long termTotalCountTime = 0;
+  long termTotalFallbackTime = 0;
+
   protected final ThreadPoolExecutor cleaner =
       (ThreadPoolExecutor) Executors.newFixedThreadPool(DEFAULT_CLEANING_THREADS);
   {
@@ -107,6 +110,7 @@ public class SparseCounterPool {
   }
 
 
+  // Used for synchnization of statistics counters
   private final Object scSync = new Object();
 
   public SparseCounterPool(int maxPoolSize) {
@@ -312,6 +316,9 @@ public class SparseCounterPool {
       lastTermLookup = "N/A";
       termCountsLookups = 0;
       termFallbackLookups = 0;
+
+      termTotalCountTime = 0;
+      termTotalFallbackTime = 0;
     }
   }
 
@@ -341,11 +348,13 @@ public class SparseCounterPool {
       sparseAllocateTime += delta;
     }
   }
+  // Nanoseconds
   public void incCollectTime(long delta) {
     synchronized (scSync) {
       sparseCollectTime += delta;
     }
   }
+  // Nanoseconds
   public void incExtractTime(long delta) {
     synchronized (scSync) {
       sparseExtractTime += delta;
@@ -356,6 +365,7 @@ public class SparseCounterPool {
       sparseClearTime += delta;
     }
   }
+  // Nanoseconds
   public void incTotalTime(long delta) {
     synchronized (scSync) {
       sparseTotalTime += delta;
@@ -363,18 +373,25 @@ public class SparseCounterPool {
   }
   public void incTermsLookup(String terms, boolean countsStructure) {
     lastTermsLookup = terms;
-    if (countsStructure) {
-      termsCountsLookups++;
-    } else {
-      termsFallbackLookups++;
+    synchronized (scSync) {
+      if (countsStructure) {
+        termsCountsLookups++;
+      } else {
+        termsFallbackLookups++;
+      }
     }
   }
-  public void incTermLookup(String term, boolean countsStructure) {
+  // Nanoseconds
+  public void incTermLookup(String term, boolean countsStructure, long time) {
     lastTermLookup = term;
-    if (countsStructure) {
-      termCountsLookups++;
-    } else {
-      termFallbackLookups++;
+    synchronized (scSync) {
+      if (countsStructure) {
+        termCountsLookups++;
+        termTotalCountTime += time;
+      } else {
+        termFallbackLookups++;
+        termTotalFallbackTime += time;
+      }
     }
   }
 
@@ -396,15 +413,17 @@ public class SparseCounterPool {
               "total=%dms avg, disables=%d,  withinCutoff=%d, exceededCutoff=%d, SCPool(cached=%d/%d, reuses=%d, " +
               "allocations=%d (%dms avg, %d packed), clears=%d (%dms avg," +
               " %s%s), " +
-              "frees=%d, lastMaxCountForAny=%d), terms(count=%d, fallback=%d, last#=%d)," +
-              "term(count=%d, fallback=%d, last=%s)",
+              "frees=%d, lastMaxCountForAny=%d), terms(count=%d, fallback=%d, last#=%d), " +
+              "term(count=%d (%d ns avg), fallback=%d (%d ns avg), last=%s)",
           sparseCalls, skipCount, lastSkipReason, sparseCollectTime/sparseCalls/M, sparseExtractTime/sparseCalls/M,
           sparseTotalTime/sparseCalls/M, disables, withinCutoffCount, exceededCutoffCount, poolSize, max, reuses,
           allocations, sparseAllocateTime/sparseCalls/M, packedAllocations, clears, sparseClearTime /sparseCalls/M,
           cleanerCoreSize > 0 ? "background" : "at release",
           pendingCleans > 0 ? (" (" + pendingCleans + " running)") : "",
           frees, lastMaxCountForAny, termsCountsLookups, termsFallbackLookups, lastTermsLookup.split(",").length,
-          termCountsLookups, termFallbackLookups, lastTermLookup);
+          termCountsLookups, termCountsLookups == 0 ? 0 : termTotalCountTime / termCountsLookups,
+          termFallbackLookups, termFallbackLookups == 0 ? 0 : termTotalFallbackTime / termFallbackLookups,
+          lastTermLookup);
     }
   }
 
