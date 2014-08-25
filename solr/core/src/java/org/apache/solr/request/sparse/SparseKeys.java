@@ -43,6 +43,13 @@ public class SparseKeys {
   public static int MINTAGS_DEFAULT = 10*1000;
 
   /**
+   * If true, the secondary refinement phase of distributed faceting will be skipped.
+   * This speeds up distributed faceting, but removes the guaranteed correct facet term counts.
+   */
+  public static final String SKIPREFINEMENTS = "facet.sparse.skiprefinements";
+  public static final boolean SKIPREFINEMENTS_DEFAULT = false;
+
+  /**
    * If specified (not -1), this is the maximum number any facet term counter will reach for a single shard.
    * Facet terms with a count exceeding this will still be returned and for distributed search, the total
    * count might exceed this.
@@ -125,6 +132,7 @@ public class SparseKeys {
   final public String field;
   
   final public boolean sparse;
+  final public boolean termLookup;
   final public boolean fallbackToBase;
   final public int minTags;
   final public double fraction;
@@ -137,9 +145,10 @@ public class SparseKeys {
   final public int poolSize;
   final public int poolMaxCount;
 
+  final public boolean skipRefinement;
+
   final public boolean showStats;
   final public boolean resetStats;
-  final public boolean termLookup;
 
   public SparseKeys(String field, SolrParams params) {
     this.field = field;
@@ -158,6 +167,8 @@ public class SparseKeys {
 
     poolSize = params.getFieldInt(field, POOL_SIZE, POOL_SIZE_DEFAULT);
     poolMaxCount = params.getInt(POOL_MAX_COUNT, POOL_MAX_COUNT_DEFAULT);
+
+    skipRefinement = params.getBool(SKIPREFINEMENTS, SKIPREFINEMENTS_DEFAULT);
 
     showStats = params.getFieldBool(field, STATS, false);
     resetStats = params.getFieldBool(field, STATS_RESET, false);
