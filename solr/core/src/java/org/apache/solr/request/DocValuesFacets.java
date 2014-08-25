@@ -73,8 +73,9 @@ public class DocValuesFacets {
       SolrIndexSearcher searcher, DocSet docs, String fieldName, int offset, int limit, int minCount, boolean missing,
       String sort, String prefix, String termList, SparseKeys sparseKeys, SparseCounterPool pool) throws IOException {
     if (!sparseKeys.sparse) { // Skip sparse part completely
-      return termList == null ? getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, fieldName, termList, docs);
+      return termList == null ?
+          getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
+          SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termList, docs);
     }
 
     SchemaField schemaField = searcher.getSchema().getField(fieldName);
@@ -112,8 +113,9 @@ public class DocValuesFacets {
       pool.incSkipCount("minCount=" + minCount + ", hits=" + hitCount + "/" + searcher.maxDoc()
           + ", terms=" + (si == null ? "N/A" : si.getValueCount()) + ", ordCount="
           + (ordinalMap == null ? "N/A" : ordinalMap.getSegmentOrdinalsCount()));
-      return termList == null ? getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, fieldName, termList, docs);
+      return termList == null ?
+          getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
+          SimpleFacets.fallbackGetListedTermCounts(searcher, pool, fieldName, termList, docs);
     }
     pool.incSparseCalls();
     long sparseTotalTime = System.nanoTime();
@@ -194,7 +196,7 @@ public class DocValuesFacets {
 
       if (termList != null) {
         try {
-          return extractSpecificCounts(searcher, si, fieldName, docs, counts, termList);
+          return extractSpecificCounts(searcher, pool, si, fieldName, docs, counts, termList);
         } finally  {
           pool.release(counts);
         }
@@ -291,8 +293,9 @@ public class DocValuesFacets {
   }
 
   private static NamedList<Integer> extractSpecificCounts(
-      SolrIndexSearcher searcher, SortedSetDocValues si, String field, DocSet docs, ValueCounter counts,
-      String termList) throws IOException {
+      SolrIndexSearcher searcher, SparseCounterPool pool, SortedSetDocValues si, String field, DocSet docs,
+      ValueCounter counts, String termList) throws IOException {
+    pool.incTermsLookup(termList, true);
     FieldType ft = searcher.getSchema().getFieldType(field);
     List<String> terms = StrUtils.splitSmart(termList, ",", true);
     NamedList<Integer> res = new NamedList<>();
@@ -302,17 +305,15 @@ public class DocValuesFacets {
       long index = 1+si.lookupTerm(new BytesRef(term));
       // TODO: Remove err-out after sufficiently testing
       int count;
-      if (index >= counts.size()) {
+      if (index < 0 || index >= counts.size()) {
         System.err.println("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + field + " was "
-            + index + " but the counts only went to ordinal " + counts.size());
+            + index + " but the counts only go from 0 to ordinal " + counts.size());
         count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
-      } else if (index < 0) {
-        System.err.println("DocValuesFacet.extractSpecificCounts: The ordinal for " + term + " in field " + field
-            + " could not be resolved precisely (was " + index + ")");
-        count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
+        pool.incTermLookup(term, false);
       } else {
         // Why only int as count?
         count = (int) counts.get((int) index);
+        pool.incTermLookup(term, true);
       }
       res.add(term, count);
     }
@@ -687,7 +688,7 @@ public class DocValuesFacets {
     for (int ord = 1; ord < segCounts.length; ord++) {
       int count = segCounts[ord];
       if (count != 0) {
-        counts[1+(int) ordMap.get(ord - 1)] += count;
+        counts[1+(int) ordMap.get(ord-1)] += count;      
       }
     }
   }

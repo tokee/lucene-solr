@@ -70,6 +70,15 @@ public class SparseCounterPoolController {
   }
 
   /**
+   * Acquires a pool for the given field if it exists in the pool controller.
+   * @param field       the field for the pool.
+   * @return a pool of {@link ValueCounter}s if present in the controller.
+   */
+  public SparseCounterPool acquireIfExisting(String field) {
+    return pools.get(field);
+  }
+
+  /**
    * Clears all pools.
    */
   public void clear() {
