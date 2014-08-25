@@ -446,11 +446,12 @@ public class SimpleFacets {
     List<String> terms = StrUtils.splitSmart(termList, ",", true);
     NamedList<Integer> res = new NamedList<>();
     for (String term : terms) {
+      final long startTime = System.nanoTime();
       String internal = ft.toInternal(term);
       int count = searcher.numDocs(new TermQuery(new Term(field, internal)), base);
       res.add(term, count);
       if (pool != null) {
-        pool.incTermLookup(term, false);
+        pool.incTermLookup(term, false, System.nanoTime() - startTime);
       }
     }
     return res;

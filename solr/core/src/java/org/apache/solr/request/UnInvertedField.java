@@ -557,25 +557,32 @@ public class UnInvertedField extends DocTermOrds {
   public long getTermCount(CountedTerms countedTerms, SparseCounterPool pool, String origTerm, BytesRef term,
                            boolean doNegative) throws IOException {
     // TODO: Can we remove this? Aren't the bigTerms counts presented in countedTerms at this point?
+    final long startTime = System.nanoTime();
     for (TopTerm tt : bigTerms.values()) {
       if (tt.term.equals(term)) {
-        pool.incTermLookup(origTerm, false);
-        return doNegative ?
-            maxTermCounts[tt.termNum] - countedTerms.counts.get(tt.termNum) :
-            countedTerms.counts.get(tt.termNum);
+        try {
+          return doNegative ?
+              maxTermCounts[tt.termNum] - countedTerms.counts.get(tt.termNum) :
+              countedTerms.counts.get(tt.termNum);
+        } finally {
+          pool.incTermLookup(origTerm, false, System.nanoTime()-startTime);
+        }
       }
     }
     long index = countedTerms.te.seekExact(term) ? countedTerms.te.ord() : -1;
     if (index < 0 || index >= countedTerms.counts.size()) {
       System.err.println("UnInvertedField.getTermCount: ordinal for " + term + " in field " + field + " was "
           + index + " but the counts only go from 0 to ordinal " + countedTerms.counts.size());
-      pool.incTermLookup(origTerm, false);
+      pool.incTermLookup(origTerm, false, System.nanoTime()-startTime);
       return -1;
     }
-    pool.incTermLookup(origTerm, true);
-    return doNegative ?
-        maxTermCounts[(int)index] - countedTerms.counts.get((int) index) :
-        countedTerms.counts.get((int) index);
+    try {
+      return doNegative ?
+          maxTermCounts[(int)index] - countedTerms.counts.get((int) index) :
+          countedTerms.counts.get((int) index);
+    } finally {
+      pool.incTermLookup(origTerm, true, System.nanoTime()-startTime);
+    }
   }
 
   /**
