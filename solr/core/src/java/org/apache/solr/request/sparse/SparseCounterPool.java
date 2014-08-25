@@ -414,15 +414,15 @@ public class SparseCounterPool {
               "allocations=%d (%dms avg, %d packed), clears=%d (%dms avg," +
               " %s%s), " +
               "frees=%d, lastMaxCountForAny=%d), terms(count=%d, fallback=%d, last#=%d), " +
-              "term(count=%d (%d ns avg), fallback=%d (%d ns avg), last=%s)",
+              "term(count=%d (%.1fms avg), fallback=%d (%.1fms avg), last=%s)",
           sparseCalls, skipCount, lastSkipReason, sparseCollectTime/sparseCalls/M, sparseExtractTime/sparseCalls/M,
           sparseTotalTime/sparseCalls/M, disables, withinCutoffCount, exceededCutoffCount, poolSize, max, reuses,
           allocations, sparseAllocateTime/sparseCalls/M, packedAllocations, clears, sparseClearTime /sparseCalls/M,
           cleanerCoreSize > 0 ? "background" : "at release",
           pendingCleans > 0 ? (" (" + pendingCleans + " running)") : "",
           frees, lastMaxCountForAny, termsCountsLookups, termsFallbackLookups, lastTermsLookup.split(",").length,
-          termCountsLookups, termCountsLookups == 0 ? 0 : termTotalCountTime / termCountsLookups,
-          termFallbackLookups, termFallbackLookups == 0 ? 0 : termTotalFallbackTime / termFallbackLookups,
+          termCountsLookups, termCountsLookups == 0 ? 0 : termTotalCountTime * 1.0 / M / termCountsLookups,
+          termFallbackLookups, termFallbackLookups == 0 ? 0 : termTotalFallbackTime * 1.0 / M / termFallbackLookups,
           lastTermLookup);
     }
   }
