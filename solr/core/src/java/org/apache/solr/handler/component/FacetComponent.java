@@ -39,6 +39,7 @@ import org.apache.solr.common.util.NamedList;
 import org.apache.solr.common.util.SimpleOrderedMap;
 import org.apache.solr.common.util.StrUtils;
 import org.apache.solr.request.SimpleFacets;
+import org.apache.solr.request.sparse.SparseKeys;
 import org.apache.solr.schema.FieldType;
 import org.apache.solr.search.QueryParsing;
 import org.apache.solr.search.SyntaxError;
@@ -115,7 +116,10 @@ public class FacetComponent extends SearchComponent
       // We do this in distributedProcess so we can look at all of the
       // requests in the outgoing queue at once.
 
-
+      if (rb.req.getParams().getBool(SparseKeys.SKIPREFINEMENTS, SparseKeys.SKIPREFINEMENTS_DEFAULT)) {
+        // Skip the second phase at the cost of count precision
+        return ResponseBuilder.STAGE_DONE;
+      }
 
       for (int shardNum=0; shardNum<rb.shards.length; shardNum++) {
         List<String> refinements = null;
