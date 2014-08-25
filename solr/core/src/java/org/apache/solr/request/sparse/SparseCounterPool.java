@@ -79,6 +79,13 @@ public class SparseCounterPool {
   long withinCutoffCount = 0;
   long exceededCutoffCount = 0;
 
+  String lastTermsLookup = "N/A";
+  long termsCountsLookups = 0;
+  long termsFallbackLookups = 0;
+  String lastTermLookup = "N/A";
+  long termCountsLookups = 0;
+  long termFallbackLookups = 0;
+
   protected final ThreadPoolExecutor cleaner =
       (ThreadPoolExecutor) Executors.newFixedThreadPool(DEFAULT_CLEANING_THREADS);
   {
@@ -298,6 +305,13 @@ public class SparseCounterPool {
       disables = 0;
       exceededCutoffCount = 0;
       lastSkipReason = "no skips";
+
+      lastTermsLookup = "N/A";
+      termsCountsLookups = 0;
+      termsFallbackLookups = 0;
+      lastTermLookup = "N/A";
+      termCountsLookups = 0;
+      termFallbackLookups = 0;
     }
   }
 
@@ -347,7 +361,22 @@ public class SparseCounterPool {
       sparseTotalTime += delta;
     }
   }
-
+  public void incTermsLookup(String terms, boolean countsStructure) {
+    lastTermsLookup = terms;
+    if (countsStructure) {
+      termsCountsLookups++;
+    } else {
+      termsFallbackLookups++;
+    }
+  }
+  public void incTermLookup(String term, boolean countsStructure) {
+    lastTermLookup = term;
+    if (countsStructure) {
+      termCountsLookups++;
+    } else {
+      termFallbackLookups++;
+    }
+  }
 
   /**
    * @return timing and count statistics for this pool.
@@ -367,13 +396,15 @@ public class SparseCounterPool {
               "total=%dms avg, disables=%d,  withinCutoff=%d, exceededCutoff=%d, SCPool(cached=%d/%d, reuses=%d, " +
               "allocations=%d (%dms avg, %d packed), clears=%d (%dms avg," +
               " %s%s), " +
-              "frees=%d, lastMaxCountForAny=%d)",
+              "frees=%d, lastMaxCountForAny=%d), terms(count=%d, fallback=%d, last#=%d)," +
+              "term(count=%d, fallback=%d, last=%s)",
           sparseCalls, skipCount, lastSkipReason, sparseCollectTime/sparseCalls/M, sparseExtractTime/sparseCalls/M,
           sparseTotalTime/sparseCalls/M, disables, withinCutoffCount, exceededCutoffCount, poolSize, max, reuses,
           allocations, sparseAllocateTime/sparseCalls/M, packedAllocations, clears, sparseClearTime /sparseCalls/M,
           cleanerCoreSize > 0 ? "background" : "at release",
           pendingCleans > 0 ? (" (" + pendingCleans + " running)") : "",
-          frees, lastMaxCountForAny);
+          frees, lastMaxCountForAny, termsCountsLookups, termsFallbackLookups, lastTermsLookup.split(",").length,
+          termCountsLookups, termFallbackLookups, lastTermLookup);
     }
   }
 

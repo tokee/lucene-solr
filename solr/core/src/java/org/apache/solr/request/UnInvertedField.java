@@ -229,7 +229,7 @@ public class UnInvertedField extends DocTermOrds {
     if (!sparseKeys.sparse) { // Fallback to standard
       return termList == null ?
           getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, field, termList, baseDocs);
+          SimpleFacets.fallbackGetListedTermCounts(searcher, null, field, termList, baseDocs);
     }
 
     final int baseSize = baseDocs.size();
@@ -241,7 +241,7 @@ public class UnInvertedField extends DocTermOrds {
           + ", ordCount=" + termInstances);
       return termList == null ?
           getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, field, termList, baseDocs);
+          SimpleFacets.fallbackGetListedTermCounts(searcher, pool, field, termList, baseDocs);
     }
 
     pool.incSparseCalls();
@@ -262,7 +262,7 @@ public class UnInvertedField extends DocTermOrds {
           searcher, te, prefix, pool, baseDocs, sparseKeys, baseSize, maxDoc, probablyWithinCutoff);
       if (termList != null) {
         //return SimpleFacets.fallbackGetListedTermCounts(searcher, field, termList, baseDocs);
-        return extractSpecificCounts(countedTerms, termList, countedTerms.doNegative, baseDocs);
+        return extractSpecificCounts(countedTerms, pool, termList, countedTerms.doNegative, baseDocs);
       }
 
       final CharsRef charsRef = new CharsRef();
@@ -527,18 +527,20 @@ public class UnInvertedField extends DocTermOrds {
   }*/
 
   private NamedList<Integer> extractSpecificCounts(
-      CountedTerms countedTerms, String termList, boolean doNegative, DocSet docs) throws IOException {
+      CountedTerms countedTerms, SparseCounterPool pool, String termList, boolean doNegative, DocSet docs)
+      throws IOException {
+    pool.incTermsLookup(termList, true);
     FieldType ft = searcher.getSchema().getFieldType(field);
     List<String> terms = StrUtils.splitSmart(termList, ",", true);
     NamedList<Integer> res = new NamedList<>();
     for (String term : terms) {
       String internal = ft.toInternal(term);
-      long count = getTermCount(countedTerms, new BytesRef(internal), doNegative);
+      long count = getTermCount(countedTerms, pool, term, new BytesRef(internal), doNegative);
       if (count == -1) {
         count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
       }
       // Sad we have to use int
-      res.add(term, (int)count);
+      res.add(term, (int) count);
     }
     return res;
   }
@@ -548,28 +550,29 @@ public class UnInvertedField extends DocTermOrds {
    *
    * @param countedTerms counts for all terms in a field.
    * @param term         the term to get counts for.
-   * @param doNegative
+   * @param doNegative   if the counts should be subtracted from max count.
    * @return the count for the term or -1 if the term could not be located.
    * @throws IOException if the term could not be located.
    */
-  public long getTermCount(CountedTerms countedTerms, BytesRef term, boolean doNegative) throws IOException {
+  public long getTermCount(CountedTerms countedTerms, SparseCounterPool pool, String origTerm, BytesRef term,
+                           boolean doNegative) throws IOException {
+    // TODO: Can we remove this? Aren't the bigTerms counts presented in countedTerms at this point?
     for (TopTerm tt : bigTerms.values()) {
       if (tt.term.equals(term)) {
+        pool.incTermLookup(origTerm, false);
         return doNegative ?
             maxTermCounts[tt.termNum] - countedTerms.counts.get(tt.termNum) :
             countedTerms.counts.get(tt.termNum);
       }
     }
     long index = countedTerms.te.seekExact(term) ? countedTerms.te.ord() : -1;
-    if (index >= countedTerms.counts.size()) {
-      System.err.println("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + field + " was "
-          + index + " but the counts only went to ordinal " + countedTerms.counts.size());
-      return -1;
-    } else if (index < 0) {
-      System.err.println("DocValuesFacet.extractSpecificCounts: The ordinal for " + term + " in field " + field
-          + " could not be resolved precisely (was " + index + ")");
+    if (index < 0 || index >= countedTerms.counts.size()) {
+      System.err.println("UnInvertedField.getTermCount: ordinal for " + term + " in field " + field + " was "
+          + index + " but the counts only go from 0 to ordinal " + countedTerms.counts.size());
+      pool.incTermLookup(origTerm, false);
       return -1;
     }
+    pool.incTermLookup(origTerm, true);
     return doNegative ?
         maxTermCounts[(int)index] - countedTerms.counts.get((int) index) :
         countedTerms.counts.get((int) index);

@@ -273,6 +273,7 @@ public class TestRandomDVFaceting extends SolrTestCaseJ4 {
                  ,"facet.sparse.mintags", "1" // Force sparse
                  ,"facet.sparse.cutoff", "99999" // Force sparse
                  ,"facet.sparse.termlookup", "true" // Force sparse
+                 ,"facet.sparse.stats", "true" // Force sparse
                  ,"facet.field", "{!terms=" + UP + "10}" + FF
                  ,"facet.mincount","1"
                  )

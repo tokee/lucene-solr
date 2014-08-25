@@ -440,7 +440,11 @@ public class SimpleFacets {
   }
 
   public static NamedList<Integer> fallbackGetListedTermCounts(
-      SolrIndexSearcher searcher, String field, String termList, DocSet base) throws IOException {
+      SolrIndexSearcher searcher, SparseCounterPool pool, String field, String termList, DocSet base)
+      throws IOException {
+    if (pool != null) {
+      pool.incTermsLookup(termList, false);
+    }
     FieldType ft = searcher.getSchema().getFieldType(field);
     List<String> terms = StrUtils.splitSmart(termList, ",", true);
     NamedList<Integer> res = new NamedList<>();
@@ -448,6 +452,9 @@ public class SimpleFacets {
       String internal = ft.toInternal(term);
       int count = searcher.numDocs(new TermQuery(new Term(field, internal)), base);
       res.add(term, count);
+      if (pool != null) {
+        pool.incTermLookup(term, false);
+      }
     }
     return res;
   }
@@ -712,7 +719,7 @@ public class SimpleFacets {
     if (!sparseKeys.sparse) { // Fallback to standard
       return termList == null ?
           getFieldCacheCounts(searcher, docs, fieldName, offset, limit, mincount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, fieldName, termList, docs);
+          SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termList, docs);
     }
 
     // TODO: this function is too big and could use some refactoring, but
