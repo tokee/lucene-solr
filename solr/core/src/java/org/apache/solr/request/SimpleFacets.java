@@ -737,7 +737,9 @@ public class SimpleFacets {
       // Fallback to standard
       counterPool.incSkipCount("minCount=" + mincount + ", hits=" + hitCount + "/" + searcher.maxDoc()
           + ", terms=" + (si == null ? "N/A" : si.getValueCount()));
-      return getFieldCacheCounts(searcher, docs, fieldName, offset, limit, mincount, missing, sort, prefix);
+      return termList == null ?
+          getFieldCacheCounts(searcher, docs, fieldName, offset, limit, mincount, missing, sort, prefix) :
+          SimpleFacets.fallbackGetListedTermCounts(searcher, counterPool, fieldName, termList, docs);
     }
     counterPool.incSparseCalls();
     long sparseTotalTime = System.nanoTime();

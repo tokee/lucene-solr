@@ -688,7 +688,7 @@ public class DocValuesFacets {
     for (int ord = 1; ord < segCounts.length; ord++) {
       int count = segCounts[ord];
       if (count != 0) {
-        counts[1+(int) map.getGlobalOrd(subIndex, ord - 1)] += count;
+        counts[1+(int) map.getGlobalOrd(subIndex, ord - 1)] += count;      
       }
     }
   }
