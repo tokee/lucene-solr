@@ -112,6 +112,7 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     params.add(SparseKeys.CUTOFF, Double.toString(2.0));   // Force sparse
 
     QueryResponse results = clients.get(0).query(params);
+//    System.out.println(results);
     assertEquals("Count for alldocs should be #docs", DOCS, results.getFacetField(FF).getValues().get(0).getCount());
     // TODO: Add proper test for second phase counting instead of just seeing if the query completes
   }

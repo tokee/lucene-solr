@@ -99,7 +99,7 @@
     <fieldtype name="pdate" class="solr.DateField" sortMissingLast="true"/>
 
   <fieldType name="text" class="solr.TextField" positionIncrementGap="100" autoGeneratePhraseQueries="true" >
-      <analyzer type="index">
+    <analyzer type="index">
         <tokenizer class="solr.MockTokenizerFactory"/>
         <filter class="solr.StopFilterFactory"
                 ignoreCase="true"
@@ -416,6 +416,9 @@
     <!-- A specialized field for geospatial search. If indexed, this fieldType must not be multivalued. -->
     <fieldType name="location" class="solr.LatLonType" subFieldSuffix="_coordinate"/>
 
+    <!-- Removed docValuesFormat="Disk" for compatibility with 4.9 -->
+    <fieldType name="string_disk" class="solr.StrField" sortMissingLast="true"  />
+
  </types>
 
 
@@ -585,6 +588,8 @@
 
    <dynamicField name="*_dvm_s" type="string" indexed="true" stored="true" docValues="true" multiValued="true" />
    <dynamicField name="*_dvs_s" type="string" indexed="true" stored="true" docValues="true" multiValued="false" />
+
+   <field name="url" type="string_disk" indexed="true" stored="true" multiValued="false" docValues="true"/>
 
  </fields>
 
