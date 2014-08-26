@@ -88,8 +88,7 @@ public class SparseKeys {
    * If false, all sparse counters will be {@link SparseCounterInt}.
    */
   public static final String PACKED = "facet.sparse.packed";
-  // TODO: Change this to true when we are sure it is stable
-  public static boolean DEFAULT_PACKED = false;
+  public static boolean DEFAULT_PACKED = true;
 
   /**
    * If {@link #PACKED} is true, counters where the maximum value of any counter is <= 2^PACKED_BITLIMIT will be
