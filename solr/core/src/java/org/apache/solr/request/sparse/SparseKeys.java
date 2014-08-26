@@ -99,6 +99,7 @@ public class SparseKeys {
   public static int DEFAULT_PACKED_BITLIMIT = 24;
   /**
    * Setting this parameter to true will add a special tag with statistics. Only for patch testing!
+   * Note: The statistics are delayed when performing distributed faceting. They show the state from the previous call.
    */
   public static final String STATS = "facet.sparse.stats";
   /**
