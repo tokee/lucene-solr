@@ -570,7 +570,10 @@ public class UnInvertedField extends DocTermOrds {
       }
     }
     long index = countedTerms.te.seekExact(term) ? countedTerms.te.ord() : -1;
-    if (index < 0 || index >= countedTerms.counts.size()) {
+    if (index < 0) { // This is OK. Asking for a non-existing term is normal in distributed faceting
+      pool.incTermLookup(origTerm, false, System.nanoTime()-startTime);
+      return 0;
+    } else if(index >= countedTerms.counts.size()) {
       System.err.println("UnInvertedField.getTermCount: ordinal for " + term + " in field " + field + " was "
           + index + " but the counts only go from 0 to ordinal " + countedTerms.counts.size());
       pool.incTermLookup(origTerm, false, System.nanoTime()-startTime);

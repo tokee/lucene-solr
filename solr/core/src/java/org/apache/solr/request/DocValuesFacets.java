@@ -307,9 +307,12 @@ public class DocValuesFacets {
       long index = 1+si.lookupTerm(new BytesRef(term));
       // TODO: Remove err-out after sufficiently testing
       int count;
-      if (index < 0 || index >= counts.size()) {
+      if (index < 0) { // This is OK. Asking for a non-existing term is normal in distributed faceting
+        pool.incTermLookup(term, true, System.nanoTime()-startTime);
+        count = 0;
+      } else if(index >= counts.size()) {
         System.err.println("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + field + " was "
-            + index + " but the counts only go from 0 to ordinal " + counts.size());
+            + index + " but the counts only go from 0 to ordinal " + counts.size() + ". Switching to searcher.numDocs");
         count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
         pool.incTermLookup(term, false, System.nanoTime()-startTime);
       } else {

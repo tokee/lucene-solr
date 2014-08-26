@@ -912,13 +912,11 @@ public class SimpleFacets {
   private static long getTermCount(
       ValueCounter counts, SortedDocValues si, String field, BytesRef term) throws IOException {
     long index = si.lookupTerm(term);
-    if (index >= counts.size()) {
+    if (index < 0) { // This is OK. Asking for a non-existing term is normal in distributed faceting
+      return 0;
+    } else if(index >= counts.size()) {
       System.err.println("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + field + " was "
           + index + " but the counts only went to ordinal " + counts.size());
-      return -1;
-    } else if (index < 0) {
-      System.err.println("DocValuesFacet.extractSpecificCounts: The ordinal for " + term + " in field " + field
-          + " could not be resolved precisely (was " + index + ")");
       return -1;
     }
     return counts.get((int) index);
