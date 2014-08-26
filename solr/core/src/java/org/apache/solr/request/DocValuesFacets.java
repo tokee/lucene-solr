@@ -105,7 +105,7 @@ public class DocValuesFacets {
     }
 
     // TODO: Not sure if null-handling of ordinalMap is correct guessing of cutoff
-    final boolean probablySparse = minCount > 0 && si.getValueCount() >= sparseKeys.minTags &&
+    final boolean probablySparse = (minCount > 0 || termList != null) && si.getValueCount() >= sparseKeys.minTags &&
         (1.0 * hitCount / searcher.maxDoc()) *
             (ordinalMap == null ? si.getValueCount() : ordinalMap.getSegmentOrdinalsCount()) <
             sparseKeys.fraction * si.getValueCount() * sparseKeys.cutOff;

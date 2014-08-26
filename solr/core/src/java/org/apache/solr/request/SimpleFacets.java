@@ -729,7 +729,7 @@ public class SimpleFacets {
 
     SortedDocValues si = FieldCache.DEFAULT.getTermsIndex(searcher.getAtomicReader(), fieldName);
     int hitCount = docs.size();
-    final boolean probablySparse = mincount > 0 && si.getValueCount() >= sparseKeys.minTags &&
+    final boolean probablySparse = (mincount > 0 || termList != null) && si.getValueCount() >= sparseKeys.minTags &&
         (1.0 * hitCount / searcher.maxDoc()) < sparseKeys.fraction * sparseKeys.cutOff;
     if (!probablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
       // Fallback to standard
