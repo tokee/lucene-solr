@@ -871,7 +871,7 @@ public class SimpleFacets {
           res.add(charsRef.toString(), c);
         }
       }
-      counterPool.release(counts);
+      counterPool.release(counts, sparseKeys);
     }
 
     if (missing) {

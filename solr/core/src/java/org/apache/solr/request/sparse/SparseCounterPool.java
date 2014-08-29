@@ -19,6 +19,7 @@ package org.apache.solr.request.sparse;
 import org.apache.lucene.util.packed.PackedInts;
 
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
@@ -51,12 +52,16 @@ import java.util.concurrent.ThreadPoolExecutor;
  */
 @SuppressWarnings("NullableProblems")
 public class SparseCounterPool {
+  // TODO: Consider moving cleaning threads to a thread pool shared between all SparseCounterPools
   // Number of threads for background cleaning. If this is 0, cleans will be performed directly in {@link #release}.
   public static final int DEFAULT_CLEANING_THREADS = 1;
 
   private int max;
+  // ValueCounters with contentKey == null are inserted at the end of the list,
+  // ValueCounters with contentKeys defined are inserted at the start.
+  // If a ValueCounter's contentKey is null, it is assumed to be clean.
   private final List<ValueCounter> pool;
-  private String key = null;
+  private String structureKey = null;
 
   // Pool stats
   private long reuses = 0;
@@ -85,6 +90,9 @@ public class SparseCounterPool {
   String lastTermLookup = "N/A";
   long termCountsLookups = 0;
   long termFallbackLookups = 0;
+
+  long cacheHits = 0;
+  long cacheNoCleared = 0;
 
   long termTotalCountTime = 0;
   long termTotalFallbackTime = 0;
@@ -115,7 +123,7 @@ public class SparseCounterPool {
 
   public SparseCounterPool(int maxPoolSize) {
     this.max = maxPoolSize;
-    pool =  new ArrayList<ValueCounter>();
+    pool =  new LinkedList<>();
   }
 
   /**
@@ -146,12 +154,29 @@ public class SparseCounterPool {
       throw new IllegalStateException("Attempted to request sparse counter with maxCountForAny=" + maxCountForAny);
     }
     try {
-      String acquireKey = getKey(counts, maxCountForAny, sparseKeys);
+      String structureKey = createStructureKey(counts, maxCountForAny, sparseKeys);
+      ValueCounter vc = null;
       synchronized (this) {
-        if (key != null && key.equals(acquireKey) && !pool.isEmpty()) {
+        if (this.structureKey != null && this.structureKey.equals(structureKey) && !pool.isEmpty()) {
           reuses++;
-          return pool.remove(pool.size()-1);
+          //  TODO: If sparseKeys.cackeToken == null, we should take the last element directly
+          for (int i = 0 ; i < pool.size() ; i++) {
+            vc = pool.get(i);
+            if (vc.getContentKey() != null && vc.getContentKey().equals(sparseKeys.cacheToken)) {
+              cacheHits++;
+              return pool.remove(i);
+            } else if (vc.getContentKey() == null) {
+              return pool.remove(i);
+            }
+          }
+          // Unable to locate a matching vc or a clean vc. Just take the last one and clean it
+          cacheNoCleared++;
+          vc = pool.get(pool.size()-1);
         }
+      }
+      if (vc != null) {
+        vc.clear();
+        return vc;
       }
       return getCounter(counts, maxCountForAny, sparseKeys);
     } finally {
@@ -159,7 +184,7 @@ public class SparseCounterPool {
     }
   }
 
-  private String getKey(int counts, long maxCountForAny, SparseKeys sparseKeys) {
+  private String createStructureKey(int counts, long maxCountForAny, SparseKeys sparseKeys) {
     return usePacked(counts, maxCountForAny, sparseKeys) ?
         SparseCounterPacked.getID(
             counts, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked) :
@@ -183,31 +208,33 @@ public class SparseCounterPool {
       return new SparseCounterPacked(
           counts, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
     }
-    return new SparseCounterInt(counts, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
+    return new SparseCounterInt(
+        counts, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
   }
 
 
   /**
-   * Release a counter after use. The counter should not be cleared before release as this is handled by
-   * the SparseCounterPool itself.
+   * Release a counter after use. Depending on the sparseKeys, the counter might be cached as-is or cleared before being added to the pool.
    * </p><p>
-   * If {@link #getCleaningThreads} is >= 1, the cleaning will be performed in the background and the method
-   * will return immediately. If there are 0 cleaning threads, the cleaning will be done up front and the method
+   * If {@link #getCleaningThreads} is >= 1, cleaning will be performed in the background and the method
+   * will return immediately. If there are 0 cleaning threads and a cleaning is needed,it will be done up front and the method
    * will return after it has finished. Cleaning time is proportional to the number of updated counters.
    * @param counter a used counter.
+   *  @param sparseKeys the facet keys associated with the counter.
    */
-  public void release(ValueCounter counter) {
+  public void release(ValueCounter counter, SparseKeys sparseKeys) {
     // Initial fast sanity check and potential pool cleaning
     synchronized (this) {
       if (counter.explicitlyDisabled()) {
         disables++;
       }
-      if (key != null && !counter.getKey().equals(key)) {
+      if (structureKey != null && !counter.getStructureKey().equals(structureKey)) {
         // Setup changed, clear all!
         pool.clear();
-        key = null;
+        structureKey = null;
       }
       if (pool.size() + cleaner.getQueue().size() >= max) {
+        // TODO: If sparseKey.reuseLikely then remove last (is any) and insert in beginning
         // Pool full and/or too many counters in clean queue; just release the counter to GC
         frees++;
         return;
@@ -233,13 +260,13 @@ public class SparseCounterPool {
    */
   private void releaseCleared(ValueCounter counter) {
     synchronized (this) {
-      if (key != null && !counter.getKey().equals(key) || pool.size() >= max) {
+      if (structureKey != null && !counter.getStructureKey().equals(structureKey) || pool.size() >= max) {
         // Setup changed or pool full. Skip insert!
         frees++;
         return;
       }
       pool.add(counter);
-      key = counter.getKey();
+      structureKey = counter.getStructureKey();
     }
   }
 
@@ -266,7 +293,7 @@ public class SparseCounterPool {
   }
 
   /**
-   * 0 cleaning threads means that cleaning will be performed upon {@link #release(ValueCounter)}.
+   * 0 cleaning threads means that cleaning will be performed upon {@link #release}.
    * @return the amount of Threads used for cleaning counters in the background.
    */
   public int getCleaningThreads() {
@@ -274,7 +301,7 @@ public class SparseCounterPool {
   }
 
   /**
-   * 0 cleaning threads means that cleaning will be performed upon {@link #release(ValueCounter)}.
+   * 0 cleaning threads means that cleaning will be performed upon {@link #release}.
    * @param threads the amount of threads used for cleaning counters in the background.
    */
   public void setCleaningThreads(int threads) {
@@ -290,7 +317,7 @@ public class SparseCounterPool {
     synchronized (this) {
       pool.clear();
       // TODO: Find a clean way to remove non-started tasks from the cleaner
-      key = "discardResultsFromBackgroundClears";
+      structureKey = "discardResultsFromBackgroundClears";
       reuses = 0;
       allocations = 0;
       packedAllocations = 0;
@@ -316,6 +343,9 @@ public class SparseCounterPool {
       lastTermLookup = "N/A";
       termCountsLookups = 0;
       termFallbackLookups = 0;
+
+      cacheHits = 0;
+      cacheNoCleared = 0;
 
       termTotalCountTime = 0;
       termTotalFallbackTime = 0;
