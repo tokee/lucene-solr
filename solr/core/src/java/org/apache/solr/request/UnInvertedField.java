@@ -358,7 +358,7 @@ public class UnInvertedField extends DocTermOrds {
           res.add(label, c);
         }
       }
-      pool.release(countedTerms.counts);
+      pool.release(countedTerms.counts, sparseKeys);
     }
 
 

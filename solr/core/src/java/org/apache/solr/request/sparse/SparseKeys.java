@@ -147,6 +147,18 @@ public class SparseKeys {
 
   final public boolean skipRefinement;
 
+  /**
+   * If this is non-null, the token unambigiously designates the params defining the counts for the facet.
+   * This is used directly with {@link ValueCounter#getStructureKey()} for caching.
+   */
+  final public String cacheToken;
+  /**
+   * If true,  there is a high probability that the faceting result will be re-used at some later time.
+   * If true, {@link #cacheToken} must be non-null for caching to occur.
+   * This is used as a flag for facet caches and is only true if this is the first part of a distributed facet call where a second call might follow.
+   */
+  final public boolean reuseLikely;
+
   final public boolean showStats;
   final public boolean resetStats;
 
@@ -169,6 +181,10 @@ public class SparseKeys {
     poolMaxCount = params.getInt(POOL_MAX_COUNT, POOL_MAX_COUNT_DEFAULT);
 
     skipRefinement = params.getBool(SKIPREFINEMENTS, SKIPREFINEMENTS_DEFAULT);
+
+    // TODO: Set cache token
+    cacheToken = null;
+    reuseLikely = false;
 
     showStats = params.getFieldBool(field, STATS, false);
     resetStats = params.getFieldBool(field, STATS_RESET, false);

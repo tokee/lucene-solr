@@ -41,6 +41,8 @@ public class SparseCounterPacked implements ValueCounter {
   private final long maxCountTracked;   // if any count reaches this number, it is not tracked anymore. For performance.
   private boolean explicitlyDisabled = false;
 
+  private String contentKey = null;
+
   /**
    * @param counts            the number of counts to track.
    * @param maxCountForAny    the maximum amount any count can reach.
@@ -83,19 +85,19 @@ public class SparseCounterPacked implements ValueCounter {
    * @return a key derived from the construction parameters. Used to group compatible SparseCounters.
    */
   @Override
-  public String getKey() {
+  public String getStructureKey() {
     //return SparseCounter.getID(counts.size(), maxCountForAny, minCountsForSparse, fraction);
     return SparseCounterPacked.getID(counts.size(), maxCountForAny, minCountsForSparse, fraction, maxCountTracked);
   }
 
   @Override
   public boolean equals(Object obj) {
-    return obj == null || !(obj instanceof SparseCounterPacked) || !((SparseCounterPacked)obj).getKey().equals(getKey());
+    return obj == null || !(obj instanceof SparseCounterPacked) || !((SparseCounterPacked)obj).getStructureKey().equals(getStructureKey());
   }
 
   @Override
   public int hashCode() {
-    return getKey().hashCode();
+    return getStructureKey().hashCode();
   }
 
   /**
@@ -173,6 +175,16 @@ public class SparseCounterPacked implements ValueCounter {
   @Override
   public int size() {
     return counts.size();
+  }
+
+  @Override
+  public String getContentKey() {
+    return contentKey;
+  }
+
+  @Override
+  public void setContentKey(String contentKey) {
+    this.contentKey = contentKey;
   }
 
   /**

@@ -53,14 +53,26 @@ public interface ValueCounter {
   long get(int counter);
 
   /**
-   * Set all values to 0.
+   * Set all values except structureKey to 0. This includes contentKey.
    */
   void clear();
 
   /**
-   * @return a key unique for the initial setup of the counter. Not changes when the counters are updated.
+   * @return a key unique for the initial setup of the counter. Does not not change when the counters are updated.
    */
-  String getKey();
+  String getStructureKey();
+
+  /**
+   * @return a key unambigiously designating the state of the counters or null if the ValueCounter is empty or should be cleaned.
+   * Used for cache lookup.
+   */
+  String getContentKey();
+
+  /**
+   * @param contentKey unambigiously designates the state of the counters or null if the ValueCounter should be cleaned.
+   * Used for cache lookup.
+   */
+  void setContentKey(String contentKey);
 
   /**
    * @return the number of individual counters, regardless of their value.

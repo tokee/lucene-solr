@@ -197,7 +197,7 @@ public class DocValuesFacets {
         try {
           return extractSpecificCounts(searcher, pool, si, fieldName, docs, counts, termList);
         } finally  {
-          pool.release(counts);
+          pool.release(counts, sparseKeys);
         }
       }
 
@@ -286,7 +286,7 @@ public class DocValuesFacets {
           res.add(charsRef.toString(), c);
         }
       }
-      pool.release(counts);
+      pool.release(counts, sparseKeys);
     }
 
     pool.incTotalTime(System.nanoTime() - sparseTotalTime);
