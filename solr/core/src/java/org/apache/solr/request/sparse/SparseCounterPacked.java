@@ -197,26 +197,45 @@ public class SparseCounterPacked implements ValueCounter {
     return counts.get(counter);
   }
 
+  // This code should be kept in sync with SparseCounterInt.iterate
   @Override
   public boolean iterate(
       final int start, final int end, final int minValue, boolean doNegative, final Callback callback) {
-    if (tracksPos == tracksMax || minValue == 0 | doNegative) { // Not sparse or all values
+    if (start < 0 || end > size()) {
+      throw new ArrayIndexOutOfBoundsException(String.format(
+          "iterate(start=%d, end=%d, minValue=%d, callback) called on counter with size=%d",
+          start, end, minValue, size()));
+    }
+
+    if (tracksPos == tracksMax || doNegative) { // Not sparse or very big (normally the same thing)
       callback.setOrdered(true);
       for (int counter = start ; counter < end ; counter++) {
         final long value = counts.get(counter);
-        if (value >= minValue) {
+        if (doNegative || value >= minValue) {
           callback.handle(counter, value);
         }
       }
       return false;
     }
+
     // Sparse
     callback.setOrdered(false);
+    boolean filled = false;
     for (int t = 0 ; t < tracksPos ; t++) {
       final int counter = tracker[t];
       long value = counts.get(counter);
       if (counter >= start && counter <= end && value >= minValue) {
-        callback.handle(counter, value);
+        filled |= callback.handle(counter, value);
+      }
+    }
+    if (minValue == 0 && !filled) { // We need a second iteration to get enough 0-count values to fill the callback
+      for (int counter = start ; counter < end ; counter++) {
+        final long value = counts.get(counter);
+        if (value == 0 && counter >= start && counter <= end) {
+          if (callback.handle(counter, value)) {
+            break;
+          }
+        }
       }
     }
     return true;
