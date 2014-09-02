@@ -119,8 +119,10 @@ public interface ValueCounter {
      * Every counter/value pair matching the setup given to {@link #iterate} will result in a call to this method.
      * @param counter a counter matching the iterate criteria.
      * @param value   the value for the counter.
+     * @return true if the call resulted in another  value being dropped from the receiving structure. This is used for optimization purposes
+     * when iterating with minCount==0.
      */
-    void handle(int counter, long value);
+    boolean handle(int counter, long value);
   }
 
   /**
@@ -133,13 +135,26 @@ public interface ValueCounter {
     private final LongPriorityQueue queue;
     private boolean isOrdered = false;
 
-    public TopCallback(int min, LongPriorityQueue queue) {
-      this.maxTermCounts = null;
-      this.min = min;
-      this.doNegative = false;
-      this.queue = queue;
-    }
+    /**
+      * Creates a basic callback where only the values >= min are considered.
+      * @param min      the starting min value.
+      * @param queue   the destination of the values of the counters.
+      */
+     public TopCallback(int min, LongPriorityQueue queue) {
+       this.maxTermCounts = null;
+       this.min = min;
+       this.doNegative = false;
+       this.queue = queue;
+     }
 
+     /**
+       * A callback that handles "negative counts". If doNegative is true, the value of the counter is subtracted from the corresponding entry in
+      * maxTermCounts. This is used to speed up processing of large facet results,
+       * @param maxTermCounts 1:1 correspondence with the counter list.
+       * @param min      the starting min value.
+       * @param doNegative if true, the value of a counter is considered to be {@code maxTermCounts[index]-counter[index]}.
+       * @param queue   the destination of the values of the counters.
+       */
     public TopCallback(int[] maxTermCounts, int min, boolean doNegative, LongPriorityQueue queue) {
       this.maxTermCounts = maxTermCounts;
       this.min = min;
@@ -153,20 +168,23 @@ public interface ValueCounter {
     }
 
     @Override
-    public final void handle(final int counter, final long value) {
+    public final boolean handle(final int counter, final long value) {
       final int c = (int) (doNegative ? maxTermCounts[counter] - value : value);
       if (isOrdered ? c > min : c>=min) {
         // NOTE: Using > only works when the results are delivered in order.
         // The ordered uses c>min rather than c>=min as an optimization because we are going in
         // index order, so we already know that the keys are ordered.  This can be very
         // important if a lot of the counts are repeated (like zero counts would be).
-        // TODO: The order is not guaranteed with SparseCounter
 
         // smaller term numbers sort higher, so subtract the term number instead
         final long pair = (((long)c)<<32) + (Integer.MAX_VALUE - counter);
         //boolean displaced = queue.insert(pair);
-        if (queue.insert(pair)) min=(int)(queue.top() >>> 32);
+        if (queue.insert(pair)) {
+          min=(int)(queue.top() >>> 32);
+          return true;
+        }
       }
+      return false;
     }
   }
 }
