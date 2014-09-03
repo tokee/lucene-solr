@@ -1922,6 +1922,55 @@ public class SimpleFacetsTest extends SolrTestCaseJ4 {
              );
   }
 
+  /** Tests whether the sparse faceting is capable of returning terms with count 0
+   */
+  public void testSparseZero() {
+    int DOCS = 1000;
+    final String FF = "distz_s";
+
+    for (int i = 0; i < DOCS; i++) {
+      // *_s = multi string, *_s1 = single string
+      assertU(adoc("id", Integer.toString(10000 + i), FF, "uniqueTerm" + i, FF, "mod10Term" + i % 10));
+    }
+    assertU(commit());
+    final String pre = "//lst[@name='" + FF + "']";
+
+    // Non-sparse with zeroes
+    assertQ("test plain facet request",
+             req("q", "id:10002"
+                 ,"facet", "true"
+                 ,"facet.sparse", "false"
+                 ,"facet.field", FF
+                 ,"facet.limit", "12"
+                 ,"facet.mincount", "0"
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=12]"
+             ,pre+"/int[1][@name='mod10Term2'][.='1']"
+             ,pre+"/int[2][@name='uniqueTerm2'][.='1']"
+             ,pre+"/int[12][@name='uniqueTerm0'][.='0']"
+             );
+    // Sparse with zeroes
+    assertQ("test plain facet request",
+             req("q", "id:10002"
+                 ,"facet", "true"
+                 ,"facet.field", FF
+                 ,"facet.limit", "12"
+                 ,"facet.mincount", "0"
+                 ,"facet.sparse", "true"
+                 ,"facet.sparse.mintags", "1" // Force sparse
+                 ,"facet.sparse.cutoff", "99999" // Force sparse
+                 ,"facet.sparse.termlookup", "true" // Force sparse
+                 ,"facet.sparse.stats", "true" // Check if sparse really is enabled
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=13]"
+             ,pre+"/int[1][@name='mod10Term2'][.='1']"
+             ,pre+"/int[2][@name='uniqueTerm2'][.='1']"
+             ,pre+"/int[12][@name='uniqueTerm0'][.='0']"
+             );
+    // TODO: Add proper check for sparse run
+    // TODO: Also make unit test for sililar call with DoCValues
+  }
+
   @Test
   /**
    * As we can only semi-reliably measure faceting performance on a large corpus, this test takes quite a while
