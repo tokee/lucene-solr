@@ -609,7 +609,7 @@ public class UnInvertedField extends DocTermOrds {
 
   private boolean isProbablyWithinCutoff(Integer mincount, int baseSize, SparseKeys sparseKeys) {
     final int maxDoc = searcher.maxDoc();
-    return mincount > 0 &&  numTermsInField >= sparseKeys.minTags &&
+    return numTermsInField >= sparseKeys.minTags &&
       (1.0 * baseSize / maxDoc) * termInstances < sparseKeys.fraction * numTermsInField * sparseKeys.cutOff;
   }
 
