@@ -43,6 +43,22 @@ public class SparseKeys {
   public static int MINTAGS_DEFAULT = 10*1000;
 
   /**
+   * Only valid with distributed sparse faceting (facet.sparse == true and multiple shards). This parameter defines the maximum value used
+   * for minCount when issuing the first phase calls to the shards.
+   * </p><p>
+   * If minCount == 0, the shards spend a bit of extra time resolving facet values that might not be needed.
+   * However, returning 0-count values might avoid a second call to the shard. This is always true if all shards has the same
+   * values in the facet field and if the number of unique values is below {@code initialLimit*1.5+10}.
+   * The chances of second-call avoidance falls when the number of unique values rises.
+   * Consequently using minCount == 0 should be avoided for medium- to high-cardinality fields.
+   * Rule of thumb: Don't use minCount == 0 with more than 100 unique values in the field.
+   * </p><p>
+   * Sane values are 0 or 1. Default is 1.
+   */
+  public static final String MAXMINCOUNT = "facet.sparse.maxmincount";
+  public static final int MAXMINCOUNT_DEFAULT = 1;
+
+  /**
    * If true, the secondary refinement phase of distributed faceting will be skipped.
    * This speeds up distributed faceting, but removes the guaranteed correct facet term counts.
    */
