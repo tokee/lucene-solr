@@ -239,9 +239,13 @@ public class FacetComponent extends SearchComponent
             if (dff.limit > 0) {
               // set the initial limit higher to increase accuracy
               dff.initialLimit = (int)(dff.initialLimit * 1.5) + 10;
-//              dff.initialMincount = 0;      // TODO: we could change this to 1, but would then need more refinement for small facet result sets?
-              // When mincount > 0, it never makes sense to make distributed requests with mincount=0
-              dff.initialMincount = Math.min(dff.minCount, 1);
+              // minCount==0 is best for fields with few unique values and minCount==1 is best for higher cardinality fields.
+              // See the JavaDoc for SparseKeys#MINMAXCOUNT for details.
+              dff.initialMincount = Math.min(
+                  dff.minCount,
+                  sreq.params.getFieldBool(dff.field, SparseKeys.SPARSE, SparseKeys.SPARSE_DEFAULT) ?
+                      sreq.params.getFieldInt(dff.field, SparseKeys.MAXMINCOUNT, SparseKeys.MAXMINCOUNT_DEFAULT) :
+                      0);
             } else {
               // if limit==-1, then no need to artificially lower mincount to 0 if it's 1
               dff.initialMincount = Math.min(dff.minCount, 1);
