@@ -144,7 +144,13 @@ public class SparseKeys {
    */
   public static final String FALLBACK_BASE = "facet.sparse.fallbacktobase";
   public static boolean FALLBACK_BASE_DEFAULT = true;
-  
+
+  /**
+   * If defined, the current request is part of distributed faceting. The cachetoken uniquely defines the bitset used for filling the counters
+   * and can be used as key when caching the counts.
+   */
+  public static final String CACHE_TOKEN = "facet.sparse.cachetoken";
+
   final public String field;
   
   final public boolean sparse;
@@ -168,12 +174,6 @@ public class SparseKeys {
    * This is used directly with {@link ValueCounter#getStructureKey()} for caching.
    */
   final public String cacheToken;
-  /**
-   * If true,  there is a high probability that the faceting result will be re-used at some later time.
-   * If true, {@link #cacheToken} must be non-null for caching to occur.
-   * This is used as a flag for facet caches and is only true if this is the first part of a distributed facet call where a second call might follow.
-   */
-  final public boolean reuseLikely;
 
   final public boolean showStats;
   final public boolean resetStats;
@@ -198,9 +198,7 @@ public class SparseKeys {
 
     skipRefinement = params.getBool(SKIPREFINEMENTS, SKIPREFINEMENTS_DEFAULT);
 
-    // TODO: Set cache token
-    cacheToken = null;
-    reuseLikely = false;
+    cacheToken = params.get(CACHE_TOKEN, null);
 
     showStats = params.getFieldBool(field, STATS, false);
     resetStats = params.getFieldBool(field, STATS_RESET, false);

@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 import org.apache.lucene.util.FixedBitSet;
 import org.apache.solr.common.SolrException;
@@ -43,6 +44,7 @@ import org.apache.solr.request.sparse.SparseKeys;
 import org.apache.solr.schema.FieldType;
 import org.apache.solr.search.QueryParsing;
 import org.apache.solr.search.SyntaxError;
+import org.apache.solr.util.SystemIdResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,6 +68,7 @@ public class FacetComponent extends SearchComponent
     if (rb.req.getParams().getBool(FacetParams.FACET,false)) {
       rb.setNeedDocSet( true );
       rb.doFacets = true;
+
     }
   }
 
@@ -106,6 +109,13 @@ public class FacetComponent extends SearchComponent
   public int distributedProcess(ResponseBuilder rb) throws IOException {
     if (!rb.doFacets) {
       return ResponseBuilder.STAGE_DONE;
+    }
+
+    // We only want to set this for distributes calls. Is this the right place?
+    if (rb.req.getParams().get(SparseKeys.CACHE_TOKEN, null) == null) {
+      ModifiableSolrParams newParams = new ModifiableSolrParams(rb.req.getParams());
+      newParams.set(SparseKeys.CACHE_TOKEN, generateSparseCacheToken());
+      rb.req.setParams(newParams);
     }
 
     if (rb.stage == ResponseBuilder.STAGE_GET_FIELDS) {
@@ -209,12 +219,21 @@ public class FacetComponent extends SearchComponent
     return ResponseBuilder.STAGE_DONE;
   }
 
+  /**
+   * @return a guaranteed unique value, intended as key for caching.
+   */
+  private String generateSparseCacheToken() {
+    return Long.toHexString(cacheTokenCounter++); // TODO: Create a non-chance-dependent unique token
+  }
+  private long cacheTokenCounter = new Random().nextLong();
+
   @Override
   public void modifyRequest(ResponseBuilder rb, SearchComponent who, ShardRequest sreq) {
     if (!rb.doFacets) return;
 
     if ((sreq.purpose & ShardRequest.PURPOSE_GET_TOP_IDS) != 0) {
         sreq.purpose |= ShardRequest.PURPOSE_GET_FACETS;
+
 
         FacetInfo fi = rb._facetInfo;
         if (fi == null) {
@@ -238,14 +257,17 @@ public class FacetComponent extends SearchComponent
           if (dff.sort.equals(FacetParams.FACET_SORT_COUNT)) {
             if (dff.limit > 0) {
               // set the initial limit higher to increase accuracy
-              dff.initialLimit = (int)(dff.initialLimit * 1.5) + 10;
+              dff.initialLimit = (int) (dff.initialLimit * 1.5) + 10;
               // minCount==0 is best for fields with few unique values and minCount==1 is best for higher cardinality fields.
               // See the JavaDoc for SparseKeys#MINMAXCOUNT for details.
-              dff.initialMincount = Math.min(
-                  dff.minCount,
-                  sreq.params.getFieldBool(dff.field, SparseKeys.SPARSE, SparseKeys.SPARSE_DEFAULT) ?
-                      sreq.params.getFieldInt(dff.field, SparseKeys.MAXMINCOUNT, SparseKeys.MAXMINCOUNT_DEFAULT) :
-                      0);
+
+              if (sreq.params.getFieldBool(dff.field, SparseKeys.SPARSE, SparseKeys.SPARSE_DEFAULT)) {
+                dff.initialMincount = Math.min(
+                    dff.minCount,
+                    sreq.params.getFieldInt(dff.field, SparseKeys.MAXMINCOUNT, SparseKeys.MAXMINCOUNT_DEFAULT));
+              } else {
+                dff.initialMincount = Math.min(dff.minCount, 0);
+              }
             } else {
               // if limit==-1, then no need to artificially lower mincount to 0 if it's 1
               dff.initialMincount = Math.min(dff.minCount, 1);
