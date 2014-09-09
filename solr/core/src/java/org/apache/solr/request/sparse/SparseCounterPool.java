@@ -18,7 +18,6 @@ package org.apache.solr.request.sparse;
 
 import org.apache.lucene.util.packed.PackedInts;
 
-import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -37,13 +36,16 @@ import java.util.concurrent.ThreadPoolExecutor;
  * clear & re-use structures instead. This is especially true for sparse structures, where the clearing time
  * is proportional to the number of previously updated counters.
  * </p><p>
- * The pool has a fixed maximum limit. If there is not cleaned counters available when requested, a new one
- * will be created. Ig the pool has reached maximum size and a counter is released, the counter is de-referenced,
+ * The pool has a fixed maximum limit. If there are no cleaned counters available when requested, a new one
+ * will be created. If the pool has reached maximum size and a counter is released, the counter is de-referenced,
  * removing it from the heap. It is advisable to set the pool size to a bit more than the number of concurrent
  * faceted searches, to avoid new allocations.
  * </p><p>
  * Setting the pool size very high has the adverse effect of a constant heap overhead, dictated by the maximum
  * number of concurrent facet requests encountered since last index (re)open.
+ * </p><p>
+ * The pool consists of a mix of empty (ready for any use) and filled (cached for re-use) counters. If the amount
+ * of empty counters gets below the stated threshold, filled counters are cleaned and inserted af empty.
  * </p><p>
  * Default behaviour for the pool is to perform counter clearing in 1 background thread, as this makes it possible
  * to provide a facet result to the caller faster. This can be controlled with {@link #setCleaningThreads(int)}.
@@ -57,6 +59,7 @@ public class SparseCounterPool {
   public static final int DEFAULT_CLEANING_THREADS = 1;
 
   private int max;
+  private int minEmpty;
   // ValueCounters with contentKey == null are inserted at the end of the list,
   // ValueCounters with contentKeys defined are inserted at the start.
   // If a ValueCounter's contentKey is null, it is assumed to be clean.
@@ -119,7 +122,7 @@ public class SparseCounterPool {
 
 
   // Used for synchnization of statistics counters
-  private final Object scSync = new Object();
+  private final Object statSync = new Object();
 
   public SparseCounterPool(int maxPoolSize) {
     this.max = maxPoolSize;
@@ -353,57 +356,57 @@ public class SparseCounterPool {
   }
 
   public void incSparseCalls() {
-    synchronized (scSync) {
+    synchronized (statSync) {
       sparseCalls++;
     }
   }
   public void incSkipCount(String reason) {
-    synchronized (scSync) {
+    synchronized (statSync) {
       skipCount++;
     }
     lastSkipReason = reason;
   }
   public void incWithinCount() {
-    synchronized (scSync) {
+    synchronized (statSync) {
       withinCutoffCount++;
     }
   }
   public void incExceededCount() {
-    synchronized (scSync) {
+    synchronized (statSync) {
       exceededCutoffCount++;
     }
   }
   private void incAllocateTime(long delta) {
-    synchronized (scSync) {
+    synchronized (statSync) {
       sparseAllocateTime += delta;
     }
   }
   // Nanoseconds
   public void incCollectTime(long delta) {
-    synchronized (scSync) {
+    synchronized (statSync) {
       sparseCollectTime += delta;
     }
   }
   // Nanoseconds
   public void incExtractTime(long delta) {
-    synchronized (scSync) {
+    synchronized (statSync) {
       sparseExtractTime += delta;
     }
   }
   private void incClearTime(long delta) {
-    synchronized (scSync) {
+    synchronized (statSync) {
       sparseClearTime += delta;
     }
   }
   // Nanoseconds
   public void incTotalTime(long delta) {
-    synchronized (scSync) {
+    synchronized (statSync) {
       sparseTotalTime += delta;
     }
   }
   public void incTermsLookup(String terms, boolean countsStructure) {
     lastTermsLookup = terms;
-    synchronized (scSync) {
+    synchronized (statSync) {
       if (countsStructure) {
         termsCountsLookups++;
       } else {
@@ -414,7 +417,7 @@ public class SparseCounterPool {
   // Nanoseconds
   public void incTermLookup(String term, boolean countsStructure, long time) {
     lastTermLookup = term;
-    synchronized (scSync) {
+    synchronized (statSync) {
       if (countsStructure) {
         termCountsLookups++;
         termTotalCountTime += time;
