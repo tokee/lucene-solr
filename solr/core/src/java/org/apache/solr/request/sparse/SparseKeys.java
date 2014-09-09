@@ -124,6 +124,7 @@ public class SparseKeys {
 
   /**
    * The maximum amount of pools to hold in the {@link org.apache.solr.request.sparse.SparseCounterPoolController}.
+   * Each pool is associated with an unique field in the index.
    * Optional. Default is unlimited.
    */
   public static final String POOL_MAX_COUNT = "facet.sparse.pools.max";
@@ -131,10 +132,19 @@ public class SparseKeys {
 
   /**
    * Maximum number of counters to store for re-use for each field.
-   * Default is 2. Setting this to 0 disables re-use.
+   * Optional. Default is 2. Setting this to 0 disables re-use.
    */
   public static final String POOL_SIZE = "facet.sparse.pool.size";
   public static int POOL_SIZE_DEFAULT = 2;
+
+  /**
+   * The ideal minimum of empty counters in the pool. If the content drops below this limit, the pool might clear
+   * existing filled counters or allocate new ones.
+   * </p><p>
+   * Optional. Default is 1.
+   */
+  public static final String POOL_MIN_EMPTY = "facet.sparse.pool.minempty";
+  public static int POOL_MIN_EMPTY_DEFAULT = 1;
 
   /**
    * If true, queries that activates non-sparseness will be redirected to the standard Solr facet implementations.
