@@ -23,17 +23,17 @@ public class SparseKeys {
    * If true, sparse facet counting is enabled.
    */
   public static final String SPARSE = "facet.sparse";
-  public static boolean SPARSE_DEFAULT = false;
+  public static boolean SPARSE_DEFAULT = true;
 
   /**
    * If true, sparse facet term lookup is enabled (if SPARSE == true). Term lookup is used by the second phase in
    * distributed faceting and is normally performed like facet.method=enum. With this option enabled, faceting calls
    * that qualifies as sparse will use the sparse implementation for resolving counts for terms.
    * </p><p>
-   * Highly experimental as of 20140821. Enable with care!
+   * Seems to work as of 20140909 and the whole sparse-thing is experimental anyway, so default is true.
    */
   public static final String TERMLOOKUP = "facet.sparse.termlookup";
-  public static boolean TERMLOOKUP_DEFAULT = false;
+  public static boolean TERMLOOKUP_DEFAULT = true;
 
   /**
    * The minimum number of tags in a sparse counter. If there are less tags than this, sparse will be disabled for
@@ -150,10 +150,11 @@ public class SparseKeys {
    * If true, queries that activates non-sparseness will be redirected to the standard Solr facet implementations.
    * If false, non-sparseness will be handled inside the sparse framework, which includes cached counters.
    * </p><p>
-   * Setting this to false is likely to result in lower performance.
+   * Setting this to true will give better performance in a distributed setting,
+   * while false works slightly better for single-chard.
    */
   public static final String FALLBACK_BASE = "facet.sparse.fallbacktobase";
-  public static boolean FALLBACK_BASE_DEFAULT = true;
+  public static boolean FALLBACK_BASE_DEFAULT = false;
 
   /**
    * If defined, the current request is part of distributed faceting. The cachetoken uniquely defines the bitset used for filling the counters
