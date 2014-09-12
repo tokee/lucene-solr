@@ -31,12 +31,47 @@
     <!-- MAIN CONTENT -->
     <div id="main_content_wrap" class="outer">
       <section id="main_content" class="inner">
-        <h3>
-<a name="sparse-faceting-for-solr" class="anchor" href="#sparse-faceting-for-solr"><span class="octicon octicon-link"></span></a>Sparse faceting for Solr</h3>
+        <h2>
+<a name="sparse-faceting-for-solr" class="anchor" href="#sparse-faceting-for-solr"><span class="octicon octicon-link"></span></a>Sparse faceting for Solr</h2>
 
 <p>This project is for the <a href="https://issues.apache.org/jira/browse/SOLR-5894">SOLR-5894</a> patch.</p>
 
-<p>Sparse faceting is used with high-cardinality String fields, such as <em>author</em> or <em>title</em>. Standard Solr <em>fc</em>-faceting scales with the (variable) result size as well as the (fixed) number of unique values in the facet fields. Sparse faceting scales with the result size only, meaning that the smaller the result set is, the faster faceting will be. For single-shard indexes, sparse is faster when the result set is &lt; ~8% of the total number of documents in the index. For multi-shard indexes, the cut-off point is higher than that.</p>
+<h3>
+<a name="elevator-pitch" class="anchor" href="#elevator-pitch"><span class="octicon octicon-link"></span></a>Elevator pitch</h3>
+
+<p>Sparse faceting speeds up the majority of Solr searches that uses faceting on large (&gt; 100.000 unique terms) text fields, such as <em>author</em> or <em>title</em>. The amount of speed-up is extremely dependent on the setup, but expect at least a factor 2 for single-shard indexes and more for multi-shard.</p>
+
+<h3>
+<a name="the-sparse-principle" class="anchor" href="#the-sparse-principle"><span class="octicon octicon-link"></span></a>The sparse principle</h3>
+
+<p>Standard Solr fc String faceting maintains an array of counters for all possible values in the facet. The counters are updated based on the document IDs from the search and the counters are iterated to extract top-X. Sparse faceting keeps track of which counters are updated, so only those are iterated. For fields with millions of unique values, the time-saving is substantial for small result sets. Empirical measurements puts "small" around 8% or less.</p>
+
+<p>Standard Solr allocates the counter structures when needed and frees them after use. This takes time upon allocation (think tens of milliseconds) and taxed the garbage collector. Sparse faceting maintains a pool of counters and clears them using a background thread, meaning instant counter "allocation" and no taxing of the garbage collector.</p>
+
+<p>Faceting with a multi-shard Solr setup require fine-counting of specific terms under the hood. Standard Solr handles this with a mini-search for each term, while sparse faceting uses full counting and extraction of counts for the specified terms. This turns out to be much (think factor 10) faster.</p>
+
+<h3>
+<a name="the-downside" class="anchor" href="#the-downside"><span class="octicon octicon-link"></span></a>The downside</h3>
+
+<p>Sparse faceting does not help with single-shard searches with large result sets. Fortunately it does not hurt either as it falls back to the standard way of counting - there are a lot of knobs to tune this, but the default are chosen conservatively so the chance of having worse-than-standard response times is quite low. For multi-shard searches, sparse faceting should be faster for nearly all setups.</p>
+
+<h3>
+<a name="is-this-reliable" class="anchor" href="#is-this-reliable"><span class="octicon octicon-link"></span></a>Is this reliable?</h3>
+
+<p>Well, we use it in production at <a href="http://statsbiblioteket.dk/">Statsbiblioteket</a> and at the <a href="http://netarkivet.dk/">Danish Web Archive</a>. From a test-methodological viewpoint, there is a profound need for independent installations before this can be called solid.</p>
+
+<p>So please, hit the download-link (Solr 4.8 compatible) or build from source. Test it with your Solr installation! See <a href="https://github.com/tokee/lucene-solr/blob/lucene_solr_4_8_sparse/solr/core/src/java/org/apache/solr/request/sparse/SparseKeys.java">SparseKeys.java</a> for the dials to tweak.</p>
+
+<h3>
+<a name="more-reading" class="anchor" href="#more-reading"><span class="octicon octicon-link"></span></a>More reading</h3>
+
+<ul>
+<li><a href="https://sbdevel.wordpress.com/2014/06/17/terabyte-index-search-and-faceting-with-solr/">Terabyte index, search and faceting with Solr</a></li>
+<li><a href="https://sbdevel.wordpress.com/2014/08/26/ten-times-faster/">Ten times faster</a></li>
+<li><a href="https://sbdevel.wordpress.com/author/eskildsen/">Even sparse faceting is limited</a></li>
+<li><a href="https://sbdevel.wordpress.com/2014/09/09/small-scale-sparse-faceting/">Small scale sparse faceting</a></li>
+</ul><h3>
+<a name="contact" class="anchor" href="#contact"><span class="octicon octicon-link"></span></a>Contact</h3>
 
 <p>Any questions? Feel free to contact Toke Eskildsen, <a href="mailto:te@statsbiblioteket.dk">te@statsbiblioteket.dk</a></p>
       </section>
