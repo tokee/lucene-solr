@@ -154,7 +154,9 @@ public class SparseCounterPool {
   public ValueCounter acquire(int counts, long maxCountForAny, SparseKeys sparseKeys) {
     final long allocateTime = System.nanoTime();
     if (maxCountForAny == 0 && sparseKeys.packed) {
-      throw new IllegalStateException("Attempted to request sparse counter with maxCountForAny=" + maxCountForAny);
+      // We have an empty facet. To avoid problems with the packed structure, we set the maxCountForAny to 1
+      maxCountForAny = 1;
+//      throw new IllegalStateException("Attempted to request sparse counter with maxCountForAny=" + maxCountForAny);
     }
     try {
       String structureKey = createStructureKey(counts, maxCountForAny, sparseKeys);
