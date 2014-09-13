@@ -44,9 +44,9 @@
 <h3>
 <a name="the-sparse-principle" class="anchor" href="#the-sparse-principle"><span class="octicon octicon-link"></span></a>The sparse principle</h3>
 
-<p>Standard Solr fc String faceting maintains an array of counters for all possible values in the facet. The counters are updated based on the document IDs from the search and then iterated to extract top-X. Sparse faceting keeps track of which counters are updated, so only those are iterated. For fields with many unique values, the time-saving is substantial for small result sets. Empirical measurements puts "small" around 8% or less and suggests that most user-issued searches are below this. YMMW.</p>
+<p>Standard Solr fc String faceting maintains an array of counters for all possible values in the facet. The counters are updated based on the document IDs from the search and then iterated to extract top-X. Sparse faceting keeps track of which counters are updated, so only those are iterated. For fields with many unique values, the time-saving is substantial for small result sets. Empirical measurements puts "small" around 8% or less and suggests that most user-issued searches are below this.</p>
 
-<p>Standard Solr allocates the counter structures when needed and frees them after use. This takes time upon allocation (think tens of milliseconds) and taxes the garbage collector. Sparse faceting maintains a pool of counters and clears them using a background thread, meaning instant counter "allocation" and no taxing of the garbage collector.</p>
+<p>Standard Solr allocates the counter structures when needed and frees them after use. This takes time upon allocation (think 10s of milliseconds) and taxes the garbage collector. Sparse faceting maintains a pool of counters and clears them using a background thread, meaning instant counter "allocation" and no taxing of the garbage collector.</p>
 
 <p>Distributed faceting on a multi-shard Solr setup require fine-counting for some terms. Standard Solr handles this with a mini-search for each term, while sparse faceting uses full counting and extraction of counts for the specified terms. This turns out to be much faster. Think factor 10.</p>
 
@@ -58,9 +58,9 @@
 <h3>
 <a name="is-this-reliable" class="anchor" href="#is-this-reliable"><span class="octicon octicon-link"></span></a>Is this reliable?</h3>
 
-<p>Well, we use it in production at <a href="http://statsbiblioteket.dk/">Statsbiblioteket</a> and at the <a href="http://netarkivet.dk/">Danish Web Archive</a>. From a test-methodological viewpoint, there is a profound need for independent installations before this can be called solid.</p>
+<p>Well, we use it in production at <a href="http://statsbiblioteket.dk/">Statsbiblioteket</a> with millions of unique values in the facets and at the <a href="http://netarkivet.dk/">Danish Web Archive</a> with billions of unique values in on of the facets. The patch does not change the index in any way, so the worst thing that can happen is that one needs to switch back to standard Solr.</p>
 
-<p>So please, hit the download-link (Solr 4.8 compatible) or build from source (4.8 and 4.9). Test it with your own Solr installation! See <a href="https://github.com/tokee/lucene-solr/blob/lucene_solr_4_8_sparse/solr/core/src/java/org/apache/solr/request/sparse/SparseKeys.java">SparseKeys.java</a> for the dials to tweak.</p>
+<p>From a test-methodological viewpoint, there is a profound need for independent installations before this patch can be considered solid. So please, download a somewhat-tested <a href="https://github.com/tokee/lucene-solr/releases/tag/sparse_4.8_20140912-alpha">Solr 4.8 sparse WAR</a> or build the latest version from source (4.8 and 4.9). Test it with your own Solr installation! See <a href="https://github.com/tokee/lucene-solr/blob/lucene_solr_4_8_sparse/solr/core/src/java/org/apache/solr/request/sparse/SparseKeys.java">SparseKeys.java</a> for the dials to tweak.</p>
 
 <h3>
 <a name="more-reading" class="anchor" href="#more-reading"><span class="octicon octicon-link"></span></a>More reading</h3>
