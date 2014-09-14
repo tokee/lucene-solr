@@ -102,9 +102,11 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
 
     params.add(FacetParams.FACET, Boolean.TRUE.toString());
     params.add(FacetParams.FACET_FIELD, FF);
+//    params.add(FacetParams.FACET_MINCOUNT, Integer.toString(1));
     params.add(FacetParams.FACET_LIMIT, Integer.toString(10));
     params.add(FacetParams.FACET_METHOD, FacetParams.FACET_METHOD_fc);
 
+    params.add(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
     params.add(SparseKeys.SPARSE, Boolean.TRUE.toString());
     params.add(SparseKeys.TERMLOOKUP, Boolean.TRUE.toString());
     params.add(SparseKeys.MINTAGS, Integer.toString(0));   // Force sparse
@@ -112,8 +114,16 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     params.add(SparseKeys.CUTOFF, Double.toString(2.0));   // Force sparse
 
     QueryResponse results = clients.get(0).query(params);
-//    System.out.println(results);
+//    System.out.println("***" + results);
     assertEquals("Count for alldocs should be #docs", DOCS, results.getFacetField(FF).getValues().get(0).getCount());
+
+    // Check that the call was sparse-processed
+    params.add(SparseKeys.STATS, Boolean.TRUE.toString()); // Enable sparse statistics
+    results = clients.get(0).query(params);
+    assertFalse("There should be no instances of 'exceededCutoff=[1-9]'\n" + results,
+        results.toString().matches("exceededCutoff=[1-9]"));
+    assertTrue("There should be instances of 'exceededCutoff=0'\n" + results,
+        results.toString().contains("exceededCutoff=0"));
     // TODO: Add proper test for second phase counting instead of just seeing if the query completes
   }
 }
