@@ -53,13 +53,17 @@
 <p>Some sample calls</p>
 
 <ul>
-<li>http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc&amp;facet.mincount=1<br>
+<li>
+<a href="http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc">http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc</a><br>
 A standard faceting call, which should trigger sparse faceting if the number of unique values is 10.000+ in mytextfield. Note that mode <em>must</em> be fc for sparse to work: Luckily Solr uses fc as default for large text fields, so you probably don't need to state it explicitly.</li>
-<li>http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc&amp;facet.mincount=1&amp;facet.sparse.stats=true<br>
+<li>
+<a href="http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc&amp;facet.sparse.stats=true">http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc&amp;<strong>facet.sparse.stats=true</strong></a><br>
 An ugly hack that provides statistics on sparse faceting by returning it as part of the facet result. Only intended for experimenting, but very useful to determine if sparse is activated at all.</li>
-<li>http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc&amp;facet.mincount=1&amp;facet.sparse.skiprefinements=true<br>
+<li>
+<a href="http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc&amp;facet.sparse.skiprefinements=true">http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc&amp;<strong>facet.sparse.skiprefinements=true</strong></a><br>
 In a multi-shard setup this speeds up faceting at the cost of precision, by skipping the fine-counting of facets. The reported counts will be &lt;= the true counts. Use it if response time is paramount.</li>
-<li>http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc&amp;facet.mincount=1&amp;facet.sparse.maxtracked=255<br>
+<li>
+<a href="http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc&amp;facet.sparse.maxtracked=255">http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc&amp;<strong>facet.sparse.maxtracked=255</strong></a><br>
 Maxtracked sets an upper limit for the counts in the facets in the shards (the total count in a distributed setting might be higher). This might speed things up a bit (the values 15, 255 &amp; 65535 are good for this) and lowers the memory requirement for faceting. Use it if memory usage is paramount.</li>
 </ul><h2>
 <a name="how-well-does-this-work" class="anchor" href="#how-well-does-this-work"><span class="octicon octicon-link"></span></a>How well does this work?</h2>
