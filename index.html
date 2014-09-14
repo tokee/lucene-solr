@@ -79,7 +79,7 @@ Maxtracked sets an upper limit for the counts in the facets in the shards (the t
 <h3>
 <a name="is-this-reliable" class="anchor" href="#is-this-reliable"><span class="octicon octicon-link"></span></a>Is this reliable?</h3>
 
-<p>We use it in production at <a href="http://statsbiblioteket.dk/">State and University Library, Denmark</a> with millions of unique values in the facets and at the <a href="http://netarkivet.dk/">Danish Web Archive</a> with billions of unique values in on of the facets. The patch does not change the index in any way, so the worst thing that can happen is that one needs to switch back to standard Solr.</p>
+<p>We use it in production at <a href="http://statsbiblioteket.dk/">State and University Library, Denmark</a> with millions of unique values in the facets and at the <a href="http://netarkivet.dk/">Danish Web Archive</a> with billions of unique values in one of the facets. The patch does not change the index in any way, so the worst thing that can happen is that one needs to switch back to standard Solr.</p>
 
 <h3>
 <a name="the-sparse-principle" class="anchor" href="#the-sparse-principle"><span class="octicon octicon-link"></span></a>The sparse principle</h3>
@@ -93,7 +93,7 @@ Maxtracked sets an upper limit for the counts in the facets in the shards (the t
 <h3>
 <a name="the-downside" class="anchor" href="#the-downside"><span class="octicon octicon-link"></span></a>The downside</h3>
 
-<p>Sparse faceting does not help with single-shard searches with large result sets. Fortunately it does not hurt either as it falls back to the standard way of counting - there are a lot of knobs to tune this, but the default are chosen conservatively so the chance of having worse-than-standard response times is quite low. For multi-shard searches, sparse faceting should be faster for nearly all setups.</p>
+<p>Sparse faceting does not help with single-shard searches with large result sets. Fortunately it does not hurt either as it falls back to the Solr standard way of counting: There are a lot of knobs to tune this, but the default are chosen conservatively, so the chance of having worse-than-standard response times is quite low. For multi-shard searches, sparse faceting should be faster for nearly all setups.</p>
 
 <h3>
 <a name="why-is-this-not-in-standard-solr" class="anchor" href="#why-is-this-not-in-standard-solr"><span class="octicon octicon-link"></span></a>Why is this not in standard Solr?</h3>
