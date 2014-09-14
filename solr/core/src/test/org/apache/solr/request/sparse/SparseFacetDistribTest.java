@@ -31,7 +31,7 @@ import org.apache.solr.common.params.ModifiableSolrParams;
 import org.junit.BeforeClass;
 
 // We need SortedDoc multi value DocValues
-@LuceneTestCase.SuppressCodecs({"Lucene3x", "Lucene40"})
+@LuceneTestCase.SuppressCodecs({"Lucene3x", "Lucene4.0"})
 public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
   private boolean initPerformed = false;
 
@@ -65,6 +65,7 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
   @Override
   public void doTest() throws Exception {
     final String FF = "foo_dvm_s";
+    final String THIN = "thin_dvm_s";
     final int DOCS = 1000;
 
     handle.clear();
@@ -81,6 +82,7 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
       fields.add(FF);   fields.add("unique" + docID);
       fields.add(FF);   fields.add("alldocs");
 
+      fields.add(THIN); fields.add("thin" + random().nextInt(DOCS/2));
       int extra = random().nextInt(10);
       for (int i = 0 ; i < extra ; i++) {
         fields.add(FF); fields.add("extra" + random().nextInt(100));
@@ -110,20 +112,47 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     params.add(SparseKeys.SPARSE, Boolean.TRUE.toString());
     params.add(SparseKeys.TERMLOOKUP, Boolean.TRUE.toString());
     params.add(SparseKeys.MINTAGS, Integer.toString(0));   // Force sparse
-    params.add(SparseKeys.FRACTION, Double.toString(1.0)); // Force sparse
+    params.add(SparseKeys.FRACTION, Double.toString(1000.0)); // Force sparse
     params.add(SparseKeys.CUTOFF, Double.toString(2.0));   // Force sparse
 
     QueryResponse results = clients.get(0).query(params);
 //    System.out.println("***" + results);
-    assertEquals("Count for alldocs should be #docs", DOCS, results.getFacetField(FF).getValues().get(0).getCount());
+
+    // Do not work with THIN as the result is random there
+//    assertEquals("Count for alldocs should be #docs", DOCS, results.getFacetField(FF).getValues().get(0).getCount());
 
     // Check that the call was sparse-processed
+    params.remove(SparseKeys.STATS_RESET);
     params.add(SparseKeys.STATS, Boolean.TRUE.toString()); // Enable sparse statistics
     results = clients.get(0).query(params);
-    assertFalse("There should be no instances of 'exceededCutoff=[1-9]'\n" + results,
-        results.toString().matches("exceededCutoff=[1-9]"));
-    assertTrue("There should be instances of 'exceededCutoff=0'\n" + results,
+    // Do we even sparse and does stats work?
+    assertTrue("For sparse faceting there should an instance of 'exceededCutoff=0'\n" + results,
         results.toString().contains("exceededCutoff=0"));
-    // TODO: Add proper test for second phase counting instead of just seeing if the query completes
+    // Was all calls within the cutoff?
+    assertFalse("For sparse faceting there should be no instances of 'exceededCutoff=[1-9]'\n" + results,
+        results.toString().matches("exceededCutoff=[1-9]"));
+
+    // Check that fine-counting is also sparse-counted
+    params.remove(FacetParams.FACET_FIELD);
+    params.add(FacetParams.FACET_FIELD, THIN);
+    params.remove(FacetParams.FACET_LIMIT);
+    params.add(FacetParams.FACET_LIMIT, Integer.toString(5));
+
+    // We need to do this twich to get dist stats to bubble up
+    clients.get(0).query(params);
+    results = clients.get(0).query(params);
+
+    // terms(count=0 means that the secondary fine-counting of facets was not done sparsely
+    assertFalse("With fine-counting there should be no instances of 'terms(count=0'\n" + results,
+        results.toString().contains("terms(count=0"));
+
+    // Disable fine-counting
+    params.add(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
+    params.add(SparseKeys.SKIPREFINEMENTS, Boolean.TRUE.toString());
+    clients.get(0).query(params);
+    params.remove(SparseKeys.STATS_RESET);
+    results = clients.get(0).query(params);
+    assertTrue("Without fine-counting there should be an instance of 'terms(count=0'\n" + results,
+        results.toString().contains("terms(count=0"));
   }
 }
