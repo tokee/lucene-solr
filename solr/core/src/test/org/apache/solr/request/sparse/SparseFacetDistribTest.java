@@ -26,12 +26,13 @@ import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.cloud.AbstractFullDistribZkTestBase;
 import org.apache.solr.cloud.ChaosMonkey;
 import org.apache.solr.common.cloud.ZkStateReader;
+import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.common.params.FacetParams;
 import org.apache.solr.common.params.ModifiableSolrParams;
 import org.junit.BeforeClass;
 
 // We need SortedDoc multi value DocValues
-@LuceneTestCase.SuppressCodecs({"Lucene3x", "Lucene4.0"})
+@LuceneTestCase.SuppressCodecs({"Lucene3x", "Lucene40", "Lucene41", "Lucene42", "Appending"})
 public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
   private boolean initPerformed = false;
 
@@ -130,13 +131,11 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
         results.toString().contains("exceededCutoff=0"));
     // Was all calls within the cutoff?
     assertFalse("For sparse faceting there should be no instances of 'exceededCutoff=[1-9]'\n" + results,
-        results.toString().matches("exceededCutoff=[1-9]"));
+        results.toString().matches(".*exceededCutoff=[1-9].*"));
 
     // Check that fine-counting is also sparse-counted
-    params.remove(FacetParams.FACET_FIELD);
-    params.add(FacetParams.FACET_FIELD, THIN);
-    params.remove(FacetParams.FACET_LIMIT);
-    params.add(FacetParams.FACET_LIMIT, Integer.toString(5));
+    params.set(FacetParams.FACET_FIELD, THIN);
+    params.set(FacetParams.FACET_LIMIT, Integer.toString(5));
 
     // We need to do this twich to get dist stats to bubble up
     clients.get(0).query(params);
@@ -147,12 +146,39 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
         results.toString().contains("terms(count=0"));
 
     // Disable fine-counting
-    params.add(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
-    params.add(SparseKeys.SKIPREFINEMENTS, Boolean.TRUE.toString());
+    params.set(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
+    params.set(SparseKeys.SKIPREFINEMENTS, Boolean.TRUE.toString());
     clients.get(0).query(params);
     params.remove(SparseKeys.STATS_RESET);
     results = clients.get(0).query(params);
     assertTrue("Without fine-counting there should be an instance of 'terms(count=0'\n" + results,
         results.toString().contains("terms(count=0"));
+
+    // minCount 0 vs. minCount 1, both should still be sparse
+    params.set(CommonParams.Q, "id:1");
+    params.set(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
+    params.remove(SparseKeys.SKIPREFINEMENTS);
+    params.set(SparseKeys.MAXMINCOUNT, Integer.toString(0));
+    clients.get(0).query(params);
+    params.remove(SparseKeys.STATS_RESET);
+    results = clients.get(0).query(params);
+    // With tiny result sets all possible facet values are returned in the first call, so no secondary call is needed
+    assertTrue("For single-hit search, setting maxMin=0 should contain 'terms(count=0'\n" + results,
+        results.toString().contains("terms(count=0"));
+    assertTrue("For single-hit search, setting maxMin=0 should contain empty facet values\n" + results,
+        results.toString().matches(".*thin[0-9]+=0.*"));
+
+    /*   TODO: Add facet content with 12+ unique values and a matching search that contains zero values
+    params.set(SparseKeys.MAXMINCOUNT, Integer.toString(1));
+    params.set(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
+    clients.get(0).query(params);
+    params.remove(SparseKeys.STATS_RESET);
+    results = clients.get(0).query(params);
+    // With tiny result sets all possible facet values are returned in the first call, so no secondary call is needed
+    assertFalse("For single-hit search, setting maxMin=1 should not contain 'terms(count=0'\n" + results,
+        results.toString().contains("terms(count=0"));
+    assertFalse("For single-hit search, setting maxMin=1 should not contain empty facet values\n" + results,
+        results.toString().matches(".*thin[0-9]+=0.*"));
+        */
   }
 }
