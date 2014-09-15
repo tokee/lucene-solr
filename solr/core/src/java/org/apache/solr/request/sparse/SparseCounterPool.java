@@ -438,28 +438,35 @@ public class SparseCounterPool {
     if (sparseCalls == 0) {
       return "No sparse faceting performed yet";
     }
-    final int M = 1000000;
     synchronized (this) { // We need to synchronize this to get accurate counts for the pool
       final int pendingCleans = cleaner.getQueue().size() + cleaner.getActiveCount();
       final int poolSize = pool.size();
       final int cleanerCoreSize = cleaner.getCorePoolSize();
       return String.format(
-          "sparse statistics: calls=%d, fallbacks=%d (last: %s), collect=%dms avg, extract=%dms avg, " +
-              "total=%dms avg, disables=%d,  withinCutoff=%d, exceededCutoff=%d, SCPool(cached=%d/%d, reuses=%d, " +
-              "allocations=%d (%dms avg, %d packed), clears=%d (%dms avg," +
-              " %s%s), " +
+          "sparse statistics: calls=%d, fallbacks=%d (last: %s), " +
+              "collect=%dms avg, extract=%dms avg, " +
+              "total=%dms avg, disables=%d,  withinCutoff=%d, exceededCutoff=%d, SCPool(cached=%d/%d, " +
+              "reuses=%d, allocations=%d (%dms avg, %d packed), " +
+              "clears=%d (%dms avg, %s%s), " +
               "frees=%d, lastMaxCountForAny=%d), terms(count=%d, fallback=%d, last#=%d), " +
               "term(count=%d (%.1fms avg), fallback=%d (%.1fms avg), last=%s)",
-          sparseCalls, skipCount, lastSkipReason, sparseCollectTime/sparseCalls/M, sparseExtractTime/sparseCalls/M,
-          sparseTotalTime/sparseCalls/M, disables, withinCutoffCount, exceededCutoffCount, poolSize, max, reuses,
-          allocations, sparseAllocateTime/sparseCalls/M, packedAllocations, clears, sparseClearTime /sparseCalls/M,
-          cleanerCoreSize > 0 ? "background" : "at release",
+          sparseCalls, skipCount, lastSkipReason,
+          divMint(sparseCollectTime, sparseCalls), divMint(sparseExtractTime, sparseCalls),
+          divMint(sparseTotalTime, sparseCalls), disables, withinCutoffCount, exceededCutoffCount, poolSize, max,
+          reuses, allocations, divMint(sparseAllocateTime, sparseCalls), packedAllocations, clears,
+          divMint(sparseClearTime, sparseCalls), cleanerCoreSize > 0 ? "background" : "at release",
           pendingCleans > 0 ? (" (" + pendingCleans + " running)") : "",
           frees, lastMaxCountForAny, termsCountsLookups, termsFallbackLookups, lastTermsLookup.split(",").length,
-          termCountsLookups, termCountsLookups == 0 ? 0 : termTotalCountTime * 1.0 / M / termCountsLookups,
-          termFallbackLookups, termFallbackLookups == 0 ? 0 : termTotalFallbackTime * 1.0 / M / termFallbackLookups,
-          lastTermLookup);
+          termCountsLookups, divMdouble(termTotalCountTime, termCountsLookups),
+          termFallbackLookups, divMdouble(termTotalFallbackTime, termFallbackLookups), lastTermLookup);
     }
+  }
+  final static int M = 1000000;
+  private long divMint(long numerator, long denominator) {
+    return denominator == 0 ? 0 : numerator / denominator / M;
+  }
+  private double divMdouble(long numerator, long denominator) {
+    return denominator == 0 ? 0 : numerator * 1.0 / denominator / M;
   }
 
   /**
