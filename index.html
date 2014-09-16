@@ -55,7 +55,7 @@
 <ul>
 <li>
 <a href="http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc">http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc</a><br>
-A standard faceting call, which should trigger sparse faceting if the number of unique values is 10.000+ in mytextfield. Note that mode <em>must</em> be fc for sparse to work: Luckily Solr uses fc as default for large text fields, so you probably don't need to state it explicitly.</li>
+A standard faceting call, which should trigger sparse faceting if the number of unique values is 10.000+ in mytextfield. Note that mode <em>must</em> be fc for sparse to work: Solr uses fc per default for large text fields, so there is probably no need to state it explicitly.</li>
 <li>
 <a href="http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc&amp;facet.sparse.stats=true">http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.mode=fc&amp;<strong>facet.sparse.stats=true</strong></a><br>
 An ugly hack that provides statistics on sparse faceting by returning it as part of the facet result. Only intended for experimenting, but very useful to determine if sparse is activated at all.</li>
@@ -86,18 +86,18 @@ Maxtracked sets an upper limit for the counts in the facets in the shards (the t
 <h3>
 <a name="the-sparse-principle" class="anchor" href="#the-sparse-principle"><span class="octicon octicon-link"></span></a>The sparse principle</h3>
 
-<p>Standard Solr fc String faceting maintains an array of counters for all possible values in the facet. The counters are updated based on the document IDs from the search and then iterated to extract top-X. Sparse faceting keeps track of which counters are updated, so only those are iterated. For fields with many unique values, the time-saving is substantial for small result sets. Empirical measurements puts a "small result set" around 8% or less of the total document count and suggests that most user-issued searches are below this.</p>
+<p>Standard Solr fc String faceting maintains an array of counters for all possible values in the facet. The counters are incremented based on the document IDs from the search and all counters are iterated to extract top-X, including the ones that have not been touched. Sparse faceting keeps track of which counters are incremented, so only those are iterated. For small result sets and fields with many unique values, the time-saving is substantial. Empirical measurements puts "small result sets" around 8% or less of the total document count and suggests that most user-issued searches are below this.</p>
 
 <p>Standard Solr allocates facet counter structures when needed and frees them after use. This takes time upon allocation (think 10s of milliseconds) and taxes the garbage collector. Sparse faceting maintains a pool of counters and clears them using a background thread, meaning instant counter "allocation" and no taxing of the garbage collector.</p>
 
-<p>Distributed faceting on a multi-shard Solr setup require fine-counting for some terms. Standard Solr handles this with a mini-search for each term, while sparse faceting uses full counting and extraction of counts for the specified terms. This turns out to be much faster. Think factor 10.</p>
+<p>Distributed faceting on a multi-shard Solr setup require fine-counting for some of the terms. Standard Solr handles this with a mini-search for each term, while sparse faceting uses full counting followed by extraction of counts for the specified terms. This turns out to be much faster. Think factor 10.</p>
 
 <h3>
 <a name="the-downside" class="anchor" href="#the-downside"><span class="octicon octicon-link"></span></a>The downside</h3>
 
-<p>Sparse faceting does not help with single-shard searches with large result sets. Fortunately it does not hurt either as it falls back to the Solr standard way of counting: There are a lot of knobs to tune this, but the default are chosen conservatively, so the chance of having worse-than-standard response times is quite low. For multi-shard searches, sparse faceting should be faster for practically all setups.</p>
+<p>Sparse faceting does not help with single-shard searches with large result sets. Fortunately it does not hurt either as it falls back to the Solr standard way of counting: There are a lot of knobs to tune this, but the default are chosen conservatively, so the chance of having worse-than-standard response times is quite low. For multi-shard searches, sparse faceting should be faster for practically all setups and result set sizes.</p>
 
-<p>The existence of a cache for the counter structures does result in a permanent memory overhead, as opposed to a variable one. The size of the cache can be controlled, so it is possible to disable it fully, if this is a concern. </p>
+<p>The existence of a cache for the counter structures does result in a permanent memory overhead, as opposed to a variable one with standard Solr fc faceting. The size of the cache can be controlled, so it is possible to disable it fully, if this is a concern. </p>
 
 <h3>
 <a name="why-is-this-not-in-standard-solr" class="anchor" href="#why-is-this-not-in-standard-solr"><span class="octicon octicon-link"></span></a>Why is this not in standard Solr?</h3>
