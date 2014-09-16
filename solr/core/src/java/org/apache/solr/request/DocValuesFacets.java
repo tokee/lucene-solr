@@ -77,6 +77,7 @@ public class DocValuesFacets {
           getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
           SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termList, docs);
     }
+    long sparseTotalTime = System.nanoTime();
 
     SchemaField schemaField = searcher.getSchema().getField(fieldName);
     final int hitCount = docs.size();
@@ -104,11 +105,11 @@ public class DocValuesFacets {
       throw new UnsupportedOperationException("Currently this faceting method is limited to " + Integer.MAX_VALUE + " unique terms");
     }
 
-    // TODO: Not sure if null-handling of ordinalMap is correct guessing of cutoff
+    final double expectedTerms = (1.0 * hitCount / searcher.maxDoc()) *
+        (ordinalMap == null ? si.getValueCount() : ordinalMap.getSegmentOrdinalsCount());
+    final double trackedTerms = sparseKeys.fraction * si.getValueCount();
     final boolean probablySparse = si.getValueCount() >= sparseKeys.minTags &&
-        (1.0 * hitCount / searcher.maxDoc()) *
-            (ordinalMap == null ? si.getValueCount() : ordinalMap.getSegmentOrdinalsCount()) <
-            sparseKeys.fraction * si.getValueCount() * sparseKeys.cutOff;
+        expectedTerms < trackedTerms * sparseKeys.cutOff;
     if (!probablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
       pool.incSkipCount("minCount=" + minCount + ", hits=" + hitCount + "/" + searcher.maxDoc()
           + ", terms=" + (si == null ? "N/A" : si.getValueCount()) + ", ordCount="
@@ -118,7 +119,6 @@ public class DocValuesFacets {
           SimpleFacets.fallbackGetListedTermCounts(searcher, pool, fieldName, termList, docs);
     }
     pool.incSparseCalls();
-    long sparseTotalTime = System.nanoTime();
 
     final BytesRef prefixRef;
     if (prefix == null) {
@@ -146,20 +146,24 @@ public class DocValuesFacets {
     final int nTerms=endTermIndex-startTermIndex;
     int missingCount = -1;
     final CharsRef charsRef = new CharsRef(10);
-    if (nTerms>0 && hitCount >= minCount) {
+    if (nTerms <= 0 || hitCount < minCount) {
+      pool.incTotalTime(System.nanoTime() - sparseTotalTime);
+      return finalize(res, searcher, schemaField, docs, missingCount, missing);
+    }
 
-      // count collection array only needs to be as big as the number of terms we are
-      // going to collect counts for.
-      // TODO: Figure out maxCountForAny
-      final long maxCountForAnyTag = ordinalMap == null ?
-          (sparseKeys.packed ? getMaxCountForAnyTag(si, searcher.maxDoc()) : Integer.MAX_VALUE) : // Counting max is only needed for packed
-          ordinalMap.getMaxOrdCount();
-      final ValueCounter counts = pool.acquire((int) si.getValueCount()+1, maxCountForAnyTag, sparseKeys); // Do we need the +1?
+    // Knowing the maximum value any counter can reach makes it possible to save memory by using a PackedInts structure instead of int[]
+    final long maxCountForAnyTag = ordinalMap == null ?
+        (sparseKeys.packed ? getMaxCountForAnyTag(si, searcher.maxDoc()) : Integer.MAX_VALUE) : // Counting max is only needed for packed
+        ordinalMap.getMaxOrdCount();
+    // +1 as everything is shifted by 1 to use index 0 as special counter
+    final ValueCounter counts = pool.acquire((int) si.getValueCount()+1, maxCountForAnyTag, sparseKeys);
+//      final int[] counts = new int[nTerms];
+
+    // Calculate counts for all relevant terms if the counter structure is empty
+    if (counts.getContentKey() == null) {
       if (!probablySparse) {
         counts.disableSparseTracking();
       }
-//      final int[] counts = new int[nTerms];
-
       long sparseCollectTime = System.nanoTime();
       Filter filter = docs.getTopFilter();
       List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
@@ -193,46 +197,47 @@ public class DocValuesFacets {
         }
       }
       pool.incCollectTime(System.nanoTime() - sparseCollectTime);
+    }
 
-      if (termList != null) {
-        try {
-          return extractSpecificCounts(searcher, pool, si, fieldName, docs, counts, termList);
-        } finally  {
-          pool.release(counts, sparseKeys);
-        }
+    if (termList != null) {
+      try {
+        return extractSpecificCounts(searcher, pool, si, fieldName, docs, counts, termList);
+      } finally  {
+        pool.release(counts, sparseKeys);
       }
+    }
 
-      if (startTermIndex == -1) {
-        missingCount = (int) counts.get(0);
-      }
+    if (startTermIndex == -1) {
+      missingCount = (int) counts.get(0);
+    }
 
-      // IDEA: we could also maintain a count of "other"... everything that fell outside
-      // of the top 'N'
+    // IDEA: we could also maintain a count of "other"... everything that fell outside
+    // of the top 'N'
 
-      int off=offset;
-      int lim=limit>=0 ? limit : Integer.MAX_VALUE;
+    int off=offset;
+    int lim=limit>=0 ? limit : Integer.MAX_VALUE;
 
-      if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
-        int maxsize = limit>0 ? offset+limit : Integer.MAX_VALUE-1;
-        maxsize = Math.min(maxsize, nTerms);
-        LongPriorityQueue queue = new LongPriorityQueue(Math.min(maxsize,1000), maxsize, Long.MIN_VALUE);
+    if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
+      int maxsize = limit>0 ? offset+limit : Integer.MAX_VALUE-1;
+      maxsize = Math.min(maxsize, nTerms);
+      LongPriorityQueue queue = new LongPriorityQueue(Math.min(maxsize,1000), maxsize, Long.MIN_VALUE);
 
 //        int min=mincount-1;  // the smallest value in the top 'N' values
 
-        long sparseExtractTime = System.nanoTime();
-        try {
-          if (counts.iterate(startTermIndex==-1?1:0, nTerms, minCount, false,
-              new SparseCounterInt.TopCallback(minCount-1, queue))) {
-            pool.incWithinCount();
-          } else {
-            pool.incExceededCount();
-          }
-        } catch (ArrayIndexOutOfBoundsException e) {
-          throw new ArrayIndexOutOfBoundsException(String.format(
-              "Logic error: Out of bounds with startTermIndex=%d, nTerms=%d, minCount=%d and counts=%s",
-              startTermIndex, nTerms, minCount, counts));
+      long sparseExtractTime = System.nanoTime();
+      try {
+        if (counts.iterate(startTermIndex==-1?1:0, nTerms, minCount, false,
+            new SparseCounterInt.TopCallback(minCount-1, queue))) {
+          pool.incWithinCount();
+        } else {
+          pool.incExceededCount();
         }
-        pool.incExtractTime(System.nanoTime() - sparseExtractTime);
+      } catch (ArrayIndexOutOfBoundsException e) {
+        throw new ArrayIndexOutOfBoundsException(String.format(
+            "Logic error: Out of bounds with startTermIndex=%d, nTerms=%d, minCount=%d and counts=%s",
+            startTermIndex, nTerms, minCount, counts));
+      }
+      pool.incExtractTime(System.nanoTime() - sparseExtractTime);
 
 /*        for (int i=(startTermIndex==-1)?1:0; i<nTerms; i++) {
           int c = counts[i];
@@ -248,45 +253,44 @@ public class DocValuesFacets {
           }
         }*/
 
-        // if we are deep paging, we don't have to order the highest "offset" counts.
-        int collectCount = Math.max(0, queue.size() - off);
-        assert collectCount <= lim;
+      // if we are deep paging, we don't have to order the highest "offset" counts.
+      int collectCount = Math.max(0, queue.size() - off);
+      assert collectCount <= lim;
 
-        // the start and end indexes of our list "sorted" (starting with the highest value)
-        int sortedIdxStart = queue.size() - (collectCount - 1);
-        int sortedIdxEnd = queue.size() + 1;
-        final long[] sorted = queue.sort(collectCount);
+      // the start and end indexes of our list "sorted" (starting with the highest value)
+      int sortedIdxStart = queue.size() - (collectCount - 1);
+      int sortedIdxEnd = queue.size() + 1;
+      final long[] sorted = queue.sort(collectCount);
 
-        for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
-          long pair = sorted[i];
-          int c = (int)(pair >>> 32);
-          int tnum = Integer.MAX_VALUE - (int)pair;
-          BytesRef br = si.lookupOrd(startTermIndex+tnum);
-          ft.indexedToReadable(br, charsRef);
-          res.add(charsRef.toString(), c);
-        }
-
-      } else {
-        // add results in index order
-        int i=(startTermIndex==-1)?1:0;
-        if (minCount<=0) {
-          // if mincount<=0, then we won't discard any terms and we know exactly
-          // where to start.
-          i+=off;
-          off=0;
-        }
-
-        for (; i<nTerms; i++) {
-          int c = (int) counts.get(i);
-          if (c<minCount || --off>=0) continue;
-          if (--lim<0) break;
-          BytesRef br = si.lookupOrd(startTermIndex+i);
-          ft.indexedToReadable(br, charsRef);
-          res.add(charsRef.toString(), c);
-        }
+      for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
+        long pair = sorted[i];
+        int c = (int)(pair >>> 32);
+        int tnum = Integer.MAX_VALUE - (int)pair;
+        BytesRef br = si.lookupOrd(startTermIndex+tnum);
+        ft.indexedToReadable(br, charsRef);
+        res.add(charsRef.toString(), c);
       }
-      pool.release(counts, sparseKeys);
+
+    } else {
+      // add results in index order
+      int i=(startTermIndex==-1)?1:0;
+      if (minCount<=0) {
+        // if mincount<=0, then we won't discard any terms and we know exactly
+        // where to start.
+        i+=off;
+        off=0;
+      }
+
+      for (; i<nTerms; i++) {
+        int c = (int) counts.get(i);
+        if (c<minCount || --off>=0) continue;
+        if (--lim<0) break;
+        BytesRef br = si.lookupOrd(startTermIndex+i);
+        ft.indexedToReadable(br, charsRef);
+        res.add(charsRef.toString(), c);
+      }
     }
+    pool.release(counts, sparseKeys);
 
     pool.incTotalTime(System.nanoTime() - sparseTotalTime);
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
@@ -445,7 +449,7 @@ public class DocValuesFacets {
     }
 
     final int nTerms=endTermIndex-startTermIndex;
-    int missingCount = -1; 
+    int missingCount = -1;
     final CharsRef charsRef = new CharsRef(10);
     if (nTerms>0 && docs.size() >= mincount) {
 
@@ -532,7 +536,7 @@ public class DocValuesFacets {
           ft.indexedToReadable(term, charsRef);
           res.add(charsRef.toString(), c);
         }
-      
+
       } else {
         // add results in index order
         int i=(startTermIndex==-1)?1:0;
@@ -543,7 +547,7 @@ public class DocValuesFacets {
           off=0;
         }
 
-        for (; i<nTerms; i++) {          
+        for (; i<nTerms; i++) {
           int c = counts[i];
           if (c<mincount || --off>=0) continue;
           if (--lim<0) break;
@@ -553,10 +557,10 @@ public class DocValuesFacets {
         }
       }
     }
-    
+
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
   }
-  
+
   /** finalizes result: computes missing count if applicable */
   static NamedList<Integer> finalize(NamedList<Integer> res, SolrIndexSearcher searcher, SchemaField schemaField, DocSet docs, int missingCount, boolean missing) throws IOException {
     if (missing) {
@@ -565,10 +569,10 @@ public class DocValuesFacets {
       }
       res.add(null, missingCount);
     }
-    
+
     return res;
   }
-  
+
   /** accumulates per-segment single-valued facet counts */
   static void accumSingle(int counts[], int startTermIndex, SortedDocValues si, DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
     if (startTermIndex == -1 && (map == null || si.getValueCount() < disi.cost()*10)) {
@@ -580,7 +584,7 @@ public class DocValuesFacets {
       accumSingleGeneric(counts, startTermIndex, si, disi, subIndex, map);
     }
   }
-  
+
   /** accumulates per-segment single-valued facet counts, mapping to global ordinal space on-the-fly */
   static void accumSingleGeneric(int counts[], int startTermIndex, SortedDocValues si, DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
     final LongValues ordmap = map == null ? null : map.getGlobalOrds(subIndex);
@@ -594,7 +598,7 @@ public class DocValuesFacets {
       if (arrIdx>=0 && arrIdx<counts.length) counts[arrIdx]++;
     }
   }
-  
+
   /** "typical" single-valued faceting: not too many unique values, no prefixing. maps to global ordinals as a separate step */
   static void accumSingleSeg(int counts[], SortedDocValues si, DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
     // First count in seg-ord space:
@@ -604,18 +608,18 @@ public class DocValuesFacets {
     } else {
       segCounts = new int[1+si.getValueCount()];
     }
-    
+
     int doc;
     while ((doc = disi.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
       segCounts[1+si.getOrd(doc)]++;
     }
-    
+
     // migrate to global ords (if necessary)
     if (map != null) {
       migrateGlobal(counts, segCounts, subIndex, map);
     }
   }
-  
+
   /** accumulates per-segment multi-valued facet counts */
   static void accumMulti(int counts[], int startTermIndex, SortedSetDocValues si, DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
     if (startTermIndex == -1 && (map == null || si.getValueCount() < disi.cost()*10)) {
@@ -627,7 +631,7 @@ public class DocValuesFacets {
       accumMultiGeneric(counts, startTermIndex, si, disi, subIndex, map);
     }
   }
-    
+
   /** accumulates per-segment multi-valued facet counts, mapping to global ordinal space on-the-fly */
   static void accumMultiGeneric(int counts[], int startTermIndex, SortedSetDocValues si, DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
     final LongValues ordMap = map == null ? null : map.getGlobalOrds(subIndex);
@@ -642,7 +646,7 @@ public class DocValuesFacets {
         }
         continue;
       }
-      
+
       do {
         if (map != null) {
           term = (int) ordMap.get(term);
@@ -652,7 +656,7 @@ public class DocValuesFacets {
       } while ((term = (int) si.nextOrd()) >= 0);
     }
   }
-  
+
   /** "typical" multi-valued faceting: not too many unique values, no prefixing. maps to global ordinals as a separate step */
   static void accumMultiSeg(int counts[], SortedSetDocValues si, DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
     // First count in seg-ord space:
@@ -662,7 +666,7 @@ public class DocValuesFacets {
     } else {
       segCounts = new int[1+(int)si.getValueCount()];
     }
-    
+
     int doc;
     while ((doc = disi.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
       si.setDocument(doc);
@@ -675,24 +679,23 @@ public class DocValuesFacets {
         } while ((term = (int)si.nextOrd()) >= 0);
       }
     }
-    
+
     // migrate to global ords (if necessary)
     if (map != null) {
       migrateGlobal(counts, segCounts, subIndex, map);
     }
   }
-  
+
   /** folds counts in segment ordinal space (segCounts) into global ordinal space (counts) */
   static void migrateGlobal(int counts[], int segCounts[], int subIndex, OrdinalMap map) {
-    final LongValues ordMap = map.getGlobalOrds(subIndex);
     // missing count
     counts[0] += segCounts[0];
-    
+
     // migrate actual ordinals
     for (int ord = 1; ord < segCounts.length; ord++) {
       int count = segCounts[ord];
       if (count != 0) {
-        counts[1+(int) ordMap.get(ord-1)] += count;      
+        counts[1+(int) map.getGlobalOrd(subIndex, ord - 1)] += count;
       }
     }
   }
