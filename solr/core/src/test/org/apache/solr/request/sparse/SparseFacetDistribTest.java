@@ -105,19 +105,26 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
 
     params.add(FacetParams.FACET, Boolean.TRUE.toString());
     params.add(FacetParams.FACET_FIELD, FF);
-//    params.add(FacetParams.FACET_MINCOUNT, Integer.toString(1));
     params.add(FacetParams.FACET_LIMIT, Integer.toString(10));
     params.add(FacetParams.FACET_METHOD, FacetParams.FACET_METHOD_fc);
+    params.set(SparseKeys.SPARSE, Boolean.FALSE.toString());
 
+    QueryResponse nonSparse = clients.get(0).query(params);
+
+    params.set(SparseKeys.SPARSE, Boolean.TRUE.toString());
     params.add(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
-    params.add(SparseKeys.SPARSE, Boolean.TRUE.toString());
     params.add(SparseKeys.TERMLOOKUP, Boolean.TRUE.toString());
     params.add(SparseKeys.MINTAGS, Integer.toString(0));   // Force sparse
     params.add(SparseKeys.FRACTION, Double.toString(1000.0)); // Force sparse
     params.add(SparseKeys.CUTOFF, Double.toString(2.0));   // Force sparse
 
     QueryResponse results = clients.get(0).query(params);
-//    System.out.println("***" + results);
+
+    // Comparison-tests are bad as they need the old implementation to stick around
+    assertEquals("Solr fc and sparse results should be equal except for QTime",
+        nonSparse.toString().replaceAll("QTime=[0-9]+", ""), results.toString().replaceAll("QTime=[0-9]+", ""));
+
+//    System.out.println("***" + results.toString().replace(",", ",\n"));
 
     // Do not work with THIN as the result is random there
 //    assertEquals("Count for alldocs should be #docs", DOCS, results.getFacetField(FF).getValues().get(0).getCount());
@@ -180,5 +187,6 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     assertFalse("For single-hit search, setting maxMin=1 should not contain empty facet values\n" + results,
         results.toString().matches(".*thin[0-9]+=0.*"));
         */
+
   }
 }
