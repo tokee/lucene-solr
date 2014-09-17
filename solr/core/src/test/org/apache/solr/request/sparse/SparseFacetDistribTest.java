@@ -151,6 +151,7 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     // terms(count=0 means that the secondary fine-counting of facets was not done sparsely
     assertFalse("With fine-counting there should be no instances of 'terms(count=0'\n" + results,
         results.toString().contains("terms(count=0"));
+    System.out.println(results.toString().replace(",", ",\n"));
 
     // Disable fine-counting
     params.set(SparseKeys.STATS_RESET, Boolean.TRUE.toString());

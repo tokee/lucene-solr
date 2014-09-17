@@ -344,12 +344,11 @@ public class SimpleFacets {
   public NamedList<Integer> getTermCounts(String field, DocSet base) throws IOException {
     return getTermCounts(field, base, null);
   }
-  private static SparseCounterPoolController poolController = null;
   public NamedList<Integer> getTermCounts(String field, DocSet base, String termList) throws IOException {
     final SparseKeys sparseKeys = new SparseKeys(field, params);
-    if (poolController == null) {
-      poolController = new SparseCounterPoolController(sparseKeys.poolMaxCount);
-    }
+    SparseCounterPoolController poolController = (SparseCounterPoolController)searcher.getCache(
+        SparseCounterPoolController.CACHE_NAME);
+    assert poolController != null : "The SparseCounterPoolController is a factory and must be present";
 
     int offset = params.getFieldInt(field, FacetParams.FACET_OFFSET, 0);
     int limit = params.getFieldInt(field, FacetParams.FACET_LIMIT, 100);
