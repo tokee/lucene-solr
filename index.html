@@ -97,9 +97,9 @@ Maxtracked sets an upper limit for the counts in the facets in the shards (the t
 <p>Distributed faceting on a multi-shard Solr setup require fine-counting for some of the terms. Standard Solr handles this with a mini-search for each term, while sparse faceting uses full counting followed by extraction of counts for the specified terms. This turns out to be much faster. Think factor 10.</p>
 
 <h3>
-<a name="the-downside" class="anchor" href="#the-downside"><span class="octicon octicon-link"></span></a>The downside</h3>
+<a name="limitations" class="anchor" href="#limitations"><span class="octicon octicon-link"></span></a>Limitations</h3>
 
-<p>Sparse faceting does not help with single-shard searches with large result sets. Fortunately it does not hurt either as it falls back to the Solr standard way of counting: There are a lot of knobs to tune this, but the default are chosen conservatively, so the chance of having worse-than-standard response times is quite low. For multi-shard searches, sparse faceting should be faster for practically all setups and result set sizes.</p>
+<p>Sparse faceting may not help with single-shard searches with large result sets (&gt; 8% of index size). Fortunately it does not hurt either as it falls back to the Solr standard way of counting: There are a lot of knobs to tune this, but the default are chosen conservatively, so the chance of having worse-than-standard response times is quite low. For multi-shard searches, sparse faceting should be faster for practically all setups and result set sizes.</p>
 
 <p>The existence of a cache for the counter structures does result in a permanent memory overhead, as opposed to a variable one with standard Solr fc faceting. The size of the cache can be controlled, so it is possible to disable it fully, if this is a concern.</p>
 
