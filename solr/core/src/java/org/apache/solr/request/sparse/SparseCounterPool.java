@@ -87,6 +87,7 @@ public class SparseCounterPool {
   long withinCutoffCount = 0;
   long exceededCutoffCount = 0;
 
+  int lastCounts = 0;
   String lastTermsLookup = "N/A";
   long termsCountsLookups = 0;
   long termsFallbackLookups = 0;
@@ -342,6 +343,7 @@ public class SparseCounterPool {
       exceededCutoffCount = 0;
       lastSkipReason = "no skips";
 
+      lastCounts = 0;
       lastTermsLookup = "N/A";
       termsCountsLookups = 0;
       termsFallbackLookups = 0;
@@ -443,14 +445,14 @@ public class SparseCounterPool {
       final int poolSize = pool.size();
       final int cleanerCoreSize = cleaner.getCorePoolSize();
       return String.format(
-          "sparse statistics: calls=%d, fallbacks=%d (last: %s), " +
+          "sparse statistics: uniqTerms=%d, calls=%d, fallbacks=%d (last: %s), " +
               "collect=%dms avg, extract=%dms avg, " +
               "total=%dms avg, disables=%d,  withinCutoff=%d, exceededCutoff=%d, SCPool(cached=%d/%d, " +
               "reuses=%d, allocations=%d (%dms avg, %d packed), " +
               "clears=%d (%dms avg, %s%s), " +
               "frees=%d, lastMaxCountForAny=%d), terms(count=%d, fallback=%d, last#=%d), " +
               "term(count=%d (%.1fms avg), fallback=%d (%.1fms avg), last=%s)",
-          sparseCalls, skipCount, lastSkipReason,
+          lastCounts, sparseCalls, skipCount, lastSkipReason,
           divMint(sparseCollectTime, sparseCalls), divMint(sparseExtractTime, sparseCalls),
           divMint(sparseTotalTime, sparseCalls), disables, withinCutoffCount, exceededCutoffCount, poolSize, max,
           reuses, allocations, divMint(sparseAllocateTime, sparseCalls), packedAllocations, clears,
