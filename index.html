@@ -54,7 +54,7 @@
 <ul>
 <li>
 <a href="http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield">http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield</a><br>
-A standard faceting call, which should trigger sparse faceting if the number of unique values is 10.000+ in mytextfield. Note that <code>facet.mode</code> must be <code>fc</code> for sparse to work. However, Solr uses <code>fc</code> per default for large text fields, so there is probably no need to state it explicitly.</li>
+A standard faceting call, which should trigger sparse faceting if the number of unique values is 10.000+ in mytextfield. Note that <code>facet.method</code> must be <code>fc</code> for sparse to work. However, Solr uses <code>fc</code> per default for large text fields, so there is probably no need to state it explicitly.</li>
 <li>
 <a href="http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.sparse=false">http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;<strong>facet.sparse=false</strong></a><br>
 When sparse faceting is disabled, faceting is handled by the standard Solr faceting implementation. Useful for checking correctness and performance differences.</li>
@@ -103,7 +103,7 @@ Maxtracked sets an upper limit for the counts in the facets in the shards (the t
 
 <p>The existence of a cache for the counter structures does result in a permanent memory overhead, as opposed to a variable one with standard Solr fc faceting. The size of the cache can be controlled, so it is possible to disable it fully, if this is a concern.</p>
 
-<p>Currently only <code>facet.mode=fc</code> is supported, for single- and multi-value, with and without DocValues. In theory the sparse principle can be applied to <code>facet.method=fcs</code>, although the gains will probably be somewhat smaller. This sub-project has not been started yet. See <a href="https://github.com/tokee/lucene-solr/issues/8">issue #8</a> for details.</p>
+<p>Currently only <code>facet.method=fc</code> is supported, for single- and multi-value, with and without DocValues. In theory the sparse principle can be applied to <code>facet.method=fcs</code>, although the gains will probably be somewhat smaller. This sub-project has not been started yet. See <a href="https://github.com/tokee/lucene-solr/issues/8">issue #8</a> for details.</p>
 
 <p>Sparse faceting has not been tested in a multi-core setup and it is suspected that the counter cache does not perform well there. See <a href="https://github.com/tokee/lucene-solr/issues/6">issue #6</a> for details.</p>
 
