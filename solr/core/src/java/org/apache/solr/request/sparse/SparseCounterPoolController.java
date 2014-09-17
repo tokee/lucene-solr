@@ -18,7 +18,14 @@ package org.apache.solr.request.sparse;
  */
 
 import org.apache.lucene.util.packed.PackedInts;
+import org.apache.solr.common.util.NamedList;
+import org.apache.solr.core.SolrInfoMBean;
+import org.apache.solr.search.CacheRegenerator;
+import org.apache.solr.search.SolrCache;
+import org.apache.solr.search.SolrIndexSearcher;
 
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -29,6 +36,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Keeps track of all SparseCounterPools used by the Sparse faceting system.
@@ -36,17 +44,20 @@ import java.util.concurrent.ThreadPoolExecutor;
  * This class is thread safe and with no heavy synchronized parts.
  */
 @SuppressWarnings("NullableProblems")
-public class SparseCounterPoolController {
+public class SparseCounterPoolController implements SolrCache<String, SparseCounterPool> {
 
-  private int max;
+  public static final String CACHE_NAME = "SparseCounterPoolController";
+  private final AtomicInteger max;
   private final Map<String, SparseCounterPool> pools;
 
+  private State state = State.CREATED;
+
   public SparseCounterPoolController(final int maxPoolCount) {
-    this.max = maxPoolCount;
+    this.max = new AtomicInteger(maxPoolCount);
     pools = new LinkedHashMap<String, SparseCounterPool>() {
       @Override
       protected boolean removeEldestEntry(Map.Entry<String, SparseCounterPool> eldest) {
-        return size() > max;
+        return size() > max.get();
       }
     };
   }
@@ -81,18 +92,110 @@ public class SparseCounterPoolController {
   /**
    * Clears all pools.
    */
+  @Override
   public void clear() {
     pools.clear();
   }
 
   public int getMaxPoolCount() {
-    return max;
+    return max.get();
   }
 
   public void setMaxPoolCount(int max) {
-    if (max < this.max) {
+    if (max < this.max.get()) {
       pools.clear(); // TODO: Make a cleaner reduce
     }
-    this.max = max;
+    this.max.set(max);
+  }
+
+  /** SolrCache implementation */
+
+  @Override
+  public String getVersion() {
+    return "1.0";
+  }
+
+  @Override
+  public String getDescription() {
+    return "Constructs and caches SparseCounterPools used by the sparse faceting code";
+  }
+
+  @Override
+  public Category getCategory() {
+    return Category.CACHE;
+  }
+
+  @Override
+  public String getSource() {
+    return "$URL$";
+  }
+
+  @Override
+  public URL[] getDocs() {
+    try {
+      return new URL[]{
+          new URL("http://tokee.github.io/lucene-solr/")
+      };
+    } catch (MalformedURLException e) {
+      return new URL[0];
+    }
+  }
+
+  @Override
+  public NamedList getStatistics() {
+    return new NamedList<>(pools);
+  }
+
+  @Override
+  public String getName() {
+    return CACHE_NAME;
+  }
+
+  @Override
+  public String name() {
+    return CACHE_NAME;
+  }
+
+  @Override
+  public int size() {
+    return pools.size();
+  }
+
+  @Override
+  public SparseCounterPool put(String key, SparseCounterPool value) {
+    return null;
+  }
+
+  @Override
+  public SparseCounterPool get(String key) {
+    return pools.get(key);
+  }
+
+  @Override
+  public Object init(Map args, Object persistence, CacheRegenerator regenerator) {
+    if (args.containsKey(SparseKeys.POOL_MAX_COUNT)) {
+      max.set(Integer.parseInt((String) args.get(SparseKeys.POOL_MAX_COUNT)));
+    }
+    return null; // Ignore persistence and regenerator for now
+  }
+
+  @Override
+  public void setState(State state) {
+    this.state = state;
+  }
+
+  @Override
+  public State getState() {
+    return state;
+  }
+
+  @Override
+  public void warm(SolrIndexSearcher searcher, SolrCache<String, SparseCounterPool> old) {
+    // Ignored for now
+  }
+
+  @Override
+  public void close() {
+    clear();
   }
 }
