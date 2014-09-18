@@ -165,7 +165,7 @@ public class SimpleFacets {
     required = new RequiredSolrParams(params);
 
     // remove local params unless it's a query
-    if (type != FacetParams.FACET_QUERY) { // TODO Cut over to an Enum here
+    if (!type.equals(FacetParams.FACET_QUERY)) { // TODO Cut over to an Enum here
       facetValue = localParams.get(CommonParams.VALUE);
     }
 
@@ -411,7 +411,7 @@ public class SimpleFacets {
         }
         break;
       case FC:
-        SparseCounterPool pool = poolController.acquire(field, sparseKeys.poolSize);
+        SparseCounterPool pool = poolController.acquire(field, sparseKeys.poolSize, sparseKeys.poolMinEmpty);
         if (sf.hasDocValues()) {
           counts = DocValuesFacets.getCounts(
               searcher, base, field, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);

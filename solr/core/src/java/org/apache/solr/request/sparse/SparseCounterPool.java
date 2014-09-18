@@ -19,15 +19,14 @@ package org.apache.solr.request.sparse;
 import org.apache.lucene.util.packed.PackedInts;
 
 import java.util.LinkedList;
-import java.util.List;
 import java.util.concurrent.Callable;
-import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
-import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Maintains a pool SparseCounters, taking care of allocation, used counter clearing and re-use.
+ * Maintains a pool of SparseCounters, taking care of allocation, used counter clearing and re-use.
  * </p><p>
  * The pool and/or the content of the pool is bound to the index. When the index is updated and a new facet
  * request is issued, the pool will be cleared.
@@ -54,79 +53,65 @@ import java.util.concurrent.ThreadPoolExecutor;
  */
 @SuppressWarnings("NullableProblems")
 public class SparseCounterPool {
-  // TODO: Consider moving cleaning threads to a thread pool shared between all SparseCounterPools
-  // Number of threads for background cleaning. If this is 0, cleans will be performed directly in {@link #release}.
-  public static final int DEFAULT_CLEANING_THREADS = 1;
 
-  private int max;
-  private int minEmpty;
-  // ValueCounters with contentKey == null are inserted at the end of the list,
-  // ValueCounters with contentKeys defined are inserted at the start.
-  // If a ValueCounter's contentKey is null, it is assumed to be clean.
-  private final List<ValueCounter> pool;
+
+  /**
+   * The pool contains a mix of empty and filled ValueCounters. Filled counters at the beginning, empty counters
+   * at the end of the linked list. When the pool-setup changes or a ValueCounter is removed or added, a janitor
+   * job is requested. A janitor attempts to ensure that the pool is in the desired state, but is limited to one
+   * cleanup-action before it returns, to avoid thread starvation in the thread pool.
+   */
+  private final LinkedList<ValueCounter> pool;
+  private int maxPoolSize;
+  private int minEmptyCounters;
+  private final AtomicInteger activeClears = new AtomicInteger(0);
   private String structureKey = null;
 
   // Pool stats
-  private long reuses = 0;
-  private long allocations = 0;
-  private long packedAllocations = 0;
-  private long lastMaxCountForAny = 0;
-  private long clears = 0;
-  private long frees = 0;
+  private AtomicLong emptyReuses = new AtomicLong(0);
+  private AtomicLong filledReuses = new AtomicLong(0);
+  private AtomicLong allocations = new AtomicLong(0);
+  private AtomicLong packedAllocations = new AtomicLong(0);
+  private AtomicLong lastMaxCountForAny = new AtomicLong(0);
+  private AtomicLong clears = new AtomicLong(0);
+  private AtomicLong filledFrees = new AtomicLong(0);
+  private AtomicLong emptyFrees = new AtomicLong(0);
 
   // Counter stats
-  long sparseCalls = 0;
-  long skipCount = 0;
+  AtomicLong sparseCalls = new AtomicLong(0);
+  AtomicLong skipCount = new AtomicLong(0);
   String lastSkipReason = "no skips";
-  long sparseAllocateTime = 0;
-  long sparseCollectTime = 0;
-  long sparseExtractTime = 0;
-  long sparseClearTime = 0;
-  long sparseTotalTime = 0;
-  long disables = 0;
-  long withinCutoffCount = 0;
-  long exceededCutoffCount = 0;
+  AtomicLong sparseAllocateTime = new AtomicLong(0);
+  AtomicLong sparseCollectTime = new AtomicLong(0);
+  AtomicLong sparseExtractTime = new AtomicLong(0);
+  AtomicLong sparseClearTime = new AtomicLong(0);
+  AtomicLong sparseTotalTime = new AtomicLong(0);
+  AtomicLong disables = new AtomicLong(0);
+  AtomicLong withinCutoffCount = new AtomicLong(0);
+  AtomicLong exceededCutoffCount = new AtomicLong(0);
 
-  int lastCounts = 0;
+  AtomicInteger lastCounts = new AtomicInteger(0);
   String lastTermsLookup = "N/A";
-  long termsCountsLookups = 0;
-  long termsFallbackLookups = 0;
+  AtomicLong termsCountsLookups = new AtomicLong(0);
+  AtomicLong termsFallbackLookups = new AtomicLong(0);
   String lastTermLookup = "N/A";
-  long termCountsLookups = 0;
-  long termFallbackLookups = 0;
+  AtomicLong termCountsLookups = new AtomicLong(0);
+  AtomicLong termFallbackLookups = new AtomicLong(0);
 
-  long cacheHits = 0;
-  long cacheNoCleared = 0;
+  AtomicLong cacheHits = new AtomicLong(0);
+  AtomicLong cacheMisses = new AtomicLong(0);
+  AtomicLong requestClears = new AtomicLong(0);
 
-  long termTotalCountTime = 0;
-  long termTotalFallbackTime = 0;
+  AtomicLong termTotalCountTime = new AtomicLong(0);
+  AtomicLong termTotalFallbackTime = new AtomicLong(0);
 
-  protected final ThreadPoolExecutor cleaner =
-      (ThreadPoolExecutor) Executors.newFixedThreadPool(DEFAULT_CLEANING_THREADS);
-  {
-    cleaner.setThreadFactory(new ThreadFactory() {
-      @Override
-      public Thread newThread(Runnable r) {
-        Thread t = new Thread(r);
-        t.setDaemon(true);
-        t.setName("SparsePoolCleaner");
-        return t;
-      }
-    });
-    Runtime.getRuntime().addShutdownHook(new Thread() { // Play nice with shutdown
-      @Override
-      public void run() {
-        cleaner.shutdown();
-      }
-    });
-  }
+  protected final ThreadPoolExecutor supervisor;
+  private static final String NEEDS_CLEANING = "filled__counter_that_should_be_cleared_";
 
-
-  // Used for synchnization of statistics counters
-  private final Object statSync = new Object();
-
-  public SparseCounterPool(int maxPoolSize) {
-    this.max = maxPoolSize;
+  public SparseCounterPool(ThreadPoolExecutor janitorSupervisor, int maxPoolSize, int minEmptyCounters) {
+    supervisor = janitorSupervisor;
+    this.maxPoolSize = maxPoolSize;
+    this.minEmptyCounters = minEmptyCounters;
     pool =  new LinkedList<>();
   }
 
@@ -162,29 +147,55 @@ public class SparseCounterPool {
     try {
       String structureKey = createStructureKey(counts, maxCountForAny, sparseKeys);
       ValueCounter vc = null;
-      synchronized (this) {
-        if (this.structureKey != null && this.structureKey.equals(structureKey) && !pool.isEmpty()) {
-          reuses++;
-          //  TODO: If sparseKeys.cackeToken == null, we should take the last element directly
+      synchronized (pool) {
+        // Did the structure change since last acquire (index updated)?
+        if (!structureKey.equals(this.structureKey) && !pool.isEmpty()) {
+          pool.clear();
+        }
+        this.structureKey = structureKey;
+
+        if (sparseKeys.cacheToken != null) {
+          // Try to find a filled counter
           for (int i = 0 ; i < pool.size() ; i++) {
-            vc = pool.get(i);
-            if (vc.getContentKey() != null && vc.getContentKey().equals(sparseKeys.cacheToken)) {
-              cacheHits++;
-              return pool.remove(i);
-            } else if (vc.getContentKey() == null) {
-              return pool.remove(i);
+            ValueCounter candidate = pool.get(i);
+            if (sparseKeys.cacheToken.equals(candidate.getContentKey()) || candidate.getContentKey() == null) {
+              vc = pool.remove(i);
+              break;
             }
           }
-          // Unable to locate a matching vc or a clean vc. Just take the last one and clean it
-          cacheNoCleared++;
-          vc = pool.get(pool.size()-1);
+        } else if (!pool.isEmpty()) {
+          vc = pool.removeLast();
         }
-      }
-      if (vc != null) {
+
+        if (vc == null) { // Allocate a new counter
+          return createCounter(counts, maxCountForAny, sparseKeys);
+        }
+
+        if (sparseKeys.cacheToken == null) {
+          if (vc.getContentKey() == null) { // Asked for empty, got empty
+            emptyReuses.incrementAndGet();
+            return vc;
+          }
+          // Asked for empty, got filled
+          requestClears.incrementAndGet();
+          vc.clear();
+          return vc;
+        }
+
+        if (vc.getContentKey() == null) { // Asked for filled, got empty
+          emptyReuses.incrementAndGet();
+          cacheMisses.incrementAndGet();
+          return vc;
+        } else if (sparseKeys.cacheToken.equals(vc.getContentKey())) { // Asked for filled, got match
+          cacheHits.incrementAndGet();
+          return vc;
+        }
+        // Asked for filled, got wrong filled
+        requestClears.incrementAndGet();
+        cacheMisses.incrementAndGet();
         vc.clear();
         return vc;
       }
-      return getCounter(counts, maxCountForAny, sparseKeys);
     } finally {
       incAllocateTime(System.nanoTime() - allocateTime);
     }
@@ -192,25 +203,21 @@ public class SparseCounterPool {
 
   private String createStructureKey(int counts, long maxCountForAny, SparseKeys sparseKeys) {
     return usePacked(counts, maxCountForAny, sparseKeys) ?
-        SparseCounterPacked.getID(
+        SparseCounterPacked.createStructureKey(
             counts, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked) :
-        SparseCounterInt.getID(counts, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction);
+        SparseCounterInt.createStructureKey(counts, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction);
   }
 
   private boolean usePacked(int counts, long maxCountForAny, SparseKeys sparseKeys) {
     return (sparseKeys.packed && PackedInts.bitsRequired(maxCountForAny) <= sparseKeys.packedLimit) ||
-            maxCountForAny > Integer.MAX_VALUE;
+        maxCountForAny > Integer.MAX_VALUE;
   }
 
-  private ValueCounter getCounter(int counts, long maxCountForAny, SparseKeys sparseKeys) {
-    synchronized (this) {
-      allocations++;
-      lastMaxCountForAny = maxCountForAny;
-    }
+  private ValueCounter createCounter(int counts, long maxCountForAny, SparseKeys sparseKeys) {
+    allocations.incrementAndGet();
+    lastMaxCountForAny.set(maxCountForAny);
     if (usePacked(counts, maxCountForAny, sparseKeys)) {
-      synchronized (this) {
-        packedAllocations++;
-      }
+      packedAllocations.incrementAndGet();
       return new SparseCounterPacked(
           counts, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
     }
@@ -220,44 +227,40 @@ public class SparseCounterPool {
 
 
   /**
-   * Release a counter after use. Depending on the sparseKeys, the counter might be cached as-is or cleared before being added to the pool.
+   * Release a counter after use. This method will return immediately.
    * </p><p>
-   * If {@link #getCleaningThreads} is >= 1, cleaning will be performed in the background and the method
-   * will return immediately. If there are 0 cleaning threads and a cleaning is needed,it will be done up front and the method
-   * will return after it has finished. Cleaning time is proportional to the number of updated counters.
    * @param counter a used counter.
-   *  @param sparseKeys the facet keys associated with the counter.
+   * @param sparseKeys the facet keys associated with the counter.
    */
   public void release(ValueCounter counter, SparseKeys sparseKeys) {
-    // Initial fast sanity check and potential pool cleaning
-    synchronized (this) {
-      if (counter.explicitlyDisabled()) {
-        disables++;
-      }
-      if (structureKey != null && !counter.getStructureKey().equals(structureKey)) {
-        // Setup changed, clear all!
-        pool.clear();
-        structureKey = null;
-      }
-      if (pool.size() + cleaner.getQueue().size() >= max) {
-        // TODO: If sparseKey.reuseLikely then remove last (is any) and insert in beginning
-        // Pool full and/or too many counters in clean queue; just release the counter to GC
-        frees++;
-        return;
-      }
-      clears++; // We now know a clear will be performed
+    if (counter.explicitlyDisabled()) {
+      disables.incrementAndGet();
+    }
+    if (structureKey != null && !counter.getStructureKey().equals(structureKey)) {
+      // Setup changed, cannot use the counter anymore
+      filledFrees.incrementAndGet();
+      return;
     }
 
-    if (cleaner.getCorePoolSize() == 0) {
-      // No background cleaning, so we must do it up front
-      long clearTime = System.nanoTime();
-      counter.clear();
-      incClearTime(System.nanoTime() - clearTime);
-      releaseCleared(counter);
-    } else {
-      // Send the cleaning to the background thread(s)
-      cleaner.execute(new FutureTask<ValueCounter>( new BackgroundClear(counter)));
+    // Assign a contentKey to mark the counter as filled
+    counter.setContentKey(sparseKeys.cacheToken == null ? NEEDS_CLEANING : sparseKeys.cacheToken);
+    synchronized (pool) {
+      if (sparseKeys.cacheToken != null) {
+        for (ValueCounter vs: pool) {
+          // If it already exists in the cache, we must be in phase two of distributed faceting
+          if (sparseKeys.cacheToken.equals(vs.getContentKey())) {
+            counter.setContentKey(NEEDS_CLEANING);
+            vs.setContentKey(NEEDS_CLEANING);
+            break;
+          }
+          if (vs.getContentKey() == null) {
+            break;
+          }
+        }
+      }
+      pool.add(counter);
     }
+    triggerJanitor();
   }
 
   /**
@@ -265,10 +268,10 @@ public class SparseCounterPool {
    * @param counter a fully cleaned counter, ready for use.
    */
   private void releaseCleared(ValueCounter counter) {
-    synchronized (this) {
-      if (structureKey != null && !counter.getStructureKey().equals(structureKey) || pool.size() >= max) {
+    synchronized (pool) {
+      if (structureKey != null && !counter.getStructureKey().equals(structureKey) || pool.size() >= maxPoolSize) {
         // Setup changed or pool full. Skip insert!
-        frees++;
+        emptyFrees.incrementAndGet();
         return;
       }
       pool.add(counter);
@@ -279,22 +282,22 @@ public class SparseCounterPool {
   /**
    * @return the maximum amount of counters in this pool.
    */
-  public int getMax() {
-    return max;
+  public int getMaxPoolSize() {
+    return maxPoolSize;
   }
 
   /**
    * @param max the maximum amount of counters in this pool.
    */
-  public void setMax(int max) {
-    synchronized (this) {
-      if (this.max == max) {
-        return;
-      }
+  public void setMaxPoolSize(int max) {
+    if (this.maxPoolSize == max) {
+      return;
+    }
+    synchronized (pool) {
       while (pool.size() > max) {
-        pool.remove(pool.size()-1);
+        pool.removeFirst();
       }
-      this.max = max;
+      this.maxPoolSize = max;
     }
   }
 
@@ -303,7 +306,7 @@ public class SparseCounterPool {
    * @return the amount of Threads used for cleaning counters in the background.
    */
   public int getCleaningThreads() {
-    return cleaner.getCorePoolSize();
+    return supervisor.getCorePoolSize();
   }
 
   /**
@@ -311,8 +314,8 @@ public class SparseCounterPool {
    * @param threads the amount of threads used for cleaning counters in the background.
    */
   public void setCleaningThreads(int threads) {
-    synchronized (cleaner) {
-      cleaner.setCorePoolSize(threads);
+    synchronized (supervisor) {
+      supervisor.setCorePoolSize(threads);
     }
   }
 
@@ -320,115 +323,96 @@ public class SparseCounterPool {
    * Clears both the pool and any accumulated statistics.
    */
   public void clear() {
-    synchronized (this) {
+    synchronized (pool) {
       pool.clear();
       // TODO: Find a clean way to remove non-started tasks from the cleaner
       structureKey = "discardResultsFromBackgroundClears";
-      reuses = 0;
-      allocations = 0;
-      packedAllocations = 0;
-      lastMaxCountForAny = 0;
-      clears = 0;
-      frees = 0;
+      emptyReuses.set(0);
+      filledReuses.set(0);
+      allocations.set(0);
+      packedAllocations.set(0);
+      lastMaxCountForAny.set(0);
+      clears.set(0);
+      filledFrees.set(0);
+      emptyFrees.set(0);
 
-      sparseCalls = 0;
-      skipCount = 0;
-      sparseAllocateTime = 0;
-      sparseCollectTime = 0;
-      sparseExtractTime = 0;
-      sparseClearTime = 0;
-      sparseTotalTime = 0;
-      withinCutoffCount = 0;
-      disables = 0;
-      exceededCutoffCount = 0;
+      sparseCalls.set(0);
+      skipCount.set(0);
+      sparseAllocateTime.set(0);
+      sparseCollectTime.set(0);
+      sparseExtractTime.set(0);
+      sparseClearTime.set(0);
+      sparseTotalTime.set(0);
+      withinCutoffCount.set(0);
+      disables.set(0);
+      exceededCutoffCount.set(0);
       lastSkipReason = "no skips";
 
-      lastCounts = 0;
+      lastCounts.set(0);
       lastTermsLookup = "N/A";
-      termsCountsLookups = 0;
-      termsFallbackLookups = 0;
+      termsCountsLookups.set(0);
+      termsFallbackLookups.set(0);
       lastTermLookup = "N/A";
-      termCountsLookups = 0;
-      termFallbackLookups = 0;
+      termCountsLookups.set(0);
+      termFallbackLookups.set(0);
 
-      cacheHits = 0;
-      cacheNoCleared = 0;
+      cacheHits.set(0);
+      cacheMisses.set(0);
+      requestClears.set(0);
 
-      termTotalCountTime = 0;
-      termTotalFallbackTime = 0;
+      termTotalCountTime.set(0);
+      termTotalFallbackTime.set(0);
     }
   }
 
   public void incSparseCalls() {
-    synchronized (statSync) {
-      sparseCalls++;
-    }
+    sparseCalls.incrementAndGet();
   }
   public void incSkipCount(String reason) {
-    synchronized (statSync) {
-      skipCount++;
-    }
+    skipCount.incrementAndGet();
     lastSkipReason = reason;
   }
   public void incWithinCount() {
-    synchronized (statSync) {
-      withinCutoffCount++;
-    }
+    withinCutoffCount.incrementAndGet();
   }
   public void incExceededCount() {
-    synchronized (statSync) {
-      exceededCutoffCount++;
-    }
+    exceededCutoffCount.incrementAndGet();
   }
   private void incAllocateTime(long delta) {
-    synchronized (statSync) {
-      sparseAllocateTime += delta;
-    }
+    sparseAllocateTime.addAndGet(delta);
   }
   // Nanoseconds
   public void incCollectTime(long delta) {
-    synchronized (statSync) {
-      sparseCollectTime += delta;
-    }
+    sparseCollectTime.addAndGet(delta);
   }
   // Nanoseconds
   public void incExtractTime(long delta) {
-    synchronized (statSync) {
-      sparseExtractTime += delta;
-    }
+    sparseExtractTime.addAndGet(delta);
   }
   private void incClearTime(long delta) {
-    synchronized (statSync) {
-      sparseClearTime += delta;
-    }
+    sparseClearTime.addAndGet(delta);
   }
   // Nanoseconds
   public void incTotalTime(long delta) {
-    synchronized (statSync) {
-      sparseTotalTime += delta;
-    }
+    sparseTotalTime.addAndGet(delta);
   }
   public void incTermsLookup(String terms, boolean countsStructure) {
     lastTermsLookup = terms;
-    synchronized (statSync) {
-      if (countsStructure) {
-        termsCountsLookups++;
-      } else {
-        termsFallbackLookups++;
-      }
+    if (countsStructure) {
+      termsCountsLookups.incrementAndGet();
+    } else {
+      termsFallbackLookups.incrementAndGet();
     }
   }
   // Nanoseconds
   public void incTermLookup(String term, boolean countsStructure, long time) {
     lastTermLookup = term;
-    synchronized (statSync) {
-      if (countsStructure) {
-        termCountsLookups++;
-        termTotalCountTime += time;
-      } else {
-        termFallbackLookups++;
-        termTotalFallbackTime += time;
-      }
+    if (countsStructure) {
+      termCountsLookups.incrementAndGet();
+      termTotalCountTime.addAndGet(time);
+    } else {
+      termFallbackLookups.incrementAndGet();
+      termTotalFallbackTime.addAndGet(time);
     }
   }
 
@@ -437,31 +421,37 @@ public class SparseCounterPool {
    */
   @Override
   public String toString() {
-    if (sparseCalls == 0) {
+    if (sparseCalls.get() == 0) {
       return "No sparse faceting performed yet";
     }
-    synchronized (this) { // We need to synchronize this to get accurate counts for the pool
-      final int pendingCleans = cleaner.getQueue().size() + cleaner.getActiveCount();
-      final int poolSize = pool.size();
-      final int cleanerCoreSize = cleaner.getCorePoolSize();
-      return String.format(
-          "sparse statistics: uniqTerms=%d, calls=%d, fallbacks=%d (last: %s), " +
-              "collect=%dms avg, extract=%dms avg, " +
-              "total=%dms avg, disables=%d,  withinCutoff=%d, exceededCutoff=%d, SCPool(cached=%d/%d, " +
-              "reuses=%d, allocations=%d (%dms avg, %d packed), " +
-              "clears=%d (%dms avg, %s%s), " +
-              "frees=%d, lastMaxCountForAny=%d), terms(count=%d, fallback=%d, last#=%d), " +
-              "term(count=%d (%.1fms avg), fallback=%d (%.1fms avg), last=%s)",
-          lastCounts, sparseCalls, skipCount, lastSkipReason,
-          divMint(sparseCollectTime, sparseCalls), divMint(sparseExtractTime, sparseCalls),
-          divMint(sparseTotalTime, sparseCalls), disables, withinCutoffCount, exceededCutoffCount, poolSize, max,
-          reuses, allocations, divMint(sparseAllocateTime, sparseCalls), packedAllocations, clears,
-          divMint(sparseClearTime, sparseCalls), cleanerCoreSize > 0 ? "background" : "at release",
-          pendingCleans > 0 ? (" (" + pendingCleans + " running)") : "",
-          frees, lastMaxCountForAny, termsCountsLookups, termsFallbackLookups, lastTermsLookup.split(",").length,
-          termCountsLookups, divMdouble(termTotalCountTime, termCountsLookups),
-          termFallbackLookups, divMdouble(termTotalFallbackTime, termFallbackLookups), lastTermLookup);
-    }
+    final int pendingCleans = supervisor.getQueue().size() + supervisor.getActiveCount();
+    final int poolSize = pool.size();
+    final int cleanerCoreSize = supervisor.getCorePoolSize();
+    return String.format(
+        "sparse statistics: uniqTerms=%d, calls=%d, fallbacks=%d (last: %s), " +
+            "collect=%dms avg, extract=%dms avg, " +
+            "total=%dms avg, disables=%d,  withinCutoff=%d, " +
+            "exceededCutoff=%d, SCPool(cached=%d/%d, emptyReuses=%d, " +
+            "allocations=%d (%dms avg, %d packed), " +
+
+            "requestClears=%d, " +
+            "backgroundClears=%d (%dms avg, %s%s), " +
+            "filledFrees=%d, emptyFrees=%d, lastMaxCountForAny=%d), terms(count=%d, fallback=%d, " +
+            "last#=%d), " +
+            "term(count=%d (%.1fms avg), fallback=%d (%.1fms avg), last=%s)",
+        lastCounts.get(), sparseCalls.get(), skipCount.get(), lastSkipReason,
+        divMint(sparseCollectTime.get(), sparseCalls.get()), divMint(sparseExtractTime.get(), sparseCalls.get()),
+        divMint(sparseTotalTime.get(), sparseCalls.get()), disables.get(), withinCutoffCount.get(),
+        exceededCutoffCount.get(), poolSize, maxPoolSize, emptyReuses.get(),
+        allocations.get(), divMint(sparseAllocateTime.get(), sparseCalls.get()), packedAllocations.get(),
+
+        requestClears.get(),
+        clears.get(), divMint(sparseClearTime.get(), sparseCalls.get()), cleanerCoreSize > 0 ? "background" : "at release",
+        pendingCleans > 0 ? (" (" + pendingCleans + " running)") : "",
+        filledFrees.get(), emptyFrees.get(), lastMaxCountForAny.get(), termsCountsLookups.get(), termsFallbackLookups.get(),
+        lastTermsLookup.split(",").length,
+        termCountsLookups.get(), divMdouble(termTotalCountTime.get(), termCountsLookups.get()),
+        termFallbackLookups.get(), divMdouble(termTotalFallbackTime.get(), termFallbackLookups.get()), lastTermLookup);
   }
   final static int M = 1000000;
   private long divMint(long numerator, long denominator) {
@@ -472,22 +462,81 @@ public class SparseCounterPool {
   }
 
   /**
-   * Clears the given counter and calls {@link #releaseCleared(ValueCounter)} when done.
-      */
-  private class BackgroundClear implements Callable<ValueCounter> {
-    private final ValueCounter counter;
+   * Puts a Janitor in the job queue. This is a safe operation:
+   * If there is nothing to do, the Janitor will finish very quickly.
+   */
+  private void triggerJanitor() {
+    supervisor.execute(new FutureTask<ValueCounter>(new SparsePoolJanitor()));
+  }
 
-    private BackgroundClear(ValueCounter counter) {
-      this.counter = counter;
+  public void setMinEmptyCounters(int minEmptyCounters) {
+    this.minEmptyCounters = minEmptyCounters;
+  }
+
+  /**
+   * Cleans up the pool if needed.
+   */
+  private class SparsePoolJanitor implements Callable<ValueCounter> {
+
+    private SparsePoolJanitor() {
     }
 
     @Override
     public ValueCounter call() throws Exception {
       final long startTime = System.nanoTime();
-      counter.clear();
-      incClearTime(System.nanoTime() - startTime);
-      releaseCleared(counter);
-      return counter;
+      ValueCounter dirty = null;
+      synchronized (pool) {
+        int empty = activeClears.get();
+        int full = 0;
+        for (ValueCounter counter: pool) {
+          if (counter.getContentKey() == null) {
+            empty++;
+          } else {
+            full++;
+          }
+        }
+        // Reduce pool if needed
+        while (empty + full > maxPoolSize && !pool.isEmpty()) {
+          boolean wasFilled;
+          if (empty > minEmptyCounters) { // Remove filled if possible
+            wasFilled = pool.removeFirst().getContentKey() != null;
+          } else { // Remove empty if possible
+            wasFilled = pool.removeLast().getContentKey() != null;
+          }
+          if (wasFilled) {
+            filledFrees.incrementAndGet();
+          } else {
+            emptyFrees.incrementAndGet();
+          }
+        }
+        // TODO: If there are counters marked with NEEDS_CLEANING, take one of those for cleaning
+
+        // Return if there are enough empty counters or if there are no counters to clear
+        if (empty >= minEmptyCounters || full == 0) {
+          return null;
+        }
+        // Clear the oldest filled counter if possible
+        if (!pool.isEmpty() && pool.getFirst().getContentKey() != null) {
+          dirty = pool.removeFirst();
+        }
+      }
+      // Outside of synchronized, so we can do heavy lifting
+      if (dirty != null) {
+        if (dirty.getContentKey() == null) { // Sanity check. This should always be false
+          releaseCleared(dirty); // No harm done though. We just put the cleared counter back
+        } else { // Sanity check. This should always be true
+          activeClears.incrementAndGet();
+          try {
+            dirty.clear();
+            clears.incrementAndGet();
+            incClearTime(System.nanoTime() - startTime);
+            releaseCleared(dirty);
+          } finally {
+            activeClears.decrementAndGet();
+          }
+        }
+      }
+      return dirty;
     }
   }
 }
