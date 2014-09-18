@@ -133,6 +133,7 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     params.remove(SparseKeys.STATS_RESET);
     params.add(SparseKeys.STATS, Boolean.TRUE.toString()); // Enable sparse statistics
     results = clients.get(0).query(params);
+    //System.out.println("***2 " + results.toString().replace(",", ",\n"));
     // Do we even sparse and does stats work?
     assertTrue("For sparse faceting there should an instance of 'exceededCutoff=0'\n" + results,
         results.toString().contains("exceededCutoff=0"));
@@ -144,9 +145,10 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     params.set(FacetParams.FACET_FIELD, THIN);
     params.set(FacetParams.FACET_LIMIT, Integer.toString(5));
 
-    // We need to do this twich to get dist stats to bubble up
+    // We need to do this twice to get dist stats to bubble up
     clients.get(0).query(params);
     results = clients.get(0).query(params);
+//    System.out.println("***3 " + results.toString().replace(",", ",\n"));
 
     // terms(count=0 means that the secondary fine-counting of facets was not done sparsely
     assertFalse("With fine-counting there should be no instances of 'terms(count=0'\n" + results,
@@ -161,6 +163,7 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     results = clients.get(0).query(params);
     assertTrue("Without fine-counting there should be an instance of 'terms(count=0'\n" + results,
         results.toString().contains("terms(count=0"));
+//    System.out.println("***4 " + results.toString().replace(",", ",\n"));
 
     // minCount 0 vs. minCount 1, both should still be sparse
     params.set(CommonParams.Q, "id:1");

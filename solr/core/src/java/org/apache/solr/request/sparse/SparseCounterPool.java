@@ -242,22 +242,14 @@ public class SparseCounterPool {
       return;
     }
 
-    // Assign a contentKey to mark the counter as filled
-    counter.setContentKey(sparseKeys.cacheToken == null ? NEEDS_CLEANING : sparseKeys.cacheToken);
+    if (counter.getContentKey() != null) {
+      // If the ValueCounter already has a key, it means that the call must be distributed phase 2 and that the values are not needed anymore
+      counter.setContentKey(NEEDS_CLEANING);
+    } else {
+      // Assign a contentKey to mark the counter as filled. Use the cacheToken if present, for fuure phase 2 re-use
+      counter.setContentKey(sparseKeys.cacheToken == null ? NEEDS_CLEANING : sparseKeys.cacheToken);
+    }
     synchronized (pool) {
-      if (sparseKeys.cacheToken != null) {
-        for (ValueCounter vs: pool) {
-          // If it already exists in the cache, we must be in phase two of distributed faceting
-          if (sparseKeys.cacheToken.equals(vs.getContentKey())) {
-            counter.setContentKey(NEEDS_CLEANING);
-            vs.setContentKey(NEEDS_CLEANING);
-            break;
-          }
-          if (vs.getContentKey() == null) {
-            break;
-          }
-        }
-      }
       pool.add(counter);
     }
     triggerJanitor();
@@ -436,6 +428,7 @@ public class SparseCounterPool {
 
             "requestClears=%d, " +
             "backgroundClears=%d (%dms avg, %s%s), " +
+            "cache(hits=%d, misses=%d)" +
             "filledFrees=%d, emptyFrees=%d, lastMaxCountForAny=%d), terms(count=%d, fallback=%d, " +
             "last#=%d), " +
             "term(count=%d (%.1fms avg), fallback=%d (%.1fms avg), last=%s)",
@@ -448,6 +441,7 @@ public class SparseCounterPool {
         requestClears.get(),
         clears.get(), divMint(sparseClearTime.get(), sparseCalls.get()), cleanerCoreSize > 0 ? "background" : "at release",
         pendingCleans > 0 ? (" (" + pendingCleans + " running)") : "",
+        cacheHits.get(), cacheMisses.get(),
         filledFrees.get(), emptyFrees.get(), lastMaxCountForAny.get(), termsCountsLookups.get(), termsFallbackLookups.get(),
         lastTermsLookup.split(",").length,
         termCountsLookups.get(), divMdouble(termTotalCountTime.get(), termCountsLookups.get()),
@@ -474,6 +468,50 @@ public class SparseCounterPool {
   }
 
   /**
+   * Reduced the pool if it is too large and returns a ValueCounter if one needs to be cleaned.
+   * This method blocks the pool but is fast.
+   * @return a counter in need of cleaning.
+   */
+  private ValueCounter reduceAndReturnPool() {
+    synchronized (pool) {
+      int activeClearing = activeClears.get();
+      while (!pool.isEmpty()) {
+        ValueCounter candidate = null;
+        int empty = 0;
+        for (ValueCounter vc: pool) {
+          if (NEEDS_CLEANING.equals(vc.getContentKey())) {
+            candidate = vc;
+            break; // Needs cleaning is always the best to remove
+          }
+          if (candidate == null) { // Take first candidate that is not in explicit need of cleaning
+            candidate = vc;
+          }
+          if (candidate.getContentKey() == null) {
+            empty++;
+          }
+        }
+        assert candidate != null: "There should always be a candidate as pool is not empty";
+        if (activeClearing + pool.size() > maxPoolSize) {
+          pool.remove(candidate);
+          if (candidate.getContentKey() == null) {
+            emptyFrees.incrementAndGet();
+          } else {
+            filledFrees.incrementAndGet();
+          }
+        } else {
+          if (candidate.getContentKey() != null && (empty + activeClearing < minEmptyCounters)) {
+            // Found a dirty and more clean ones are needed. Return for cleaning
+            pool.remove(candidate);
+            return candidate;
+          }
+          return null;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
    * Cleans up the pool if needed.
    */
   private class SparsePoolJanitor implements Callable<ValueCounter> {
@@ -484,42 +522,7 @@ public class SparseCounterPool {
     @Override
     public ValueCounter call() throws Exception {
       final long startTime = System.nanoTime();
-      ValueCounter dirty = null;
-      synchronized (pool) {
-        int empty = activeClears.get();
-        int full = 0;
-        for (ValueCounter counter: pool) {
-          if (counter.getContentKey() == null) {
-            empty++;
-          } else {
-            full++;
-          }
-        }
-        // Reduce pool if needed
-        while (empty + full > maxPoolSize && !pool.isEmpty()) {
-          boolean wasFilled;
-          if (empty > minEmptyCounters) { // Remove filled if possible
-            wasFilled = pool.removeFirst().getContentKey() != null;
-          } else { // Remove empty if possible
-            wasFilled = pool.removeLast().getContentKey() != null;
-          }
-          if (wasFilled) {
-            filledFrees.incrementAndGet();
-          } else {
-            emptyFrees.incrementAndGet();
-          }
-        }
-        // TODO: If there are counters marked with NEEDS_CLEANING, take one of those for cleaning
-
-        // Return if there are enough empty counters or if there are no counters to clear
-        if (empty >= minEmptyCounters || full == 0) {
-          return null;
-        }
-        // Clear the oldest filled counter if possible
-        if (!pool.isEmpty() && pool.getFirst().getContentKey() != null) {
-          dirty = pool.removeFirst();
-        }
-      }
+      ValueCounter dirty = reduceAndReturnPool();
       // Outside of synchronized, so we can do heavy lifting
       if (dirty != null) {
         if (dirty.getContentKey() == null) { // Sanity check. This should always be false
