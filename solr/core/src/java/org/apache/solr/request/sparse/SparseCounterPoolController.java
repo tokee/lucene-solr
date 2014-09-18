@@ -17,23 +17,16 @@ package org.apache.solr.request.sparse;
  * limitations under the License.
  */
 
-import org.apache.lucene.util.packed.PackedInts;
 import org.apache.solr.common.util.NamedList;
-import org.apache.solr.core.SolrInfoMBean;
 import org.apache.solr.search.CacheRegenerator;
 import org.apache.solr.search.SolrCache;
 import org.apache.solr.search.SolrIndexSearcher;
 
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
-import java.util.concurrent.FutureTask;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -47,13 +40,33 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class SparseCounterPoolController implements SolrCache<String, SparseCounterPool> {
 
   public static final String CACHE_NAME = "SparseCounterPoolController";
+
   private final AtomicInteger max;
   private final Map<String, SparseCounterPool> pools;
+  // Shared between all SparseCounterPools
+  private final ThreadPoolExecutor janitorSupervisor;
 
   private State state = State.CREATED;
 
-  public SparseCounterPoolController(final int maxPoolCount) {
+  public SparseCounterPoolController(final int maxPoolCount, final int cleanupThreads) {
     this.max = new AtomicInteger(maxPoolCount);
+    janitorSupervisor = (ThreadPoolExecutor)Executors.newFixedThreadPool(cleanupThreads);
+    janitorSupervisor.setThreadFactory(new ThreadFactory() {
+      @Override
+      public Thread newThread(Runnable r) {
+        Thread t = new Thread(r);
+        t.setDaemon(true);
+        t.setName("SparsePoolCleaner");
+        return t;
+      }
+    });
+    Runtime.getRuntime().addShutdownHook(new Thread() { // Play nice with shutdown
+      @Override
+      public void run() {
+        janitorSupervisor.shutdown();
+      }
+    });
+
     pools = new LinkedHashMap<String, SparseCounterPool>() {
       @Override
       protected boolean removeEldestEntry(Map.Entry<String, SparseCounterPool> eldest) {
@@ -68,13 +81,14 @@ public class SparseCounterPoolController implements SolrCache<String, SparseCoun
    * @param maxPoolSize the maximum size of the pool for the field.
    * @return a pool of {@link ValueCounter}s.
    */
-  public SparseCounterPool acquire(String field, int maxPoolSize) {
+  public SparseCounterPool acquire(String field, int maxPoolSize, int minEmptyCounters) {
     SparseCounterPool pool = pools.get(field);
     if (pool == null) {
-      pool = new SparseCounterPool(maxPoolSize);
+      pool = new SparseCounterPool(janitorSupervisor, maxPoolSize, minEmptyCounters);
       pools.put(field, pool);
     } else {
-      pool.setMax(maxPoolSize);
+      pool.setMaxPoolSize(maxPoolSize);
+      pool.setMinEmptyCounters(minEmptyCounters);
       pools.put(field, pool); // Updates the FIFO-queue
     }
     return pool;

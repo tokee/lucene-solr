@@ -147,6 +147,14 @@ public class SparseKeys {
   public static int POOL_MIN_EMPTY_DEFAULT = 1;
 
   /**
+   * The number of background threads used for cleaning used counterf for re-use.
+   * </p><p>
+   * Optional. Default is 1. Set to 0 to disable background clearing.
+   */
+  public static final String POOL_CLEANUP_THREADS = "facet.sparse.pool.cleanup.threads";
+  public static final int POOL_CLEANUP_THREADS_DEFAULT = 1;
+
+  /**
    * If true, queries that activates non-sparseness will be redirected to the standard Solr facet implementations.
    * If false, non-sparseness will be handled inside the sparse framework, which includes cached counters.
    * </p><p>
@@ -177,6 +185,7 @@ public class SparseKeys {
 
   final public int poolSize;
   final public int poolMaxCount;
+  final public int poolMinEmpty;
 
   final public boolean skipRefinement;
 
@@ -206,6 +215,7 @@ public class SparseKeys {
 
     poolSize = params.getFieldInt(field, POOL_SIZE, POOL_SIZE_DEFAULT);
     poolMaxCount = params.getInt(POOL_MAX_COUNT, POOL_MAX_COUNT_DEFAULT);
+    poolMinEmpty = params.getInt(POOL_MIN_EMPTY, POOL_MIN_EMPTY_DEFAULT);
 
     skipRefinement = params.getBool(SKIPREFINEMENTS, SKIPREFINEMENTS_DEFAULT);
 

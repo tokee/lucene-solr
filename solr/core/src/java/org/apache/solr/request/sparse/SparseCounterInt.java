@@ -88,7 +88,7 @@ public class SparseCounterInt implements ValueCounter {
    * Constructs an ID which is unique for the given layout. Used for lookup of cached counters in
    * {@link SparseCounterPool}.
    */
-  public static String getID(int counts, long maxCountForAny, int minCountForSparse, double fraction) {
+  public static String createStructureKey(int counts, long maxCountForAny, int minCountForSparse, double fraction) {
     return "SparseCounterInt(counts" + counts + "maxCountForAny" + maxCountForAny
         + "minCountsForSparse" + minCountForSparse + "fraction" + fraction + "maxTracked=irrelevant)";
   }
@@ -98,8 +98,8 @@ public class SparseCounterInt implements ValueCounter {
    */
   @Override
   public String getStructureKey() {
-    //return SparseCounter.getID(counts.size(), maxCountForAny, minCountsForSparse, fraction);
-    return SparseCounterInt.getID(counts.length, maxCountForAny, minCountsForSparse, fraction);
+    //return SparseCounter.createStructureKey(counts.size(), maxCountForAny, minCountsForSparse, fraction);
+    return SparseCounterInt.createStructureKey(counts.length, maxCountForAny, minCountsForSparse, fraction);
   }
 
   @Override
@@ -180,6 +180,7 @@ public class SparseCounterInt implements ValueCounter {
     }
     explicitlyDisabled = false;
     tracksPos = 0;
+    setContentKey(null);
   }
 
   /**
