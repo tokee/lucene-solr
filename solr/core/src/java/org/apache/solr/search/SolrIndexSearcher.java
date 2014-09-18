@@ -286,12 +286,6 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable,SolrIn
           }
         }
       }
-      // The SparseCounterPoolController is both a cache and a factory for SparseCounterPools, so it must always be present
-      // TODO: Split these functionalities for cleaner integration with the SolrCache framework. Consider first-classing the cache
-      if (!cacheMap.containsKey(SparseCounterPoolController.CACHE_NAME)) {
-        cacheMap.put(SparseCounterPoolController.CACHE_NAME, new SparseCounterPoolController(
-            SparseKeys.POOL_MAX_COUNT_DEFAULT, SparseKeys.POOL_CLEANUP_THREADS_DEFAULT));
-      }
 
       cacheList = clist.toArray(new SolrCache[clist.size()]);
     } else {
@@ -302,7 +296,13 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable,SolrIn
       cacheMap = noGenericCaches;
       cacheList= noCaches;
     }
-    
+    // The SparseCounterPoolController is both a cache and a factory for SparseCounterPools, so it must always be present
+    // TODO: Split these functionalities for cleaner integration with the SolrCache framework. Consider first-classing the cache
+    if (!cacheMap.containsKey(SparseCounterPoolController.CACHE_NAME)) {
+      cacheMap.put(SparseCounterPoolController.CACHE_NAME, new SparseCounterPoolController(
+          SparseKeys.POOL_MAX_COUNT_DEFAULT, SparseKeys.POOL_CLEANUP_THREADS_DEFAULT));
+    }
+
     // TODO: This option has been dead/noop since 3.1, should we re-enable it?
 //    optimizer = solrConfig.filtOptEnabled ? new LuceneQueryOptimizer(solrConfig.filtOptCacheSize,solrConfig.filtOptThreshold) : null;
     optimizer = null;
