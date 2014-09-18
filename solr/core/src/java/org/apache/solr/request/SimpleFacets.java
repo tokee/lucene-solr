@@ -529,7 +529,7 @@ public class SimpleFacets {
   private void handleSparseStats(
       NamedList<Integer> counts, String designation, SparseCounterPool pool, SparseKeys sparseKeys) {
     if (sparseKeys.showStats) {
-      counts.add(designation + " " + pool, 9000);
+      counts.add(designation + " " + pool, 9000000);
     }
     if (sparseKeys.resetStats) {
       pool.clear();
