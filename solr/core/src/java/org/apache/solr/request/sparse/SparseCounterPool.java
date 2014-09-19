@@ -494,15 +494,17 @@ public class SparseCounterPool {
         ValueCounter candidate = null;
         int empty = 0;
         for (ValueCounter vc: pool) {
+          if (vc.getContentKey() == null) {
+            empty++;
+          }
+        }
+        for (ValueCounter vc: pool) {
           if (NEEDS_CLEANING.equals(vc.getContentKey())) {
             candidate = vc;
-            break; // Needs cleaning is always the best to remove
+            break; // Any needs cleaning is the best ValueCounter to clean
           }
-          if (candidate == null) { // Take first candidate that is not in explicit need of cleaning
+          if (candidate == null || vc.getContentKey() != null) { // We want the oldest filled if possible
             candidate = vc;
-          }
-          if (candidate.getContentKey() == null) {
-            empty++;
           }
         }
         assert candidate != null: "There should always be a candidate as pool is not empty";
