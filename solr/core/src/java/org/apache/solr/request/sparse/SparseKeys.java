@@ -165,6 +165,15 @@ public class SparseKeys {
   public static boolean FALLBACK_BASE_DEFAULT = false;
 
   /**
+   * If true, the facet counts from phase 1 of distributed calls are cached for re-use with phase-2.
+   * If the setup is single-shard, this will have no effect.
+   * </p><p>
+   * Optional. Default is true.
+   */
+  public static final String CACHE_DISTRIBUTED = "facet.sparse.cache.distributed";
+  public static final boolean CACHE_DISTRIBUTED_DEFAULT = true;
+
+  /**
    * If defined, the current request is part of distributed faceting. The cachetoken uniquely defines the bitset used for filling the counters
    * and can be used as key when caching the counts.
    */
@@ -197,6 +206,7 @@ public class SparseKeys {
 
   final public boolean showStats;
   final public boolean resetStats;
+  final public boolean cacheDistributed;
 
   public SparseKeys(String field, SolrParams params) {
     this.field = field;
@@ -214,12 +224,13 @@ public class SparseKeys {
     packedLimit = params.getFieldInt(field, PACKED_BITLIMIT, DEFAULT_PACKED_BITLIMIT);
 
     poolSize = params.getFieldInt(field, POOL_SIZE, POOL_SIZE_DEFAULT);
-    poolMaxCount = params.getInt(POOL_MAX_COUNT, POOL_MAX_COUNT_DEFAULT);
-    poolMinEmpty = params.getInt(POOL_MIN_EMPTY, POOL_MIN_EMPTY_DEFAULT);
+    poolMaxCount = params.getFieldInt(field, POOL_MAX_COUNT, POOL_MAX_COUNT_DEFAULT);
+    poolMinEmpty = params.getFieldInt(field, POOL_MIN_EMPTY, POOL_MIN_EMPTY_DEFAULT);
 
-    skipRefinement = params.getBool(SKIPREFINEMENTS, SKIPREFINEMENTS_DEFAULT);
+    skipRefinement = params.getFieldBool(field, SKIPREFINEMENTS, SKIPREFINEMENTS_DEFAULT);
 
-    cacheToken = params.get(CACHE_TOKEN, null);
+    cacheDistributed = params.getFieldBool(field, CACHE_DISTRIBUTED, CACHE_DISTRIBUTED_DEFAULT);
+    cacheToken = cacheDistributed ? params.getFieldParam(field, CACHE_TOKEN, null) : null;
 
     showStats = params.getFieldBool(field, STATS, false);
     resetStats = params.getFieldBool(field, STATS_RESET, false);
