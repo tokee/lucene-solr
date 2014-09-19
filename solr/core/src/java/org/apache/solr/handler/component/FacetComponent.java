@@ -27,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.lucene.util.FixedBitSet;
 import org.apache.solr.common.SolrException;
@@ -223,9 +224,9 @@ public class FacetComponent extends SearchComponent
    * @return a guaranteed unique value, intended as key for caching.
    */
   private String generateSparseCacheToken() {
-    return Long.toHexString(cacheTokenCounter++); // TODO: Create a non-chance-dependent unique token
+    return Long.toHexString(cacheTokenCounter.incrementAndGet()); // TODO: Create a non-chance-dependent unique token
   }
-  private long cacheTokenCounter = new Random().nextLong();
+  private final AtomicLong cacheTokenCounter = new AtomicLong(new Random().nextLong());
 
   @Override
   public void modifyRequest(ResponseBuilder rb, SearchComponent who, ShardRequest sreq) {

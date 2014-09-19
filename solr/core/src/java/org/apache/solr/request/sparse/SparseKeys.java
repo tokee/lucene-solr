@@ -140,6 +140,7 @@ public class SparseKeys {
   /**
    * The ideal minimum of empty counters in the pool. If the content drops below this limit, the pool might clear
    * existing filled counters or allocate new ones.
+   * See {@link org.apache.solr.request.sparse.SparseCounterPool#reduceAndReturnPool()} for details.
    * </p><p>
    * Optional. Default is 1.
    */

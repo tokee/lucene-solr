@@ -30,6 +30,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -228,6 +229,8 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable,SolrIn
   public SolrIndexSearcher(SolrCore core, String path, IndexSchema schema, SolrIndexConfig config, String name, DirectoryReader r, boolean closeReader, boolean enableCache, boolean reserveDirectory, DirectoryFactory directoryFactory) throws IOException {
     super(r == null ? getReader(core, config, directoryFactory, path) : r);
 
+    int createID = new Random().nextInt();
+
     this.path = path;
     this.directoryFactory = directoryFactory;
     this.reader = (DirectoryReader) super.readerContext.reader();
@@ -274,7 +277,8 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable,SolrIn
       if (documentCache!=null) clist.add(documentCache);
 
       if (solrConfig.userCacheConfigs == null) {
-        cacheMap = noGenericCaches;
+//        cacheMap = noGenericCaches;
+        cacheMap = new HashMap<>(); // We always need the SparseCounterPoolController so we cannot use a shared map
       } else {
         cacheMap = new HashMap<>(solrConfig.userCacheConfigs.length);
         for (CacheConfig userCacheConfig : solrConfig.userCacheConfigs) {
@@ -293,7 +297,8 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable,SolrIn
       queryResultCache=null;
       documentCache=null;
       fieldValueCache=null;
-      cacheMap = noGenericCaches;
+//      cacheMap = noGenericCaches;
+      cacheMap = new HashMap<>(); // We always need the SparseCounterPoolController so we cannot use a shared map
       cacheList= noCaches;
     }
     // The SparseCounterPoolController is both a cache and a factory for SparseCounterPools, so it must always be present

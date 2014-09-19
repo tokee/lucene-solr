@@ -106,9 +106,11 @@ public class SparseCounterPool {
   AtomicLong termTotalFallbackTime = new AtomicLong(0);
 
   protected final ThreadPoolExecutor supervisor;
-  private static final String NEEDS_CLEANING = "filled__counter_that_should_be_cleared_";
+  protected final String field;
+  private static final String NEEDS_CLEANING = "DIRTY";
 
-  public SparseCounterPool(ThreadPoolExecutor janitorSupervisor, int maxPoolSize, int minEmptyCounters) {
+  public SparseCounterPool(ThreadPoolExecutor janitorSupervisor, String field, int maxPoolSize, int minEmptyCounters) {
+    this.field = field;
     supervisor = janitorSupervisor;
     this.maxPoolSize = maxPoolSize;
     this.minEmptyCounters = minEmptyCounters;
@@ -163,6 +165,7 @@ public class SparseCounterPool {
               break;
             }
           }
+//          System.out.println("--- acquire(" + sparseKeys.cacheToken + ") got " + (vc == null ? "none" : (vc.getContentKey() == null ? "empty" : "full") + " counter"));
         } else if (!pool.isEmpty()) {
           vc = pool.removeLast();
         }
@@ -408,6 +411,18 @@ public class SparseCounterPool {
     }
   }
 
+  public String listCounters() {
+    StringBuilder sb = new StringBuilder(100);
+    sb.append(Integer.toString(pool.size())).append("(");
+    synchronized (pool) {
+      for (ValueCounter counter: pool) {
+        sb.append(counter.getContentKey()).append(" ");
+      }
+      sb.append(")").append(", cleaning=").append(Integer.toString(getCleaningThreads()));
+    }
+    return sb.toString();
+  }
+
   /**
    * @return timing and count statistics for this pool.
    */
@@ -469,8 +484,8 @@ public class SparseCounterPool {
 
   /**
    * Reduced the pool if it is too large and returns a ValueCounter if one needs to be cleaned.
-   * This method blocks the pool but is fast.
-   * @return a counter in need of cleaning.
+   * This method blocks the pool but does not perform heavy processing.
+   * @return a counter in need of cleaning, removed from the pool.
    */
   private ValueCounter reduceAndReturnPool() {
     synchronized (pool) {
@@ -492,19 +507,27 @@ public class SparseCounterPool {
         }
         assert candidate != null: "There should always be a candidate as pool is not empty";
         if (activeClearing + pool.size() > maxPoolSize) {
+          // Too many values, remove one
           pool.remove(candidate);
           if (candidate.getContentKey() == null) {
             emptyFrees.incrementAndGet();
           } else {
             filledFrees.incrementAndGet();
           }
-        } else {
-          if (candidate.getContentKey() != null && (empty + activeClearing < minEmptyCounters)) {
-            // Found a dirty and more clean ones are needed. Return for cleaning
-            pool.remove(candidate);
-            return candidate;
-          }
+        } else if (NEEDS_CLEANING.equals(candidate.getContentKey())) {
+          // Found a ValueCounter in need of cleaning
+          pool.remove(candidate);
+          return candidate;
+        } else if (candidate.getContentKey() == null) {
+          // Clean counter. Nothing to do here!
           return null;
+        } else if (pool.size() + activeClearing < maxPoolSize || empty >= minEmptyCounters) {
+          // Pool not full yet or enough empty ValueCounters ready. Nothing to do here!
+          return null;
+        } else {
+          // Filled counter and full pool, so it must be cleaned
+          pool.remove(candidate);
+          return candidate;
         }
       }
     }
