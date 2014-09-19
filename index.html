@@ -47,7 +47,7 @@
 <p>Download a sparse WAR and use it instead of the standard Solr WAR. No tweaks are needed to solrconfig.xml.</p>
 
 <ul>
-<li><a href="https://github.com/tokee/lucene-solr/releases/tag/sparse_4.8_20140914-alpha">Solr 4.8 &amp; 4.9 sparse WAR</a></li>
+<li><a href="https://github.com/tokee/lucene-solr/releases/">Solr 4.8 &amp; 4.9 sparse WAR</a></li>
 </ul><h3>
 <a name="sample-calls" class="anchor" href="#sample-calls"><span class="octicon octicon-link"></span></a>Sample calls</h3>
 
@@ -104,8 +104,6 @@ Maxtracked sets an upper limit for the counts in the facets in the shards (the t
 <p>The existence of a cache for the counter structures does result in a permanent memory overhead, as opposed to a variable one with standard Solr fc faceting. The size of the cache can be controlled, so it is possible to disable it fully, if this is a concern.</p>
 
 <p>Currently only <code>facet.method=fc</code> is supported, for single- and multi-value, with and without DocValues. In theory the sparse principle can be applied to <code>facet.method=fcs</code>, although the gains will probably be somewhat smaller. This sub-project has not been started yet. See <a href="https://github.com/tokee/lucene-solr/issues/8">issue #8</a> for details.</p>
-
-<p>Sparse faceting has not been tested in a multi-core setup and it is suspected that the counter cache does not perform well there. See <a href="https://github.com/tokee/lucene-solr/issues/6">issue #6</a> for details.</p>
 
 <h3>
 <a name="why-is-this-not-in-standard-solr" class="anchor" href="#why-is-this-not-in-standard-solr"><span class="octicon octicon-link"></span></a>Why is this not in standard Solr?</h3>
