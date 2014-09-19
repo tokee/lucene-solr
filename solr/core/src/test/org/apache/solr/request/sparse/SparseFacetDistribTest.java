@@ -148,12 +148,23 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     // We need to do this twice to get dist stats to bubble up
     clients.get(0).query(params);
     results = clients.get(0).query(params);
-//    System.out.println("***3 " + results.toString().replace(",", ",\n"));
 
     // terms(count=0 means that the secondary fine-counting of facets was not done sparsely
     assertFalse("With fine-counting there should be no instances of 'terms(count=0'\n" + results,
         results.toString().contains("terms(count=0"));
-    System.out.println(results.toString().replace(",", ",\n"));
+    assertTrue("At least one of the requests should hit the cache\n" + results,
+        results.toString().matches(".*hits=[1234].*"));
+
+    // Is it possible to turn the distributed facet call cache off?
+    params.set(SparseKeys.CACHE_DISTRIBUTED, Boolean.FALSE.toString());
+    params.set(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
+    clients.get(0).query(params);
+    params.remove(SparseKeys.STATS_RESET);
+    clients.get(0).query(params);
+    results = clients.get(0).query(params);
+    assertFalse("With disabled cache, there should be no cache hits\n" + results,
+        results.toString().matches(".*hits=[1234].*"));
+    params.set(SparseKeys.CACHE_DISTRIBUTED, Boolean.TRUE.toString());
 
     // Disable fine-counting
     params.set(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
