@@ -148,57 +148,43 @@ public class SparseCounterPool {
     }
     try {
       String structureKey = createStructureKey(counts, maxCountForAny, sparseKeys);
-      ValueCounter vc = null;
       synchronized (pool) {
         // Did the structure change since last acquire (index updated)?
         if (!structureKey.equals(this.structureKey) && !pool.isEmpty()) {
           pool.clear();
         }
         this.structureKey = structureKey;
+      }
 
-        if (sparseKeys.cacheToken != null) {
-          // Try to find a filled counter
-          for (int i = 0 ; i < pool.size() ; i++) {
-            ValueCounter candidate = pool.get(i);
-            if (sparseKeys.cacheToken.equals(candidate.getContentKey()) || candidate.getContentKey() == null) {
-              vc = pool.remove(i);
-              break;
-            }
-          }
-//          System.out.println("--- acquire(" + sparseKeys.cacheToken + ") got " + (vc == null ? "none" : (vc.getContentKey() == null ? "empty" : "full") + " counter"));
-        } else if (!pool.isEmpty()) {
-          vc = pool.removeLast();
-        }
+      ValueCounter vc = getCounter(sparseKeys.cacheToken);
+      if (vc == null) { // Got nothing, so we allocate a new one
+        return createCounter(counts, maxCountForAny, sparseKeys);
+      }
 
-        if (vc == null) { // Allocate a new counter
-          return createCounter(counts, maxCountForAny, sparseKeys);
-        }
-
-        if (sparseKeys.cacheToken == null) {
-          if (vc.getContentKey() == null) { // Asked for empty, got empty
-            emptyReuses.incrementAndGet();
-            return vc;
-          }
-          // Asked for empty, got filled
-          requestClears.incrementAndGet();
-          vc.clear();
-          return vc;
-        }
-
-        if (vc.getContentKey() == null) { // Asked for filled, got empty
+      if (sparseKeys.cacheToken == null) {
+        if (vc.getContentKey() == null) { // Asked for empty, got empty
           emptyReuses.incrementAndGet();
-          cacheMisses.incrementAndGet();
-          return vc;
-        } else if (sparseKeys.cacheToken.equals(vc.getContentKey())) { // Asked for filled, got match
-          cacheHits.incrementAndGet();
           return vc;
         }
-        // Asked for filled, got wrong filled
+        // Asked for empty, got filled
         requestClears.incrementAndGet();
-        cacheMisses.incrementAndGet();
         vc.clear();
         return vc;
       }
+
+      if (vc.getContentKey() == null) { // Asked for filled, got empty
+        emptyReuses.incrementAndGet();
+        cacheMisses.incrementAndGet();
+        return vc;
+      } else if (sparseKeys.cacheToken.equals(vc.getContentKey())) { // Asked for filled, got match
+        cacheHits.incrementAndGet();
+        return vc;
+      }
+      // Asked for filled, got wrong filled (might just be a NEEDS_CLEANING)
+      requestClears.incrementAndGet();
+      cacheMisses.incrementAndGet();
+      vc.clear();
+      return vc;
     } finally {
       incAllocateTime(System.nanoTime() - allocateTime);
     }
@@ -244,7 +230,6 @@ public class SparseCounterPool {
       filledFrees.incrementAndGet();
       return;
     }
-
     if (counter.getContentKey() != null) {
       // If the ValueCounter already has a key, it means that the call must be distributed phase 2 and that the values are not needed anymore
       counter.setContentKey(NEEDS_CLEANING);
@@ -264,7 +249,7 @@ public class SparseCounterPool {
    */
   private void releaseCleared(ValueCounter counter) {
     synchronized (pool) {
-      if (structureKey != null && !counter.getStructureKey().equals(structureKey) || pool.size() >= maxPoolSize) {
+      if ((structureKey != null && !counter.getStructureKey().equals(structureKey)) || pool.size() >= maxPoolSize) {
         // Setup changed or pool full. Skip insert!
         emptyFrees.incrementAndGet();
         return;
@@ -282,6 +267,8 @@ public class SparseCounterPool {
   }
 
   /**
+   * Changing the max triggers a rough cleanup of the pool content is needed.
+   * This is not designed to be called frequently with different values.
    * @param max the maximum amount of counters in this pool.
    */
   public void setMaxPoolSize(int max) {
@@ -482,22 +469,68 @@ public class SparseCounterPool {
     this.minEmptyCounters = minEmptyCounters;
   }
 
+        // Find the best candidate for re-use. Priority chain is:
+        // - Matching cache-key
+        // - Empty counter
+        // - NEEDS_CLEANING
+        // - Filled counter, with non-matching cache-key
+
+
   /**
-   * Reduced the pool if it is too large and returns a ValueCounter if one needs to be cleaned.
+   * Locates the best matching counter and return it. Order of priority is<br/>
+   * Filled counter matching the given contentKey (if contentKey is != null)<br/>
+   * Empty counter<br/>
+   * Counter marked {@link #NEEDS_CLEANING}<br/>
+   * Filled counter not matching contentKey.
+   * @param contentKey optional contentKey for counter re-use. Can be null.
+   * @return a counter removed from the pool if the pool is {@code !pool.isEmpty()}.
+   */
+  private ValueCounter getCounter(String contentKey) {
+    synchronized (pool) {
+      ValueCounter candidate = null;
+      for (ValueCounter vc: pool) {
+        if (contentKey != null && contentKey.equals(vc.getContentKey())) {
+          candidate = vc;
+          break; // It cannot get better than cached counter
+        }
+        if (vc.getContentKey() == null) {
+          candidate = vc;
+          break; // Empty counters are always at the end of the pool
+        }
+        if (NEEDS_CLEANING.equals(vc.getContentKey())) {
+          candidate = vc;
+          continue; // Maybe there's a contentKey match elsewhere
+        }
+        if (candidate == null || !NEEDS_CLEANING.equals(candidate.getContentKey())) {
+          candidate = vc; // Fallback is the oldest (last in list) non-matching filled counter
+        }
+      }
+      if (candidate != null) {
+        // Got a candidate. Remove it from the pool
+        pool.remove(candidate);
+      }
+      return candidate;
+    }
+  }
+
+  /**
+   * Reduces the pool if it is too large and returns a ValueCounter if one needs to be cleaned.
    * This method blocks the pool but does not perform heavy processing.
    * @return a counter in need of cleaning, removed from the pool.
    */
   private ValueCounter reduceAndReturnPool() {
     synchronized (pool) {
       int activeClearing = activeClears.get();
+
       while (!pool.isEmpty()) {
-        ValueCounter candidate = null;
         int empty = 0;
         for (ValueCounter vc: pool) {
           if (vc.getContentKey() == null) {
             empty++;
           }
         }
+
+        ValueCounter candidate = null;
         for (ValueCounter vc: pool) {
           if (NEEDS_CLEANING.equals(vc.getContentKey())) {
             candidate = vc;
@@ -506,31 +539,40 @@ public class SparseCounterPool {
           if (candidate == null || vc.getContentKey() != null) { // We want the oldest filled if possible
             candidate = vc;
           }
+          if (vc.getContentKey() == null) {
+            break; // The rest will also be null, so we break early
+          }
         }
         assert candidate != null: "There should always be a candidate as pool is not empty";
+
+        // Pool too large?
         if (activeClearing + pool.size() > maxPoolSize) {
-          // Too many values, remove one
+          if (empty >= minEmptyCounters) { // Many empty counters. Try to remove one of those to make room for cached
+            candidate = pool.getLast();
+          }
           pool.remove(candidate);
           if (candidate.getContentKey() == null) {
             emptyFrees.incrementAndGet();
           } else {
             filledFrees.incrementAndGet();
           }
-        } else if (NEEDS_CLEANING.equals(candidate.getContentKey())) {
-          // Found a ValueCounter in need of cleaning
-          pool.remove(candidate);
-          return candidate;
-        } else if (candidate.getContentKey() == null) {
-          // Clean counter. Nothing to do here!
-          return null;
-        } else if (pool.size() + activeClearing < maxPoolSize || empty >= minEmptyCounters) {
-          // Pool not full yet or enough empty ValueCounters ready. Nothing to do here!
-          return null;
-        } else {
-          // Filled counter and full pool, so it must be cleaned
+          continue;
+        }
+
+        // Pool size okay. Anything needs cleaning?
+        if (NEEDS_CLEANING.equals(candidate.getContentKey())) {
+          // Marked as dirty so clean it
           pool.remove(candidate);
           return candidate;
         }
+        if (candidate.getContentKey() == null ||          // Counter already clean
+            pool.size() + activeClearing < maxPoolSize || // Pool not full
+            empty >= minEmptyCounters) {                  // Enough empty counters
+          return null;
+        }
+        // Pool is full, counter is dirty, we need more empty
+        pool.remove(candidate);
+        return candidate;
       }
     }
     return null;
@@ -548,7 +590,7 @@ public class SparseCounterPool {
     public ValueCounter call() throws Exception {
       final long startTime = System.nanoTime();
       ValueCounter dirty = reduceAndReturnPool();
-      // Outside of synchronized, so we can do heavy lifting
+      // Not synchronized, so do heavy lifting is okay
       if (dirty != null) {
         if (dirty.getContentKey() == null) { // Sanity check. This should always be false
           releaseCleared(dirty); // No harm done though. We just put the cleared counter back

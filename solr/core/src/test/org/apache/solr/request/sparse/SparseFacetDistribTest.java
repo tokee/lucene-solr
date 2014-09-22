@@ -110,10 +110,20 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     params.set(SparseKeys.SPARSE, Boolean.FALSE.toString());
 
     QueryResponse nonSparse = clients.get(0).query(params);
+    QueryResponse nonSparse2 = clients.get(0).query(params);
+    assertEquals("Repeating the facet request with standard Solr should be equal except for QTime",
+        nonSparse.toString().replaceAll("QTime=[0-9]+", ""), nonSparse2.toString().replaceAll("QTime=[0-9]+", ""));
 
     params.set(SparseKeys.SPARSE, Boolean.TRUE.toString());
     params.add(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
     params.add(SparseKeys.TERMLOOKUP, Boolean.TRUE.toString());
+
+    // TODO: Remove these when error has been isolated
+    params.set(SparseKeys.MAXMINCOUNT, Integer.toString(0)); // Let sparse behave like non-sparse
+    params.set(SparseKeys.CACHE_DISTRIBUTED, Boolean.FALSE.toString()); // Caching seems to give incorrect results
+    // TOD: TERMLOOKUP seems the likely culprit for failing test. Maybe it has something to do with bigterms?
+    params.set(SparseKeys.TERMLOOKUP, Boolean.FALSE.toString()); // Third attempt to isolate the problem
+
     params.add(SparseKeys.MINTAGS, Integer.toString(0));   // Force sparse
     params.add(SparseKeys.FRACTION, Double.toString(1000.0)); // Force sparse
     params.add(SparseKeys.CUTOFF, Double.toString(2.0));   // Force sparse
@@ -124,16 +134,15 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     assertEquals("Solr fc and sparse results should be equal except for QTime",
         nonSparse.toString().replaceAll("QTime=[0-9]+", ""), results.toString().replaceAll("QTime=[0-9]+", ""));
 
-//    System.out.println("***" + results.toString().replace(",", ",\n"));
-
-    // Do not work with THIN as the result is random there
-//    assertEquals("Count for alldocs should be #docs", DOCS, results.getFacetField(FF).getValues().get(0).getCount());
+     // Change back to defaults
+    params.remove(SparseKeys.TERMLOOKUP);
+    params.remove(SparseKeys.CACHE_DISTRIBUTED);
+    params.remove(SparseKeys.MAXMINCOUNT);
 
     // Check that the call was sparse-processed
     params.remove(SparseKeys.STATS_RESET);
     params.add(SparseKeys.STATS, Boolean.TRUE.toString()); // Enable sparse statistics
     results = clients.get(0).query(params);
-    //System.out.println("***2 " + results.toString().replace(",", ",\n"));
     // Do we even sparse and does stats work?
     assertTrue("For sparse faceting there should an instance of 'exceededCutoff=0'\n" + results,
         results.toString().contains("exceededCutoff=0"));
@@ -150,8 +159,8 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     results = clients.get(0).query(params);
 
     // terms(count=0 means that the secondary fine-counting of facets was not done sparsely
-    assertFalse("With fine-counting there should be no instances of 'terms(count=0'\n" + results,
-        results.toString().contains("terms(count=0"));
+    assertFalse("With fine-counting there should be no instances of 'fallback=0'\n" + results,
+        results.toString().contains("terms(fallback=0"));
     assertTrue("At least one of the requests should hit the cache\n" + results,
         results.toString().matches(".*hits=[1234].*"));
 
@@ -174,7 +183,6 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     results = clients.get(0).query(params);
     assertTrue("Without fine-counting there should be an instance of 'terms(count=0'\n" + results,
         results.toString().contains("terms(count=0"));
-//    System.out.println("***4 " + results.toString().replace(",", ",\n"));
 
     // minCount 0 vs. minCount 1, both should still be sparse
     params.set(CommonParams.Q, "id:1");

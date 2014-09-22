@@ -90,16 +90,6 @@ public class SparseCounterPacked implements ValueCounter {
     return SparseCounterPacked.createStructureKey(counts.size(), maxCountForAny, minCountsForSparse, fraction, maxCountTracked);
   }
 
-  @Override
-  public boolean equals(Object obj) {
-    return obj == null || !(obj instanceof SparseCounterPacked) || !((SparseCounterPacked)obj).getStructureKey().equals(getStructureKey());
-  }
-
-  @Override
-  public int hashCode() {
-    return getStructureKey().hashCode();
-  }
-
   /**
    * Increments the given counter.
    * @param counter the index of the counter to increment.
