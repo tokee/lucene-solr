@@ -102,15 +102,10 @@ public class SparseCounterInt implements ValueCounter {
     return SparseCounterInt.createStructureKey(counts.length, maxCountForAny, minCountsForSparse, fraction);
   }
 
-  @Override
-  public boolean equals(Object obj) {
-    return obj == null || !(obj instanceof SparseCounterInt) || !((SparseCounterInt)obj).getStructureKey().equals(getStructureKey());
-  }
-
-  @Override
-  public int hashCode() {
+  // TODO: Investigate is a proper hash & equals can be implemented by using structure & contentKey
+/*  public int hashCode() {
     return getStructureKey().hashCode();
-  }
+  }*/
 
   /**
    * Increments the given counter. This is slightly faster than {@link #inc(int, long)}.
