@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+
+  <head>
+    <meta charset='utf-8'>
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <meta name="description" content="Solr sparse faceting statistics description">
+
+    <link rel="stylesheet" type="text/css" media="screen" href="stylesheets/stylesheet.css">
+
+    <title>Solr sparse faceting statistics description</title>
+  </head>
+
+  <body>
+
+    <!-- HEADER -->
+    <div id="header_wrap" class="outer">
+        <header class="inner">
+          <a id="forkme_banner" href="https://github.com/tokee/lucene-solr">View on GitHub</a>
+
+          <h1 id="project_title">Solr sparse faceting statistics description</h1>
+          <h2 id="project_tagline">Until this mess is cleaned, here's the manual</h2>
+
+            <section id="downloads">
+              <a class="zip_download_link" href="https://github.com/tokee/lucene-solr/zipball/master">Download this project as a .zip file</a>
+              <a class="tar_download_link" href="https://github.com/tokee/lucene-solr/tarball/master">Download this project as a tar.gz file</a>
+            </section>
+        </header>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div id="main_content_wrap" class="outer">
+      <section id="main_content" class="inner">
+        <h2><a name="sparse-faceting-for-solr" class="anchor" href="#sparse-faceting-for-solr"><span class="octicon octicon-link"></span></a>Sparse faceting statistics</h2>
+        
+        <p>This page belongs to <a href="./">Sparse facetingSOLR-5894</a>.</p>
+        
+        <h3><a name="request-stats" class="anchor" href="#elevator-pitch"><span class="octicon octicon-link"></span></a>How to get it</h3>
+        
+        <p>When experimenting with sparse faceting, it is highly recommended to sometimes request statistics from the module; to aid with debugging and to just plain see if the whole thing is being processed sparse or not. Currently the statistics are delivered via an extremely ugly hack: Add the parameter <strong>facet.sparse.stats=true</strong> and the statistics from each shard will be added to the facet result as tags. This should produce something like:
+            <pre>
+                &lt;int name="_sparse_stats_docval sparse statistics: calls=15485, fallbacks=0 (last: no skips), collect=5ms avg, extract=0ms avg, total=24ms avg, disables=0,  withinCutoff=6471, exceededCutoff=0, SCPool(cached=0/2, reuses=8022, allocations=3 (0ms avg, 3 packed), clears=8025 (0ms avg, background (1 running)), frees=0, lastMaxCountForAny=1577), terms(count=1554, fallback=0, last#=7019), term(count=2039189 (0.3ms avg), fallback=0 (0.0ms avg), last=http://udfordringen.dk/print.php?ID=10730)"&gt;9000&lt;/int&gt;
+            </pre>
+            
+            <h3><a name="deconstruction" class="anchor" href="#download-and-usage"><span class="octicon octicon-link"></span></a>What does it mean?</h3>
+        <p>The stats are essentially a hodgepodge of numbers that seemed relevant during development of sparse faceting. A subset of those are probably relevant in general.</p>
+        
+        <dl>
+            <dt>calls</dt>
+            <dd>The number of times a sparse faceting call has been issued against the field.</dd>
+            <dt>fallbacks (should be low unless there are many searches with large result sets)</dt>
+            <dd>The number of times sparse faceting has been requested but fell back to standard fc faceting (this normally happens only if facet.sparse.fallback=true and it is estimated that the result will exceed the sparse counter size (normally 8% of the number of unique values in the facet field)).</dd>
+            <dt>(last: ...)</dt>
+            <dd>A description as to why the last fallback occurred. This will be 'no skips' if no fallbacks has occurred.</dd>
+            <dt>collect</dt>
+            <dd>The average time spend filling the facet counters from the search hits.</dd>
+            <dt>extract</dt>
+            <dd>The average time spend extracting the top-X terms in the facet.</dd>
+            <dt>total</dt>
+            <dd>The average total time spend sparse faceting the field.</dd>
+            <dt>disables (depends on how many hits the searches has)</dt>
+            <dd>If it is guessed that a result set will exceed the sparse counter size, sparse counting is explicitly disabled before the collect phase starts. 'disables' is the number of times this has happened.</dd>
+            <dt>withinCutoff</dt>
+            <dd>The number of times the result size estimator guessed right and the </dd>
+            <dt></dt>
+            <dd></dd>
+            <dt></dt>
+            <dd></dd>
+            <dt></dt>
+            <dd></dd>
+        </dl>
+        
+      </section>
+    </div>
+
+    <!-- FOOTER  -->
+    <div id="footer_wrap" class="outer">
+      <footer class="inner">
+        <p class="copyright">Solr sparse faceting maintained by <a href="https://github.com/tokee">tokee</a></p>
+        <p>Published with <a href="http://pages.github.com">GitHub Pages</a></p>
+      </footer>
+    </div>
+
+    
+
+  </body>
+</html>
