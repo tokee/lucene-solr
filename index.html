@@ -60,7 +60,7 @@ A standard faceting call, which should trigger sparse faceting if the number of 
 When sparse faceting is disabled, faceting is handled by the standard Solr faceting implementation. Useful for checking correctness and performance differences.</li>
 <li>
 <a href="http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.sparse.stats=true">http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;<strong>facet.sparse.stats=true</strong></a><br>
-An ugly hack that provides statistics on sparse faceting by returning it as part of the facet result. Only intended for experimenting, but very useful to determine if sparse is activated at all.</li>
+An ugly hack that provides statistics on sparse faceting by returning it as part of the facet result. Only intended for experimenting, but very useful to determine if sparse is activated at all. See <a href="stats.html">Sparse stats description</a> for an breakdown of the many values.</li>
 <li>
 <a href="http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.sparse.skiprefinements=true">http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;<strong>facet.sparse.skiprefinements=true</strong></a><br>
 In a multi-shard setup this speeds up faceting at the cost of precision, by skipping the fine-counting of facets. The reported counts will be &lt;= the true counts. Use it if response time is paramount.</li>
