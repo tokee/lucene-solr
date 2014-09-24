@@ -95,7 +95,7 @@ last=http://borsen.dk/blog/214/8471/22426/bO6QbdAgm7gEa27A32pAl5dQ7xEsAwNYcyL8uT
             <dt>lastMaxCountForAny</dt>
             <dd>The highest possible number for any counter to reach, assuming a search for *:*. As sparse faceting per default uses a <code>PackedInt</code> to hold the counts, this indicates the memory overhead of the counter structures. This should be extended with the actual memory overhead for easier overview.</dd>
             <dt><em>terms(count, fallback, last)</em></dt>
-            <dd><code>count</code> = the number of times distributed sparse faceting has reached phase 2 (fine counting of specific terms). <code>fallback</code> = the number of times standard Solr fine counting has been used (should be 0, unless special options has been given). <code>last</last> = the number of terms that has to be fine-counted in the last call.</dd>
+            <dd><code>count</code> = the number of times distributed sparse faceting has reached phase 2 (fine counting of specific terms). <code>fallback</code> = the number of times standard Solr fine counting has been used (should be 0, unless special options has been given). <code>last</code> = the number of terms that has to be fine-counted in the last call.</dd>
             <dt><em>term(count, fallback, last)</em></dt>
             <dd><code>count</code> = the number of terms that has been fine-counted, with the average time it took to fine-count a single term. <code>fallback</code> = the number of times it was necessary to do a fallback to standard Solr counting for a single term (practically always 0). <code>last</code> = the last term that was fine-counted.</dd>
         </dl>
