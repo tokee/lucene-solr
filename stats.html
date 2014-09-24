@@ -7,6 +7,7 @@
     <meta name="description" content="Solr sparse faceting statistics description">
 
     <link rel="stylesheet" type="text/css" media="screen" href="stylesheets/stylesheet.css">
+    <link rel="stylesheet" type="text/css" media="screen" href="stylesheets/sparse.css">
 
     <title>Solr sparse faceting statistics description</title>
   </head>
@@ -61,7 +62,7 @@ term(count=1109876 (0.4ms avg), fallback=0 (0.0ms avg),
             <dd>The number of unique terms in the field. Always reported as 0 (which is clearly an error). To be fixed.</dd>
             <dt>calls</dt>
             <dd>The number of times a sparse faceting call has been issued against the field.</dd>
-            <dt><em>fallbacks</em> (should be low unless there are many searches with large result sets)</dt>
+            <dt><strong>fallbacks</strong> (should be low unless there are many searches with large result sets)</dt>
             <dd>The number of times sparse faceting has been requested but fell back to standard fc faceting (this normally happens only if <code>facet.sparse.fallback=true</code> and it is estimated that the result will exceed the sparse counter size (normally 8% of the number of unique values in the facet field)).</dd>
             <dt>(last: ...)</dt>
             <dd>A description as to why the last fallback occurred. This will be 'no skips' if no fallbacks has occurred.</dd>
@@ -69,35 +70,35 @@ term(count=1109876 (0.4ms avg), fallback=0 (0.0ms avg),
             <dd>The average time spend filling the facet counters from the search hits.</dd>
             <dt>extract</dt>
             <dd>The average time spend extracting the top-X terms in the facet.</dd>
-            <dt><em>total</em></dt>
+            <dt><strong>total</strong></dt>
             <dd>The average total time spend sparse faceting the field.</dd>
             <dt>disables (depends on how many hits the searches has)</dt>
             <dd>If it is guessed that a result set will exceed the sparse counter size, sparse counting is explicitly disabled before the collect phase starts. 'disables' is the number of times this has happened.</dd>
             <dt>withinCutoff</dt>
             <dd>The number of times the result size estimator guessed right and the end result was in fact within the sparse limit.</dd>
-            <dt><em>exceededCutoff</em> (should be very low)</dt>
+            <dt><strong>exceededCutoff</strong> (should be very low)</dt>
             <dd>The number of times the result size estimator guessed wrong and the end result size exceeded the sparse limit, thereby incurring a noticeable performance penalty. If this numer is always 0, even after thousands of searches, it indicates that the cutOff factor (see <a href="https://github.com/tokee/lucene-solr/blob/lucene_solr_4_8_sparse/solr/core/src/java/org/apache/solr/request/sparse/SparseKeys.java">SparseKeys.java</a>) is too conservative and should be raised.</dd>
             <dt>caches current/capacity</dt>
             <dd>The current number of counter structures in the cache, as well as the max capacity of the cache.</dd>
             <dt>emptyReuses</dt>
             <dd>The number of times an empty counter structure has been ready at facet time and was re-used.</dd>
-            <dt><em>allocations (allocation time average, counter structure types)</em></dt>
+            <dt><strong>allocations (allocation time average, counter structure types)</strong></dt>
             <dd>The number of counter allocated from the heap. If this is not nearly equal to the cache capacity, it signifies that there are too many concurrent requests for the cache to keep up. If so, the cache capacity should be raised.</dd>
-            <dt><em>requestClears</em></dt>
+            <dt><strong>requestClears</strong></dt>
             <dd>The number of times a counter structure needed cleaning by the calling thread, when requested from the pool. If the setup is single-shard and this number is high, it indicates that the number of background cleaning threads should be raised or the maximum pool size should be raised (See <a href="https://github.com/tokee/lucene-solr/blob/lucene_solr_4_8_sparse/solr/core/src/java/org/apache/solr/request/sparse/SparseKeys.java">SparseKeys.java</a>)</dd>. If the setup is multi-shard, this number should be roughly equal to <code>cache.missed - cache.hits</code> and correspond to the number of times distributed faceting only resulted in the phase-one call to the shard.
             <dt>backgroundClears (average clear time, number of currently active clears)</dt>
             <dd>The number of times a counter structure was cleared by the background cleaning thread.</dd>
             <dt>cache (hits, misses)</dt>
             <dd>Counter value caching is only used in a multi-shard setup. Hits will always be < misses as phase 1 of the distributed facet call always register as a miss. This is messy and the whole counter value stats aggregation should be re-considered.</dd>
-            <dt><em>filledFrees</em> (should be low)</dt>
+            <dt><strong>filledFrees</strong> (should be low)</dt>
             <dd>The number of filled counters that had to be freed from the cache because it overflowed. If this is not very low, it signals that the cache is to small and/or that the number of cleaning threads is too low.</dd>
-            <dt><em>emptyFrees</em> (should be 0)</dt>
+            <dt><strong>emptyFrees</strong> (should be 0)</dt>
             <dd>The number of empty counters that had to be freed from the cache because it overflowed. If this is 0 or very near 0, it signals that the cache is to small and/or that the number of cleaning threads is too low.</dd>
             <dt>lastMaxCountForAny</dt>
             <dd>The highest possible number for any counter to reach, assuming a search for *:*. As sparse faceting per default uses a <code>PackedInt</code> to hold the counts, this indicates the memory overhead of the counter structures. This should be extended with the actual memory overhead for easier overview.</dd>
-            <dt><em>terms(count, fallback, last)</em></dt>
+            <dt><strong>terms(count, fallback, last)</strong></dt>
             <dd><code>count</code> = the number of times distributed sparse faceting has reached phase 2 (fine counting of specific terms). <code>fallback</code> = the number of times standard Solr fine counting has been used (should be 0, unless special options has been given). <code>last</code> = the number of terms that has to be fine-counted in the last call.</dd>
-            <dt><em>term(count, fallback, last)</em></dt>
+            <dt><strong>term(count, fallback, last)</strong></dt>
             <dd><code>count</code> = the number of terms that has been fine-counted, with the average time it took to fine-count a single term. <code>fallback</code> = the number of times it was necessary to do a fallback to standard Solr counting for a single term (practically always 0). <code>last</code> = the last term that was fine-counted.</dd>
         </dl>
         
