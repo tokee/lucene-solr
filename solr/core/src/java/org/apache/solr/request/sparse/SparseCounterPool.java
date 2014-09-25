@@ -17,6 +17,8 @@
 package org.apache.solr.request.sparse;
 
 import org.apache.lucene.util.packed.PackedInts;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.LinkedList;
 import java.util.concurrent.Callable;
@@ -53,6 +55,7 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 @SuppressWarnings("NullableProblems")
 public class SparseCounterPool {
+  public static Logger log = LoggerFactory.getLogger(SparseCounterPool.class);
 
 
   /**
@@ -207,7 +210,10 @@ public class SparseCounterPool {
 
   private ValueCounter createCounter(int counts, long maxCountForAny, SparseKeys sparseKeys) {
     allocations.incrementAndGet();
-    if (maxCountForAny > 0 && maxCountForAny < Integer.MAX_VALUE) {
+    if (maxCountForAny >= 0 && maxCountForAny < Integer.MAX_VALUE) {
+      if (this.maxCountForAny.get() != -1) {
+        log.warn("Overwrite of existing maxCountForAny " + this.maxCountForAny.get() + " with " + maxCountForAny);
+      }
       this.maxCountForAny.set(maxCountForAny);
     }
     if (usePacked(counts, maxCountForAny, sparseKeys)) {

@@ -162,6 +162,7 @@ public class DocValuesFacets {
 
     long maxCountForAnyTag;
     try {
+      // TODO: Skip maxCountForAny if packed=false
       maxCountForAnyTag = pool.getMaxCountForAny() == -1 ?
           calculateMaxCount(searcher, si, ordinalMap, schemaField) :
           pool.getMaxCountForAny();
@@ -322,6 +323,7 @@ public class DocValuesFacets {
    */
   private static long calculateMaxCount(SolrIndexSearcher searcher, SortedSetDocValues si,
                                         OrdinalMap globalMap, SchemaField schemaField) throws IOException {
+    final long startTime = System.nanoTime();
     final int[] globOrdCount = new int[(int) (si.getValueCount()+1)];
     List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
     for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
@@ -393,6 +395,8 @@ public class DocValuesFacets {
         maxCount = count;
       }
     }
+    log.info("Calculated maxCountForAny=" + maxCount + " for field=" + schemaField.getName()
+        + " in " + (System.nanoTime()-startTime)/1000000 + "ms");
     return maxCount;
   }
 
