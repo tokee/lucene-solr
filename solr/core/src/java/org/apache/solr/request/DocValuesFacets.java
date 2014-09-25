@@ -34,6 +34,7 @@ import org.apache.lucene.search.DocIdSet;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.Filter;
 import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.CharsRef;
 import org.apache.lucene.util.UnicodeUtil;
@@ -49,6 +50,8 @@ import org.apache.solr.schema.SchemaField;
 import org.apache.solr.search.DocSet;
 import org.apache.solr.search.SolrIndexSearcher;
 import org.apache.solr.util.LongPriorityQueue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Computes term facets for docvalues field (single or multivalued).
@@ -63,6 +66,8 @@ import org.apache.solr.util.LongPriorityQueue;
  * per query. Additionally it works for multi-valued fields.
  */
 public class DocValuesFacets {
+  public static Logger log = LoggerFactory.getLogger(DocValuesFacets.class);
+
   private DocValuesFacets() {}
 
   /**************** Sparse implementation start *******************/
@@ -151,11 +156,23 @@ public class DocValuesFacets {
     }
 
     // Knowing the maximum value any counter can reach makes it possible to save memory by using a PackedInts structure instead of int[]
-    final long maxCountForAnyTag = ordinalMap == null ?
-        (sparseKeys.packed ? getMaxCountForAnyTag(si, searcher.maxDoc()) : Integer.MAX_VALUE) : // Counting max is only needed for packed
-        ordinalMap.getMaxOrdCount();
-    // +1 as everything is shifted by 1 to use index 0 as special counter
-    final ValueCounter counts = pool.acquire((int) si.getValueCount()+1, maxCountForAnyTag, sparseKeys);
+//    final long maxCountForAnyTag = ordinalMap == null ?
+//        (sparseKeys.packed ? getMaxCountForAnyTag(si, searcher.maxDoc()) : Integer.MAX_VALUE) : // Counting max is only needed for packed
+//        ordinalMap.getMaxOrdCount();
+
+    long maxCountForAnyTag;
+    try {
+      maxCountForAnyTag = pool.getMaxCountForAny() == -1 ?
+          calculateMaxCount(searcher, si, ordinalMap, schemaField) :
+          pool.getMaxCountForAny();
+    } catch (Exception e) {
+      log.warn("Exception while calculating maxCountForAnyTag for field " + fieldName +
+          ", using searcher.maxDoc=" + searcher.maxDoc(), e);
+      maxCountForAnyTag = searcher.maxDoc();
+    }
+
+      // +1 as everything is shifted by 1 to use index 0 as special counter
+    final ValueCounter counts = pool.acquire((int) si.getValueCount() + 1, maxCountForAnyTag, sparseKeys);
 //      final int[] counts = new int[nTerms];
 
     // Calculate counts for all relevant terms if the counter structure is empty
@@ -295,6 +312,88 @@ public class DocValuesFacets {
 
     pool.incTotalTime(System.nanoTime() - sparseTotalTime);
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
+  }
+
+  /*
+   * Determines the maxOrdCount for any term in the given field by looping through all live docIDs and summing the
+   * termOrds. This is needed for proper setup of {@link SparseCounterPacked}.
+   * Note: This temporarily allocates an int[maxDoc]. Fortunately this happens before standard counter allocation
+   * so this should not blow the heap.
+   */
+  private static long calculateMaxCount(SolrIndexSearcher searcher, SortedSetDocValues si,
+                                        OrdinalMap globalMap, SchemaField schemaField) throws IOException {
+    final int[] globOrdCount = new int[(int) (si.getValueCount()+1)];
+    List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
+    for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
+      AtomicReaderContext leaf = leaves.get(subIndex);
+      Bits live = leaf.reader().getLiveDocs();
+      if (schemaField.multiValued()) {
+        SortedSetDocValues sub = leaf.reader().getSortedSetDocValues(schemaField.getName());
+        if (sub == null) {
+          sub = DocValues.EMPTY_SORTED_SET;
+        }
+        final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
+        if (singleton != null) {
+          for (int docID = 0 ; docID < leaf.reader().maxDoc() ; docID++) {
+            if (live == null || live.get(docID)) {
+              int segmentOrd = singleton.getOrd(docID);
+              if (segmentOrd >= 0) {
+                long globalOrd = globalMap == null ? segmentOrd : globalMap.getGlobalOrd(subIndex, segmentOrd);
+                if (globalOrd >= 0) {
+                  // Not liking the cast here, but 2^31 is de facto limit for most structures
+                  globOrdCount[((int) globalOrd)]++;
+                }
+              }
+            }
+          }
+        } else {
+          for (int docID = 0 ; docID < leaf.reader().maxDoc() ; docID++) {
+            if (live == null || live.get(docID)) {
+            sub.setDocument(docID);
+            // strange do-while to collect the missing count (first ord is NO_MORE_ORDS)
+              int ord = (int) sub.nextOrd();
+              if (ord < 0) {
+                continue;
+              }
+
+              do {
+                if (globalMap != null) {
+                  ord = (int) globalMap.getGlobalOrd(subIndex, ord);
+                }
+                if (ord >= 0) {
+                  globOrdCount[ord]++;
+                }
+              } while ((ord = (int) sub.nextOrd()) >= 0);
+            }
+          }
+        }
+      } else {
+        SortedDocValues sub = leaf.reader().getSortedDocValues(schemaField.getName());
+        if (sub == null) {
+          sub = DocValues.EMPTY_SORTED;
+        }
+        for (int docID = 0 ; docID < leaf.reader().maxDoc() ; docID++) {
+          if (live == null || live.get(docID)) {
+            int segmentOrd = sub.getOrd(docID);
+            if (segmentOrd >= 0) {
+              long globalOrd = globalMap == null ? segmentOrd : globalMap.getGlobalOrd(subIndex, segmentOrd);
+              if (globalOrd >= 0) {
+                // Not liking the cast here, but 2^31 is de facto limit for most structures
+                globOrdCount[((int) globalOrd)]++;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    int maxCount = -1;
+    for (int count: globOrdCount) {
+      if (count > maxCount) {
+        maxCount = count;
+      }
+    }
+    return maxCount;
   }
 
   private static NamedList<Integer> extractSpecificCounts(
