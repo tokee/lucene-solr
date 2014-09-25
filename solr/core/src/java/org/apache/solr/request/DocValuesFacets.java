@@ -329,7 +329,7 @@ public class DocValuesFacets {
       if (schemaField.multiValued()) {
         SortedSetDocValues sub = leaf.reader().getSortedSetDocValues(schemaField.getName());
         if (sub == null) {
-          sub = DocValues.EMPTY_SORTED_SET;
+          sub = DocValues.emptySortedSet();
         }
         final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
         if (singleton != null) {
@@ -369,7 +369,7 @@ public class DocValuesFacets {
       } else {
         SortedDocValues sub = leaf.reader().getSortedDocValues(schemaField.getName());
         if (sub == null) {
-          sub = DocValues.EMPTY_SORTED;
+          sub = DocValues.emptySorted();
         }
         for (int docID = 0 ; docID < leaf.reader().maxDoc() ; docID++) {
           if (live == null || live.get(docID)) {
