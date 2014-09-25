@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * Maintains a pool of SparseCounters, taking care of allocation, used counter clearing and re-use.
  * </p><p>
  * The pool and/or the content of the pool is bound to the index. When the index is updated and a new facet
- * request is issued, the pool will be cleared.
+ * request is issued, the pool will be freed and a new one will be created.
  * </p><p>
  * Constantly allocating large counter structures taxes the garbage collector of the JVM, so it is faster to
  * clear & re-use structures instead. This is especially true for sparse structures, where the clearing time
@@ -67,12 +67,14 @@ public class SparseCounterPool {
   private final AtomicInteger activeClears = new AtomicInteger(0);
   private String structureKey = null;
 
+  // maxCountForAny is a core property as it dictates both size & correctness of packed value counters
+  private AtomicLong maxCountForAny = new AtomicLong(-1);
+
   // Pool stats
   private AtomicLong emptyReuses = new AtomicLong(0);
   private AtomicLong filledReuses = new AtomicLong(0);
   private AtomicLong allocations = new AtomicLong(0);
   private AtomicLong packedAllocations = new AtomicLong(0);
-  private AtomicLong lastMaxCountForAny = new AtomicLong(0);
   private AtomicLong clears = new AtomicLong(0);
   private AtomicLong filledFrees = new AtomicLong(0);
   private AtomicLong emptyFrees = new AtomicLong(0);
@@ -141,11 +143,12 @@ public class SparseCounterPool {
    */
   public ValueCounter acquire(int counts, long maxCountForAny, SparseKeys sparseKeys) {
     final long allocateTime = System.nanoTime();
-    if (maxCountForAny == 0 && sparseKeys.packed) {
+    if (maxCountForAny <= 0 && sparseKeys.packed) {
       // We have an empty facet. To avoid problems with the packed structure, we set the maxCountForAny to 1
       maxCountForAny = 1;
 //      throw new IllegalStateException("Attempted to request sparse counter with maxCountForAny=" + maxCountForAny);
     }
+    lastCounts.set(counts);
     try {
       String structureKey = createStructureKey(counts, maxCountForAny, sparseKeys);
       synchronized (pool) {
@@ -204,7 +207,9 @@ public class SparseCounterPool {
 
   private ValueCounter createCounter(int counts, long maxCountForAny, SparseKeys sparseKeys) {
     allocations.incrementAndGet();
-    lastMaxCountForAny.set(maxCountForAny);
+    if (maxCountForAny > 0 && maxCountForAny < Integer.MAX_VALUE) {
+      this.maxCountForAny.set(maxCountForAny);
+    }
     if (usePacked(counts, maxCountForAny, sparseKeys)) {
       packedAllocations.incrementAndGet();
       return new SparseCounterPacked(
@@ -313,7 +318,8 @@ public class SparseCounterPool {
       filledReuses.set(0);
       allocations.set(0);
       packedAllocations.set(0);
-      lastMaxCountForAny.set(0);
+      // No reset of maxCountFor Any as it is potentially heavy to calculate
+//      maxCountForAny.set(-1);
       clears.set(0);
       filledFrees.set(0);
       emptyFrees.set(0);
@@ -386,6 +392,11 @@ public class SparseCounterPool {
       termsFallbackLookups.incrementAndGet();
     }
   }
+
+  public long getMaxCountForAny() {
+    return maxCountForAny.get();
+  }
+
   // Nanoseconds
   public void incTermLookup(String term, boolean countsStructure, long time) {
     lastTermLookup = term;
@@ -431,7 +442,7 @@ public class SparseCounterPool {
             "requestClears=%d, " +
             "backgroundClears=%d (%dms avg, %s%s), " +
             "cache(hits=%d, misses=%d)" +
-            "filledFrees=%d, emptyFrees=%d, lastMaxCountForAny=%d), terms(count=%d, fallback=%d, " +
+            "filledFrees=%d, emptyFrees=%d, maxCountForAny=%d), terms(count=%d, fallback=%d, " +
             "last#=%d), " +
             "term(count=%d (%.1fms avg), fallback=%d (%.1fms avg), last=%s)",
         lastCounts.get(), sparseCalls.get(), skipCount.get(), lastSkipReason,
@@ -444,7 +455,7 @@ public class SparseCounterPool {
         clears.get(), divMint(sparseClearTime.get(), sparseCalls.get()), cleanerCoreSize > 0 ? "background" : "at release",
         pendingCleans > 0 ? (" (" + pendingCleans + " running)") : "",
         cacheHits.get(), cacheMisses.get(),
-        filledFrees.get(), emptyFrees.get(), lastMaxCountForAny.get(), termsCountsLookups.get(), termsFallbackLookups.get(),
+        filledFrees.get(), emptyFrees.get(), maxCountForAny.get(), termsCountsLookups.get(), termsFallbackLookups.get(),
         lastTermsLookup.split(",").length,
         termCountsLookups.get(), divMdouble(termTotalCountTime.get(), termCountsLookups.get()),
         termFallbackLookups.get(), divMdouble(termTotalFallbackTime.get(), termFallbackLookups.get()), lastTermLookup);

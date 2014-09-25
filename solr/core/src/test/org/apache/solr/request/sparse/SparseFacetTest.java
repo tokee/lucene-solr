@@ -19,12 +19,10 @@ package org.apache.solr.request.sparse;
 
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.solr.SolrTestCaseJ4;
-import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.common.params.FacetParams;
 import org.apache.solr.common.params.ModifiableSolrParams;
 import org.apache.solr.request.SolrQueryRequest;
 import org.junit.BeforeClass;
-import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -32,7 +30,7 @@ import java.util.List;
 
 
 @LuceneTestCase.SuppressCodecs({"Lucene3x", "Lucene40", "Lucene41", "Lucene42", "Appending"})
-public class SparseFacetDocValuesTest extends SolrTestCaseJ4 {
+public class SparseFacetTest extends SolrTestCaseJ4 {
 
   @BeforeClass
   public static void beforeClass() throws Exception {
@@ -65,10 +63,16 @@ public class SparseFacetDocValuesTest extends SolrTestCaseJ4 {
       randomCommit(random_commit_percent);
     }
     assertU(commit());
+    if (random().nextInt(5) == 1) { // Random test against a fully optimized index
+      assertU(optimize());
+    }
   }
 
-  public static final String SINGLE_FIELD = "single_dvm_s";
-  public static final String MULTI_FIELD = "multi_dvm_s";
+  public static final String SINGLE_DV_FIELD = "single_dvm_s";
+  public static final String SINGLE_TEXT_FIELD = "single_s1";
+  public static final String MULTI_DV_FIELD = "multi_dvm_s";
+  public static final String MULTI_TEXT_FIELD = "multi_s";
+
   public static final String MODULO_FIELD = "mod_dvm_s";
   static final int DOCS = 100;
   static final int UNIQ_VALUES = 10;
@@ -86,13 +90,13 @@ public class SparseFacetDocValuesTest extends SolrTestCaseJ4 {
           values.add(MODULO_FIELD); values.add("mod_" + mod);
         }
       }
-      values.add(SINGLE_FIELD); values.add("single_" + random().nextInt(UNIQ_VALUES));
+      values.add(SINGLE_DV_FIELD); values.add("single_dv_" + random().nextInt(UNIQ_VALUES));
+      values.add(SINGLE_TEXT_FIELD); values.add("single_text_" + random().nextInt(UNIQ_VALUES));
       final int MULTIS = random().nextInt(MAX_MULTI);
       for (int i = 0 ; i < MULTIS ; i++) {
-        values.add(MULTI_FIELD); values.add(
-            i == 0 ?
-                "multi_uniq_" + docID :
-                "multi_" + random().nextInt(UNIQ_VALUES));
+        final String val = i == 0 ? "multi_uniq_" + docID : "multi_" + random().nextInt(UNIQ_VALUES);
+        values.add(MULTI_DV_FIELD); values.add(val);
+        values.add(MULTI_TEXT_FIELD); values.add(val);
       }
       add_doc(values.toArray(new String[values.size()]));
     }
@@ -111,17 +115,48 @@ public class SparseFacetDocValuesTest extends SolrTestCaseJ4 {
 
   }
 
-  public void testSingleValueFaceting() throws Exception {
+  public void testSingleDocValueFaceting() throws Exception {
     for (int mod: MODULOS) {
-      assertFacetEquality("Modulo check", MODULO_FIELD + ":mod_" + mod);
+      assertFacetEquality("Modulo check", MODULO_FIELD + ":mod_" + mod, SINGLE_DV_FIELD);
+    }
+    //dumpStats();
+  }
+
+  public void testMultiDocValueFaceting() throws Exception {
+    for (int mod: MODULOS) {
+      assertFacetEquality("Modulo check", MODULO_FIELD + ":mod_" + mod, MULTI_DV_FIELD);
     }
   }
 
-  private void assertFacetEquality(String message, String query) throws Exception {
+  public void testSingleTextValueFaceting() throws Exception {
+    for (int mod: MODULOS) {
+      assertFacetEquality("Modulo check", MODULO_FIELD + ":mod_" + mod, SINGLE_TEXT_FIELD);
+    }
+  }
+
+  public void testMultiTextValueFaceting() throws Exception {
+    for (int mod: MODULOS) {
+      assertFacetEquality("Modulo check", MODULO_FIELD + ":mod_" + mod, MULTI_TEXT_FIELD);
+    }
+  }
+
+  private void dumpStats() throws Exception {
+    SolrQueryRequest req = req("*:*");
+    ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+    req.setParams(params);
+    params.set(FacetParams.FACET, true);
+    params.set(FacetParams.FACET_FIELD, SINGLE_DV_FIELD);
+    params.set(SparseKeys.STATS, true);
+    params.set("indent", true);
+    String output = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+    System.out.println(output);
+  }
+
+  private void assertFacetEquality(String message, String query, String facetField) throws Exception {
     SolrQueryRequest req = req(query);
     ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
     params.set(FacetParams.FACET, true);
-    params.set(FacetParams.FACET_FIELD, SINGLE_FIELD);
+    params.set(FacetParams.FACET_FIELD, facetField);
     params.set("indent", true);
 
     params.set(SparseKeys.SPARSE, false);
@@ -131,7 +166,6 @@ public class SparseFacetDocValuesTest extends SolrTestCaseJ4 {
     req.setParams(params);
     String sparse = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
 
-    System.out.println(plain);
     assertEquals(message + " sparse faceting with query " + query + " should match plain Solr",
         plain, sparse);
   }
