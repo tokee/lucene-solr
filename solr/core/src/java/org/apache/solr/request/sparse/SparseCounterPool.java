@@ -70,8 +70,13 @@ public class SparseCounterPool {
   private final AtomicInteger activeClears = new AtomicInteger(0);
   private String structureKey = null;
 
+  // These properties are inherent to the searcher and should not change over the life of the pool, once updated
   // maxCountForAny is a core property as it dictates both size & correctness of packed value counters
-  private AtomicLong maxCountForAny = new AtomicLong(-1);
+  private long maxCountForAny = -1;
+  private long referenceCount = -1;
+  private int maxDoc = -1;
+  private int uniqueValues = -1;
+  private boolean initialized = false;
 
   // Pool stats
   private AtomicLong emptyReuses = new AtomicLong(0);
@@ -95,7 +100,6 @@ public class SparseCounterPool {
   AtomicLong withinCutoffCount = new AtomicLong(0);
   AtomicLong exceededCutoffCount = new AtomicLong(0);
 
-  AtomicInteger lastCounts = new AtomicInteger(0);
   String lastTermsLookup = "N/A";
   AtomicLong termsCountsLookups = new AtomicLong(0);
   AtomicLong termsFallbackLookups = new AtomicLong(0);
@@ -123,37 +127,45 @@ public class SparseCounterPool {
   }
 
   /**
-   * Delivers a counter ready for updates.
-   * </p><p>
-   * Note: This assumes that the maximum count for any counter it Integer.MAX_VALUE (2^31).
-   * If the maximum value is know, it is highly recommended to use {@link #acquire(int, long, SparseKeys)} instead
-   * as that makes it possible to deliver optimized counters.
-   * @param counts     the number of entries in the counter.
-   * @param sparseKeys generic setup for the Sparse system.
-   * @return a counter ready for updates.
+   * The field properties determine the layout of the sparse counters and is part of the sparse/non-sparse estimation.
+   * This method must be called before calling {@link #acquire}.  It should only be called once.
+   * @param uniqueValues       the number of unique values in the field. This number must be specified and must be correct.
+   * @param maxCountForAny the maximum value that any individual counter can reach.  If this value is not determined, -1 should be used.
+   *                                           if -1 is specified, this number can be updated at a later time.
+   * @param maxDoc                the maxCount from the searcher.  Must be specified, should be correct.
+   * @param references            the number of references from documents to terms in the facet field.  Must be specified, should be correct.
    */
-  public ValueCounter acquire(int counts, SparseKeys sparseKeys) {
-    return acquire(counts, Integer.MAX_VALUE, sparseKeys);
+  public synchronized void setFieldProperties(int uniqueValues, long maxCountForAny, int maxDoc, long references) {
+    if (initialized) {
+      log.warn("setFieldProperties has already been called for field '" + field + "' and should only be called once");
+    }
+    System.out.println("*** setFP(uniq=" + uniqueValues + ", maxCFA=" + maxCountForAny + ", maxDoc=" + maxDoc + ", refs=" + references);
+    this.uniqueValues = uniqueValues;
+    this.maxCountForAny = maxCountForAny;
+    this.maxDoc = maxDoc;
+    this.referenceCount = references;
+    initialized = true;
   }
 
   /**
-   * Delivers a counter ready for updates. The type of counter will be chosen based on counts, maxCountForAny and
+   * Delivers a counter ready for updates. The type of counter will be chosen based on uniqueTerms, maxCountForAny and
    * the general Sparse setup from sparseKeys. This is the recommended way to get sparse counters.
-   * @param counts     the number of entries in the counter.
-   * @param maxCountForAny the maximum value that any individual counter can reach.
-   * @param sparseKeys generic setup for the Sparse system.
+   * @param sparseKeys setup for the Sparse system as well as the specific call.
    * @return a counter ready for updates.
    */
-  public ValueCounter acquire(int counts, long maxCountForAny, SparseKeys sparseKeys) {
+  public ValueCounter acquire(SparseKeys sparseKeys) {
+    if (!initialized) {
+      throw new IllegalStateException("The pool for field '" + field +
+          "' has not been initialized (call setFieldProperties for initialization)");
+    }
     final long allocateTime = System.nanoTime();
     if (maxCountForAny <= 0 && sparseKeys.packed) {
       // We have an empty facet. To avoid problems with the packed structure, we set the maxCountForAny to 1
       maxCountForAny = 1;
 //      throw new IllegalStateException("Attempted to request sparse counter with maxCountForAny=" + maxCountForAny);
     }
-    lastCounts.set(counts);
     try {
-      String structureKey = createStructureKey(counts, maxCountForAny, sparseKeys);
+      String structureKey = createStructureKey(sparseKeys);
       synchronized (pool) {
         // Did the structure change since last acquire (index updated)?
         if (!structureKey.equals(this.structureKey) && !pool.isEmpty()) {
@@ -164,7 +176,7 @@ public class SparseCounterPool {
 
       ValueCounter vc = getCounter(sparseKeys.cacheToken);
       if (vc == null) { // Got nothing, so we allocate a new one
-        return createCounter(counts, maxCountForAny, sparseKeys);
+        return createCounter(sparseKeys);
       }
 
       if (sparseKeys.cacheToken == null) {
@@ -196,33 +208,29 @@ public class SparseCounterPool {
     }
   }
 
-  private String createStructureKey(int counts, long maxCountForAny, SparseKeys sparseKeys) {
-    return usePacked(counts, maxCountForAny, sparseKeys) ?
+  private String createStructureKey(SparseKeys sparseKeys) {
+    return usePacked(sparseKeys) ?
         SparseCounterPacked.createStructureKey(
-            counts, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked) :
-        SparseCounterInt.createStructureKey(counts, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction);
+            uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked) :
+        SparseCounterInt.createStructureKey(uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction);
   }
 
-  private boolean usePacked(int counts, long maxCountForAny, SparseKeys sparseKeys) {
-    return (sparseKeys.packed && PackedInts.bitsRequired(maxCountForAny) <= sparseKeys.packedLimit) ||
+  private boolean usePacked(SparseKeys sparseKeys) {
+    return ((sparseKeys.packed && maxCountForAny != -1 &&
+        PackedInts.bitsRequired(maxCountForAny) <= sparseKeys.packedLimit)) ||
         maxCountForAny > Integer.MAX_VALUE;
   }
 
-  private ValueCounter createCounter(int counts, long maxCountForAny, SparseKeys sparseKeys) {
+  private ValueCounter createCounter(SparseKeys sparseKeys) {
     allocations.incrementAndGet();
-    if (maxCountForAny >= 0 && maxCountForAny < Integer.MAX_VALUE) {
-      if (this.maxCountForAny.get() != -1) {
-        log.warn("Overwrite of existing maxCountForAny " + this.maxCountForAny.get() + " with " + maxCountForAny);
-      }
-      this.maxCountForAny.set(maxCountForAny);
-    }
-    if (usePacked(counts, maxCountForAny, sparseKeys)) {
+    if (usePacked(sparseKeys)) {
       packedAllocations.incrementAndGet();
       return new SparseCounterPacked(
-          counts, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
+          uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
     }
     return new SparseCounterInt(
-        counts, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        uniqueValues, maxCountForAny == -1 ? Integer.MAX_VALUE : maxCountForAny, sparseKeys.minTags,
+        sparseKeys.fraction, sparseKeys.maxCountsTracked);
   }
 
 
@@ -275,6 +283,18 @@ public class SparseCounterPool {
    */
   public int getMaxPoolSize() {
     return maxPoolSize;
+  }
+
+  public long getReferenceCount() {
+    return referenceCount;
+  }
+
+  public long getMaxDoc() {
+    return maxDoc;
+  }
+
+  public boolean isInitialized() {
+    return initialized;
   }
 
   /**
@@ -342,7 +362,6 @@ public class SparseCounterPool {
       exceededCutoffCount.set(0);
       lastSkipReason = "no skips";
 
-      lastCounts.set(0);
       lastTermsLookup = "N/A";
       termsCountsLookups.set(0);
       termsFallbackLookups.set(0);
@@ -400,7 +419,7 @@ public class SparseCounterPool {
   }
 
   public long getMaxCountForAny() {
-    return maxCountForAny.get();
+    return maxCountForAny;
   }
 
   // Nanoseconds
@@ -439,7 +458,7 @@ public class SparseCounterPool {
     final int poolSize = pool.size();
     final int cleanerCoreSize = supervisor.getCorePoolSize();
     return String.format(
-        "sparse statistics: uniqTerms=%d, calls=%d, fallbacks=%d (last: %s), " +
+        "sparse statistics: field(name=%s, uniqTerms=%d, maxDoc=%d, refs=%d), calls=%d, fallbacks=%d (last: %s), " +
             "collect=%dms avg, extract=%dms avg, " +
             "total=%dms avg, disables=%d,  withinCutoff=%d, " +
             "exceededCutoff=%d, SCPool(cached=%d/%d, emptyReuses=%d, " +
@@ -451,7 +470,7 @@ public class SparseCounterPool {
             "filledFrees=%d, emptyFrees=%d, maxCountForAny=%d), terms(count=%d, fallback=%d, " +
             "last#=%d), " +
             "term(count=%d (%.1fms avg), fallback=%d (%.1fms avg), last=%s)",
-        lastCounts.get(), sparseCalls.get(), skipCount.get(), lastSkipReason,
+        field, uniqueValues, maxDoc, referenceCount, sparseCalls.get(), skipCount.get(), lastSkipReason,
         divMint(sparseCollectTime.get(), sparseCalls.get()), divMint(sparseExtractTime.get(), sparseCalls.get()),
         divMint(sparseTotalTime.get(), sparseCalls.get()), disables.get(), withinCutoffCount.get(),
         exceededCutoffCount.get(), poolSize, maxPoolSize, emptyReuses.get(),
@@ -461,7 +480,7 @@ public class SparseCounterPool {
         clears.get(), divMint(sparseClearTime.get(), sparseCalls.get()), cleanerCoreSize > 0 ? "background" : "at release",
         pendingCleans > 0 ? (" (" + pendingCleans + " running)") : "",
         cacheHits.get(), cacheMisses.get(),
-        filledFrees.get(), emptyFrees.get(), maxCountForAny.get(), termsCountsLookups.get(), termsFallbackLookups.get(),
+        filledFrees.get(), emptyFrees.get(), maxCountForAny, termsCountsLookups.get(), termsFallbackLookups.get(),
         lastTermsLookup.split(",").length,
         termCountsLookups.get(), divMdouble(termTotalCountTime.get(), termCountsLookups.get()),
         termFallbackLookups.get(), divMdouble(termTotalFallbackTime.get(), termFallbackLookups.get()), lastTermLookup);

@@ -712,6 +712,7 @@ public class SimpleFacets {
     return docs.andNotSize(hasVal);
   }
 
+  // Single value fc faceting
   public static NamedList<Integer> getFieldCacheCounts(
       SolrIndexSearcher searcher, DocSet docs, String fieldName, int offset, int limit, int mincount, boolean missing,
       String sort, String prefix, String termList, SparseKeys sparseKeys, SparseCounterPool counterPool)
@@ -721,6 +722,7 @@ public class SimpleFacets {
           getFieldCacheCounts(searcher, docs, fieldName, offset, limit, mincount, missing, sort, prefix) :
           SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termList, docs);
     }
+    long sparseTotalTime = System.nanoTime();
 
     // TODO: this function is too big and could use some refactoring, but
     // we also need a facet cache, and refactoring of SimpleFacets instead of
@@ -730,19 +732,23 @@ public class SimpleFacets {
     NamedList<Integer> res = new NamedList<Integer>();
 
     SortedDocValues si = FieldCache.DEFAULT.getTermsIndex(searcher.getAtomicReader(), fieldName);
+    if (!counterPool.isInitialized()) {
+      initializePool(searcher, si, fieldName, counterPool);
+    }
+
     int hitCount = docs.size();
+    // TODO: Move probablySparse to pool
     final boolean probablySparse = si.getValueCount() >= sparseKeys.minTags &&
         (1.0 * hitCount / searcher.maxDoc()) < sparseKeys.fraction * sparseKeys.cutOff;
     if (!probablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
       // Fallback to standard
       counterPool.incSkipCount("minCount=" + mincount + ", hits=" + hitCount + "/" + searcher.maxDoc()
-          + ", terms=" + (si == null ? "N/A" : si.getValueCount()));
+          + ", terms=" + si.getValueCount());
       return termList == null ?
           getFieldCacheCounts(searcher, docs, fieldName, offset, limit, mincount, missing, sort, prefix) :
           SimpleFacets.fallbackGetListedTermCounts(searcher, counterPool, fieldName, termList, docs);
     }
     counterPool.incSparseCalls();
-    long sparseTotalTime = System.nanoTime();
 
     final BytesRef prefixRef;
     if (prefix == null) {
@@ -776,7 +782,7 @@ public class SimpleFacets {
       // going to collect counts for.
       //final int[] counts = new int[nTerms];
       // TODO: Figure out maxCountForAny
-      ValueCounter counts = counterPool.acquire(nTerms, sparseKeys);
+      ValueCounter counts = counterPool.acquire(sparseKeys);
       if (!probablySparse) {
         counts.disableSparseTracking();
       }
@@ -887,6 +893,26 @@ public class SimpleFacets {
     counterPool.incTotalTime(System.nanoTime() - sparseTotalTime);
 
     return res;
+  }
+
+  private static void initializePool(SolrIndexSearcher searcher, SortedDocValues si, String field, SparseCounterPool pool) {
+    final int[] ordinals = new int[si.getValueCount()];
+    final int maxDoc = searcher.maxDoc();
+    for (int docID = 0 ; docID < maxDoc ; docID++) {
+      int ord = si.getOrd(docID);
+      if (ord >= 0) {
+        ordinals[ord]++;
+      }
+    }
+    int maxCount = -1;
+    long refCount = 0;
+    for (int count: ordinals) {
+      refCount += count;
+      if (count > maxCount) {
+        maxCount = count;
+      }
+    }
+    pool.setFieldProperties(si.getValueCount()+1, maxCount, maxDoc, refCount);
   }
 
   private static NamedList<Integer> extractSpecificCounts(

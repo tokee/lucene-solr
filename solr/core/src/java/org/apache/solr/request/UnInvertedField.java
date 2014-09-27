@@ -235,6 +235,12 @@ public class UnInvertedField extends DocTermOrds {
     final int baseSize = baseDocs.size();
     final int maxDoc = searcher.maxDoc();
 
+    if (!pool.isInitialized()) {
+      pool.setFieldProperties(numTermsInField + 1, getMaxEncounteredTermDocFreq(), maxDoc, termInstances);
+
+    }
+
+    // TODO: Move sparse check inside pool
     final boolean probablyWithinCutoff = isProbablyWithinCutoff(mincount, baseSize, sparseKeys);
     if (!probablyWithinCutoff && sparseKeys.fallbackToBase) { // Fallback to standard
       pool.incSkipCount("minCount=" + mincount + ", hits=" + baseSize + "/" + maxDoc + ", terms=" + numTermsInField
@@ -380,7 +386,7 @@ public class UnInvertedField extends DocTermOrds {
     final int[] index = this.index;
     // tricky: we add more more element than we need because we will reuse this array later
     // for ordering term ords before converting to term labels.
-    final ValueCounter counts = pool.acquire(numTermsInField + 1, getMaxEncounteredTermDocFreq(), sparseKeys);
+    final ValueCounter counts = pool.acquire(sparseKeys);
     if (!probablyWithinCutoff) {
       counts.disableSparseTracking();
     }
