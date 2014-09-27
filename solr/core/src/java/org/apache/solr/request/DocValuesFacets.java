@@ -113,6 +113,7 @@ public class DocValuesFacets {
     final double expectedTerms = (1.0 * hitCount / searcher.maxDoc()) *
         (ordinalMap == null ? si.getValueCount() : ordinalMap.getSegmentOrdinalsCount());
     final double trackedTerms = sparseKeys.fraction * si.getValueCount();
+    // TODO: Move probablySparse to pool
     final boolean probablySparse = si.getValueCount() >= sparseKeys.minTags &&
         expectedTerms < trackedTerms * sparseKeys.cutOff;
     if (!probablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
@@ -161,20 +162,11 @@ public class DocValuesFacets {
 //        (sparseKeys.packed ? getMaxCountForAnyTag(si, searcher.maxDoc()) : Integer.MAX_VALUE) : // Counting max is only needed for packed
 //        ordinalMap.getMaxOrdCount();
 
-    long maxCountForAnyTag;
-    try {
-      // TODO: Skip maxCountForAny if packed=false
-      maxCountForAnyTag = pool.getMaxCountForAny() == -1 ?
-          calculateMaxCount(searcher, si, ordinalMap, schemaField) :
-          pool.getMaxCountForAny();
-    } catch (Exception e) {
-      log.warn("Exception while calculating maxCountForAnyTag for field " + fieldName +
-          ", using searcher.maxDoc=" + searcher.maxDoc(), e);
-      maxCountForAnyTag = searcher.maxDoc();
+    if (!pool.isInitialized()) {
+      initializePool(searcher, si, ordinalMap, schemaField, pool);
     }
 
-      // +1 as everything is shifted by 1 to use index 0 as special counter
-    final ValueCounter counts = pool.acquire((int) si.getValueCount() + 1, maxCountForAnyTag, sparseKeys);
+    final ValueCounter counts = pool.acquire(sparseKeys);
 //      final int[] counts = new int[nTerms];
 
     // Calculate counts for all relevant terms if the counter structure is empty
@@ -320,8 +312,9 @@ public class DocValuesFacets {
    * Note: This temporarily allocates an int[maxDoc]. Fortunately this happens before standard counter allocation
    * so this should not blow the heap.
    */
-  private static long calculateMaxCount(SolrIndexSearcher searcher, SortedSetDocValues si,
-                                        OrdinalMap globalMap, SchemaField schemaField) throws IOException {
+  private static void initializePool(
+      SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap, SchemaField schemaField,
+      SparseCounterPool pool) throws IOException {
     final long startTime = System.nanoTime();
     final int[] globOrdCount = new int[(int) (si.getValueCount()+1)];
     List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
@@ -389,14 +382,17 @@ public class DocValuesFacets {
     }
 
     int maxCount = -1;
+    long refCount = 0;
     for (int count: globOrdCount) {
+      refCount += count;
       if (count > maxCount) {
         maxCount = count;
       }
     }
     log.info("Calculated maxCountForAny=" + maxCount + " for field=" + schemaField.getName()
         + " in " + (System.nanoTime()-startTime)/1000000 + "ms");
-    return maxCount;
+    // +1 as everything is shifted by 1 to use index 0 as special counter
+    pool.setFieldProperties((int) (si.getValueCount()+1), maxCount, searcher.maxDoc(), refCount);
   }
 
   private static NamedList<Integer> extractSpecificCounts(
