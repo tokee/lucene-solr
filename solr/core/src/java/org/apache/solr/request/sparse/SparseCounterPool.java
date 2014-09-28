@@ -139,7 +139,6 @@ public class SparseCounterPool {
     if (initialized) {
       log.warn("setFieldProperties has already been called for field '" + field + "' and should only be called once");
     }
-    System.out.println("*** setFP(uniq=" + uniqueValues + ", maxCFA=" + maxCountForAny + ", maxDoc=" + maxDoc + ", refs=" + references);
     this.uniqueValues = uniqueValues;
     this.maxCountForAny = maxCountForAny;
     this.maxDoc = maxDoc;

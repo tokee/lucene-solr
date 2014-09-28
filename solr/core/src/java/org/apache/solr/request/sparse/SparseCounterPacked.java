@@ -32,6 +32,7 @@ public class SparseCounterPacked implements ValueCounter {
   private final PackedInts.Mutable counts;  // One counter/tag
   private final int[] tracker; // Tracker not PackedInts.Mutable as it should be relatively small
   private final int tracksMax; // The maximum amount of trackers (tracker.length)
+  private long zeroCounter = 0; // The counter at index 0 is special as it can exceed the maxValue of {@link #counts}
 
   private int tracksPos;       // The current amount of tracker entries. Setting this to 0 works as a tracker clear
 
@@ -96,6 +97,14 @@ public class SparseCounterPacked implements ValueCounter {
    */
   @Override
   public final void inc(int counter) {
+    if (counter == 0) {
+      zeroCounter++;
+      if (zeroCounter == 1 && tracksPos != tracksMax) {
+        tracker[tracksPos++] = counter;
+      }
+      return;
+    }
+
     final long oldValue = counts.get(counter);
     if (maxCountTracked == -1 || oldValue != maxCountTracked) {
       counts.set(counter, oldValue+1);
@@ -114,6 +123,14 @@ public class SparseCounterPacked implements ValueCounter {
    */
   @Override
   public final void inc(int counter, long value) {
+    if (counter == 0) {
+      zeroCounter += value;
+      if (zeroCounter == value && tracksPos != tracksMax) {
+        tracker[tracksPos++] = counter;
+      }
+      return;
+    }
+
     long oldValue = counts.get(counter);
     if (maxCountTracked == -1) {
       counts.set(counter, oldValue+value);
@@ -131,6 +148,15 @@ public class SparseCounterPacked implements ValueCounter {
 
   @Override
   public final void set(int counter, long value) {
+    if (counter == 0) {
+      long oldValue = zeroCounter;
+      zeroCounter = value;
+      if (oldValue == 0 && tracksPos != tracksMax) {
+        tracker[tracksPos++] = counter;
+      }
+      return;
+    }
+
     long oldValue = counts.get(counter);
     if (maxCountTracked == -1) {
       counts.set(counter, value);
@@ -157,6 +183,7 @@ public class SparseCounterPacked implements ValueCounter {
     }
     explicitlyDisabled = false;
     tracksPos = 0;
+    zeroCounter = 0;
     setContentKey(null);
   }
 
@@ -185,7 +212,7 @@ public class SparseCounterPacked implements ValueCounter {
    */
   @Override
   public final long get(int counter) {
-    return counts.get(counter);
+    return counter == 0 ? zeroCounter : counts.get(counter);
   }
 
   // This code should be kept in sync with SparseCounterInt.iterate
@@ -201,7 +228,7 @@ public class SparseCounterPacked implements ValueCounter {
     if (tracksPos == tracksMax || doNegative) { // Not sparse or very big (normally the same thing)
       callback.setOrdered(true);
       for (int counter = start ; counter < end ; counter++) {
-        final long value = counts.get(counter);
+        final long value = get(counter);
         if (doNegative || value >= minValue) {
           callback.handle(counter, value);
         }
@@ -214,14 +241,14 @@ public class SparseCounterPacked implements ValueCounter {
     boolean filled = false;
     for (int t = 0 ; t < tracksPos ; t++) {
       final int counter = tracker[t];
-      long value = counts.get(counter);
+      long value = get(counter);
       if (counter >= start && counter <= end && value >= minValue) {
         filled |= callback.handle(counter, value);
       }
     }
     if (minValue == 0 && !filled) { // We need a second iteration to get enough 0-count values to fill the callback
       for (int counter = start ; counter < end ; counter++) {
-        final long value = counts.get(counter);
+        final long value = get(counter);
         if (value == 0 && counter >= start && counter <= end) {
           if (callback.handle(counter, value)) {
             break;
