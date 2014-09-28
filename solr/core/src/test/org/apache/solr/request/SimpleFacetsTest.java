@@ -1952,6 +1952,7 @@ public class SimpleFacetsTest extends SolrTestCaseJ4 {
     // Sparse with zeroes
     assertQ("test plain facet request",
              req("q", "id:10002"
+                 ,"indent", "true"
                  ,"facet", "true"
                  ,"facet.field", FF
                  ,"facet.limit", "12"

@@ -239,10 +239,11 @@ public class SparseCounterPacked implements ValueCounter {
     // Sparse
     callback.setOrdered(false);
     boolean filled = false;
+    final int sparseMinValue = Math.max(minValue, 1);
     for (int t = 0 ; t < tracksPos ; t++) {
       final int counter = tracker[t];
       long value = get(counter);
-      if (counter >= start && counter <= end && value >= minValue) {
+      if (counter >= start && counter <= end && value >= sparseMinValue) {
         filled |= callback.handle(counter, value);
       }
     }

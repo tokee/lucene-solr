@@ -278,6 +278,26 @@ public class SparseCounterPool {
   }
 
   /**
+   * Calculates if a faceting on the field with the given number of hits should be expected to fall within sparse tracking limits.
+   * @param hitCount     the number of hits.
+   * @param sparseKeys setup for cut-off point, fraction and other parameters relevant to determining sparse probability.
+   * @return  true if the faceting should be expected to be sparse.
+   */
+  public boolean isProbablySparse(int hitCount, SparseKeys sparseKeys) {
+    if (!initialized) {
+      throw new IllegalStateException(
+          "It is impossible to calculate sparse probabilities before setFieldProperties has been called");
+    }
+    if (hitCount == 0 || maxDoc == 0 || referenceCount == 0) {
+      return true; // Or false. It makes no difference when the result is known to become empty
+    }
+    // TODO: Upgrade it to real probability by outcome counting with special casing of single-valued fields
+    final double expectedTerms = 1.0 * hitCount / maxDoc * referenceCount;
+    final double trackedTerms = sparseKeys.fraction * uniqueValues;
+    return uniqueValues >= sparseKeys.minTags && expectedTerms < trackedTerms * sparseKeys.cutOff;
+  }
+
+  /**
    * @return the maximum amount of counters in this pool.
    */
   public int getMaxPoolSize() {

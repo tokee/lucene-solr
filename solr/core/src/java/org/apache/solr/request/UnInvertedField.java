@@ -240,9 +240,8 @@ public class UnInvertedField extends DocTermOrds {
 
     }
 
-    // TODO: Move sparse check inside pool
-    final boolean probablyWithinCutoff = isProbablyWithinCutoff(mincount, baseSize, sparseKeys);
-    if (!probablyWithinCutoff && sparseKeys.fallbackToBase) { // Fallback to standard
+    final boolean isProbablySparse = pool.isProbablySparse(baseSize, sparseKeys);
+    if (!isProbablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
       pool.incSkipCount("minCount=" + mincount + ", hits=" + baseSize + "/" + maxDoc + ", terms=" + numTermsInField
           + ", ordCount=" + termInstances);
       return termList == null ?
@@ -265,7 +264,7 @@ public class UnInvertedField extends DocTermOrds {
       TermsEnum te = getOrdTermsEnum(searcher.getAtomicReader());
 
       CountedTerms countedTerms = countTerms(
-          searcher, te, prefix, pool, baseDocs, sparseKeys, baseSize, maxDoc, probablyWithinCutoff);
+          searcher, te, prefix, pool, baseDocs, sparseKeys, baseSize, maxDoc, isProbablySparse);
       if (termList != null) {
         //return SimpleFacets.fallbackGetListedTermCounts(searcher, field, termList, baseDocs);
         return extractSpecificCounts(countedTerms, pool, termList, countedTerms.doNegative, baseDocs);
@@ -381,13 +380,13 @@ public class UnInvertedField extends DocTermOrds {
 
   public CountedTerms countTerms(
       SolrIndexSearcher searcher, TermsEnum te, String prefix, SparseCounterPool pool,
-      DocSet docs, SparseKeys sparseKeys, int baseSize, int maxDoc, boolean probablyWithinCutoff)
+      DocSet docs, SparseKeys sparseKeys, int baseSize, int maxDoc, boolean isProbablySparse)
       throws IOException {
     final int[] index = this.index;
     // tricky: we add more more element than we need because we will reuse this array later
     // for ordering term ords before converting to term labels.
     final ValueCounter counts = pool.acquire(sparseKeys);
-    if (!probablyWithinCutoff) {
+    if (!isProbablySparse) {
       counts.disableSparseTracking();
     }
 //      final int[] counts = new int[numTermsInField + 1];
@@ -611,12 +610,6 @@ public class UnInvertedField extends DocTermOrds {
       this.doNegative = doNegative;
       this.te = te;
     }
-  }
-
-  private boolean isProbablyWithinCutoff(Integer mincount, int baseSize, SparseKeys sparseKeys) {
-    final int maxDoc = searcher.maxDoc();
-    return numTermsInField >= sparseKeys.minTags &&
-      (1.0 * baseSize / maxDoc) * termInstances < sparseKeys.fraction * numTermsInField * sparseKeys.cutOff;
   }
 
   private void extractTopCount(final ValueCounter counts, final int startTerm, final int endTerm, final int minCount,

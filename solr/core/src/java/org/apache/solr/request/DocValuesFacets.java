@@ -109,12 +109,11 @@ public class DocValuesFacets {
       throw new UnsupportedOperationException("Currently this faceting method is limited to " + Integer.MAX_VALUE + " unique terms");
     }
 
-    final double expectedTerms = (1.0 * hitCount / searcher.maxDoc()) *
-        (ordinalMap == null ? si.getValueCount() : ordinalMap.getSegmentOrdinalsCount());
-    final double trackedTerms = sparseKeys.fraction * si.getValueCount();
-    // TODO: Move probablySparse to pool
-    final boolean probablySparse = si.getValueCount() >= sparseKeys.minTags &&
-        expectedTerms < trackedTerms * sparseKeys.cutOff;
+    if (!pool.isInitialized()) {
+      initializePool(searcher, si, ordinalMap, schemaField, pool);
+    }
+
+    final boolean probablySparse = pool.isProbablySparse(hitCount, sparseKeys);
     if (!probablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
       pool.incSkipCount("minCount=" + minCount + ", hits=" + hitCount + "/" + searcher.maxDoc()
           + ", terms=" + (si == null ? "N/A" : si.getValueCount()) + ", ordCount="
@@ -161,9 +160,6 @@ public class DocValuesFacets {
 //        (sparseKeys.packed ? getMaxCountForAnyTag(si, searcher.maxDoc()) : Integer.MAX_VALUE) : // Counting max is only needed for packed
 //        ordinalMap.getMaxOrdCount();
 
-    if (!pool.isInitialized()) {
-      initializePool(searcher, si, ordinalMap, schemaField, pool);
-    }
 
     final ValueCounter counts = pool.acquire(sparseKeys);
 //      final int[] counts = new int[nTerms];
