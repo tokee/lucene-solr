@@ -734,10 +734,8 @@ public class SimpleFacets {
     }
 
     int hitCount = docs.size();
-    // TODO: Move probablySparse to pool
-    final boolean probablySparse = si.getValueCount() >= sparseKeys.minTags &&
-        (1.0 * hitCount / searcher.maxDoc()) < sparseKeys.fraction * sparseKeys.cutOff;
-    if (!probablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
+    final boolean isProbablySparse = counterPool.isProbablySparse(hitCount, sparseKeys);
+    if (!isProbablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
       // Fallback to standard
       counterPool.incSkipCount("minCount=" + mincount + ", hits=" + hitCount + "/" + searcher.maxDoc()
           + ", terms=" + si.getValueCount());
@@ -780,7 +778,7 @@ public class SimpleFacets {
       //final int[] counts = new int[nTerms];
       // TODO: Figure out maxCountForAny
       ValueCounter counts = counterPool.acquire(sparseKeys);
-      if (!probablySparse) {
+      if (!isProbablySparse) {
         counts.disableSparseTracking();
       }
 
