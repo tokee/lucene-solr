@@ -492,7 +492,7 @@ public class SparseCounterPool {
         field, uniqueValues, maxDoc, referenceCount, sparseCalls.get(), skipCount.get(), lastSkipReason,
         divMint(sparseCollectTime.get(), sparseCalls.get()), divMint(sparseExtractTime.get(), sparseCalls.get()),
         divMint(sparseTotalTime.get(), sparseCalls.get()), disables.get(), withinCutoffCount.get(),
-        exceededCutoffCount.get(), poolSize, maxPoolSize, emptyReuses.get(),
+        exceededCutoffCount.get()-skipCount.get(), poolSize, maxPoolSize, emptyReuses.get(),
         allocations.get(), divMint(sparseAllocateTime.get(), sparseCalls.get()), packedAllocations.get(),
 
         requestClears.get(),
