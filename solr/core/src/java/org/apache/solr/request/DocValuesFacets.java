@@ -448,6 +448,7 @@ public class DocValuesFacets {
   private static NamedList<Integer> extractSpecificCounts(
       SolrIndexSearcher searcher, SparseCounterPool pool, SortedSetDocValues si, String field, DocSet docs,
       ValueCounter counts, String termList) throws IOException {
+    // TODO: Extend this to use the pool.getExternalTerms if present
     pool.incTermsLookup(termList, true);
     FieldType ft = searcher.getSchema().getFieldType(field);
     List<String> terms = StrUtils.splitSmart(termList, ",", true);
