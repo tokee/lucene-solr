@@ -324,24 +324,25 @@ public class DocValuesFacets {
    */
   private static String resolveTerm(SparseCounterPool pool, SparseKeys sparseKeys, SortedSetDocValues si,
                                     FieldType ft, int ordinal, CharsRef charsRef, BytesRef br) {
-    if (pool.getExternalTerms() == null &&
-        sparseKeys.termLookupMaxCache > 0 && sparseKeys.termLookupMaxCache >= si.getValueCount()) {
-      // Fill term cache
-      BytesRefArray brf = new BytesRefArray(Counter.newCounter()); // TODO: Incorporate this in the overall counters
-      for (int ord = 0 ; ord < si.getValueCount() ; ord++) {
-        si.lookupOrd(ord, br);
-        ft.indexedToReadable(br, charsRef);
-        brf.append(new BytesRef(charsRef)); // Is the object allocation avoidable?
+    if (sparseKeys.termLookupMaxCache > 0 && sparseKeys.termLookupMaxCache >= si.getValueCount()) {
+      BytesRefArray brf = pool.getExternalTerms();
+      if (brf == null) {
+        // Fill term cache
+        brf = new BytesRefArray(Counter.newCounter()); // TODO: Incorporate this in the overall counters
+        for (int ord = 0; ord < si.getValueCount(); ord++) {
+          si.lookupOrd(ord, br);
+          ft.indexedToReadable(br, charsRef);
+          brf.append(new BytesRef(charsRef)); // Is the object allocation avoidable?
+        }
+        pool.setExternalTerms(brf);
       }
-      pool.setExternalTerms(brf);
+      return brf.get(br, ordinal).utf8ToString();
     }
-    if (pool.getExternalTerms() == null) {
-      // No cache, so lookup directly
-      si.lookupOrd(ordinal, br);
-      ft.indexedToReadable(br, charsRef);
-      return charsRef.toString();
-    }
-    return pool.getExternalTerms().get(br, ordinal).utf8ToString();
+    pool.setExternalTerms(null); // Make sure the memory is freed
+    // No cache, so lookup directly
+    si.lookupOrd(ordinal, br);
+    ft.indexedToReadable(br, charsRef);
+    return charsRef.toString();
   }
 
 
