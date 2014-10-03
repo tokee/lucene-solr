@@ -712,7 +712,7 @@ public class SimpleFacets {
   // Single value fc faceting
   public static NamedList<Integer> getFieldCacheCounts(
       SolrIndexSearcher searcher, DocSet docs, String fieldName, int offset, int limit, int mincount, boolean missing,
-      String sort, String prefix, String termList, SparseKeys sparseKeys, SparseCounterPool counterPool)
+      String sort, String prefix, String termList, SparseKeys sparseKeys, SparseCounterPool pool)
       throws IOException {
     if (!sparseKeys.sparse) { // Fallback to standard
       return termList == null ?
@@ -729,21 +729,20 @@ public class SimpleFacets {
     NamedList<Integer> res = new NamedList<Integer>();
 
     SortedDocValues si = FieldCache.DEFAULT.getTermsIndex(searcher.getAtomicReader(), fieldName);
-    if (!counterPool.isInitialized()) {
-      initializePool(searcher, si, fieldName, counterPool);
+    if (!pool.isInitialized()) {
+      initializePool(searcher, si, fieldName, pool);
     }
 
     int hitCount = docs.size();
-    final boolean isProbablySparse = counterPool.isProbablySparse(hitCount, sparseKeys);
+    final boolean isProbablySparse = pool.isProbablySparse(hitCount, sparseKeys);
     if (!isProbablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
       // Fallback to standard
-      counterPool.incSkipCount("minCount=" + mincount + ", hits=" + hitCount + "/" + searcher.maxDoc()
+      pool.incFallbacks("minCount=" + mincount + ", hits=" + hitCount + "/" + searcher.maxDoc()
           + ", terms=" + si.getValueCount());
       return termList == null ?
           getFieldCacheCounts(searcher, docs, fieldName, offset, limit, mincount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, counterPool, fieldName, termList, docs);
+          SimpleFacets.fallbackGetListedTermCounts(searcher, pool, fieldName, termList, docs);
     }
-    counterPool.incSparseCalls();
 
     final BytesRef prefixRef;
     if (prefix == null) {
@@ -777,7 +776,7 @@ public class SimpleFacets {
       // going to collect counts for.
       //final int[] counts = new int[nTerms];
       // TODO: Figure out maxCountForAny
-      ValueCounter counts = counterPool.acquire(sparseKeys);
+      ValueCounter counts = pool.acquire(sparseKeys);
       if (!isProbablySparse) {
         counts.disableSparseTracking();
       }
@@ -796,7 +795,7 @@ public class SimpleFacets {
       if (startTermIndex == -1) {
         missingCount = (int) counts.get(0);
       }
-      counterPool.incCollectTime(System.nanoTime() - sparseCollectionTime);
+      pool.incCollectTimeRel(sparseCollectionTime);
 
       // IDEA: we could also maintain a count of "other"... everything that fell outside
       // of the top 'N'
@@ -817,11 +816,11 @@ public class SimpleFacets {
         long sparseExtractTime = System.nanoTime();
         if (counts.iterate(
             (startTermIndex==-1)?1:0, nTerms, mincount, false, new ValueCounter.TopCallback(min, queue))) {
-          counterPool.incWithinCount();
+          pool.incWithinCount();
         } else {
-          counterPool.incExceededCount();
+          pool.incExceededCount();
         }
-        counterPool.incExtractTime(System.nanoTime() - sparseExtractTime);
+        pool.incExtractTimeRel(sparseExtractTime);
 
 /*        for (int i=(startTermIndex==-1)?1:0; i<nTerms; i++) {
           int c = counts[i];
@@ -846,6 +845,7 @@ public class SimpleFacets {
         int sortedIdxEnd = queue.size() + 1;
         final long[] sorted = queue.sort(collectCount);
 
+        final long resolveTime = System.nanoTime();
         for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
           long pair = sorted[i];
           int c = (int)(pair >>> 32);
@@ -854,7 +854,7 @@ public class SimpleFacets {
           ft.indexedToReadable(br, charsRef);
           res.add(charsRef.toString(), c);
         }
-
+        pool.incTermResolveTimeRel(resolveTime);
       } else {
         // add results in index order
         int i=(startTermIndex==-1)?1:0;
@@ -865,6 +865,7 @@ public class SimpleFacets {
           off=0;
         }
 
+        final long resolveTime = System.nanoTime();
         for (; i<nTerms; i++) {
           int c = (int) counts.get(i);
           if (c<mincount || --off>=0) continue;
@@ -873,8 +874,9 @@ public class SimpleFacets {
           ft.indexedToReadable(br, charsRef);
           res.add(charsRef.toString(), c);
         }
+        pool.incTermResolveTimeRel(resolveTime);
       }
-      counterPool.release(counts, sparseKeys);
+      pool.release(counts, sparseKeys);
     }
 
     if (missing) {
@@ -883,7 +885,7 @@ public class SimpleFacets {
       }
       res.add(null, missingCount);
     }
-    counterPool.incTotalTime(System.nanoTime() - sparseTotalTime);
+    pool.incSimpleFacetTotalTimeRel(sparseTotalTime);
 
     return res;
   }
