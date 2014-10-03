@@ -36,6 +36,17 @@ public class SparseKeys {
   public static boolean TERMLOOKUP_DEFAULT = true;
 
   /**
+   * If the number of unique terms in the field is <= this, all terms in the field will be cached for faster lookup.
+   * This imposes a startup / index-changed penalty but makes ordinal->String resolving extremely fast as it will
+   * be a direct array lookup instead of global->local ordinal resolving and potential index access.
+   * </p><p>
+   * Optional. Default is 0 (disabled).
+   */
+  public static final String TERMLOOKUP_MAXCACHE = "facet.sparse.termlookup.maxcache";
+  public static int TERMLOOKUP_MAXCACHE_DEFAULT = 0;
+
+
+  /**
    * The minimum number of tags in a sparse counter. If there are less tags than this, sparse will be disabled for
    * that part.
    */
@@ -112,6 +123,7 @@ public class SparseKeys {
    */
   public static final String PACKED_BITLIMIT = "facet.sparse.packed.bitlimit";
   public static int DEFAULT_PACKED_BITLIMIT = 24;
+
   /**
    * Setting this parameter to true will add a special tag with statistics. Only for patch testing!
    * Note: The statistics are delayed when performing distributed faceting. They show the state from the previous call.
@@ -184,6 +196,7 @@ public class SparseKeys {
   
   final public boolean sparse;
   final public boolean termLookup;
+  final public int termLookupMaxCache;
   final public boolean fallbackToBase;
   final public int minTags;
   final public double fraction;
@@ -214,6 +227,7 @@ public class SparseKeys {
     
     sparse = params.getFieldBool(field, SPARSE, SPARSE_DEFAULT);
     termLookup = params.getFieldBool(field, TERMLOOKUP, TERMLOOKUP_DEFAULT);
+    termLookupMaxCache = params.getFieldInt(field, TERMLOOKUP_MAXCACHE, TERMLOOKUP_MAXCACHE_DEFAULT);
     fallbackToBase = params.getFieldBool(field, FALLBACK_BASE, FALLBACK_BASE_DEFAULT);
     minTags = params.getFieldInt(field, MINTAGS, MINTAGS_DEFAULT);
     fraction = params.getFieldDouble(field, FRACTION, FRACTION_DEFAULT);

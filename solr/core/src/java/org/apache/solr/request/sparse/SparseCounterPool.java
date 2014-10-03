@@ -16,6 +16,7 @@
  */
 package org.apache.solr.request.sparse;
 
+import org.apache.lucene.util.BytesRefArray;
 import org.apache.lucene.util.packed.PackedInts;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,7 +58,6 @@ import java.util.concurrent.atomic.AtomicLong;
 public class SparseCounterPool {
   public static Logger log = LoggerFactory.getLogger(SparseCounterPool.class);
 
-
   /**
    * The pool contains a mix of empty and filled ValueCounters. Filled counters at the beginning, empty counters
    * at the end of the linked list. When the pool-setup changes or a ValueCounter is removed or added, a janitor
@@ -94,6 +94,8 @@ public class SparseCounterPool {
   AtomicLong sparseAllocateTime = new AtomicLong(0);
   AtomicLong sparseCollectTime = new AtomicLong(0);
   AtomicLong sparseExtractTime = new AtomicLong(0);
+  // Time spend resolving BytesRefs as part of phase-1 faceting
+  AtomicLong termResolveTime = new AtomicLong(0);
   AtomicLong sparseClearTime = new AtomicLong(0);
   AtomicLong sparseTotalTime = new AtomicLong(0);
   AtomicLong disables = new AtomicLong(0);
@@ -117,6 +119,9 @@ public class SparseCounterPool {
   protected final ThreadPoolExecutor supervisor;
   protected final String field;
   private static final String NEEDS_CLEANING = "DIRTY";
+
+  // Cached terms for fast ordinal lookup
+  private BytesRefArray externalTerms = null;
 
   public SparseCounterPool(ThreadPoolExecutor janitorSupervisor, String field, int maxPoolSize, int minEmptyCounters) {
     this.field = field;
@@ -308,6 +313,14 @@ public class SparseCounterPool {
     return referenceCount;
   }
 
+  public void setExternalTerms(BytesRefArray externalTerms) {
+    this.externalTerms = externalTerms;
+  }
+
+  public BytesRefArray getExternalTerms() {
+    return externalTerms;
+  }
+
   public long getMaxDoc() {
     return maxDoc;
   }
@@ -374,6 +387,7 @@ public class SparseCounterPool {
       sparseAllocateTime.set(0);
       sparseCollectTime.set(0);
       sparseExtractTime.set(0);
+      termResolveTime.set(0);
       sparseClearTime.set(0);
       sparseTotalTime.set(0);
       withinCutoffCount.set(0);
@@ -420,6 +434,9 @@ public class SparseCounterPool {
   // Nanoseconds
   public void incExtractTime(long delta) {
     sparseExtractTime.addAndGet(delta);
+  }
+  public void incTermResolveTime(long ns) {
+    termResolveTime.incrementAndGet();
   }
   private void incClearTime(long delta) {
     sparseClearTime.addAndGet(delta);
@@ -478,7 +495,7 @@ public class SparseCounterPool {
     final int cleanerCoreSize = supervisor.getCorePoolSize();
     return String.format(
         "sparse statistics: field(name=%s, uniqTerms=%d, maxDoc=%d, refs=%d), calls=%d, fallbacks=%d (last: %s), " +
-            "collect=%dms avg, extract=%dms avg, " +
+            "collect=%dms avg, extract=%dms avg, resolve=%dms, " +
             "total=%dms avg, disables=%d,  withinCutoff=%d, " +
             "exceededCutoff=%d, SCPool(cached=%d/%d, emptyReuses=%d, " +
             "allocations=%d (%dms avg, %d packed), " +
@@ -491,6 +508,7 @@ public class SparseCounterPool {
             "term(count=%d (%.1fms avg), fallback=%d (%.1fms avg), last=%s)",
         field, uniqueValues, maxDoc, referenceCount, sparseCalls.get(), skipCount.get(), lastSkipReason,
         divMint(sparseCollectTime.get(), sparseCalls.get()), divMint(sparseExtractTime.get(), sparseCalls.get()),
+        divMint(termResolveTime.get(), sparseCalls.get()),
         divMint(sparseTotalTime.get(), sparseCalls.get()), disables.get(), withinCutoffCount.get(),
         exceededCutoffCount.get()-skipCount.get(), poolSize, maxPoolSize, emptyReuses.get(),
         allocations.get(), divMint(sparseAllocateTime.get(), sparseCalls.get()), packedAllocations.get(),
@@ -662,6 +680,33 @@ public class SparseCounterPool {
         }
       }
       return dirty;
+    }
+  }
+
+  private class TimeStat {
+    private final String name;
+    private long calls = 0;
+    private long ns = 0;
+    private final long M = 1000000;
+
+    private TimeStat(String name) {
+      this.name = name;
+    }
+    public synchronized void incRel(long startTimeNS) {
+      calls++;
+      ns += (System.nanoTime() - startTimeNS);
+    }
+    public synchronized void incAbs(long measuredTimeNS) {
+      calls++;
+      ns += measuredTimeNS;
+    }
+    public synchronized void clear() {
+      calls = 0;
+      ns = 0;
+    }
+
+    public synchronized String toString() {
+      return name + "(calls=" + calls + ", avg=" + (calls == 0 ? "N/A" : ns / M / calls) + ", tot=" + ns / M + ")";
     }
   }
 }
