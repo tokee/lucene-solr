@@ -36,12 +36,13 @@ import org.apache.lucene.search.Filter;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.BytesRefArray;
 import org.apache.lucene.util.CharsRef;
+import org.apache.lucene.util.Counter;
 import org.apache.lucene.util.UnicodeUtil;
 import org.apache.solr.common.params.FacetParams;
 import org.apache.solr.common.util.NamedList;
 import org.apache.solr.common.util.StrUtils;
-import org.apache.solr.request.sparse.SparseCounterInt;
 import org.apache.solr.request.sparse.SparseCounterPool;
 import org.apache.solr.request.sparse.SparseKeys;
 import org.apache.solr.request.sparse.ValueCounter;
@@ -81,7 +82,7 @@ public class DocValuesFacets {
           getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
           SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termList, docs);
     }
-    long sparseTotalTime = System.nanoTime();
+    final long sparseTotalTime = System.nanoTime();
 
     SchemaField schemaField = searcher.getSchema().getField(fieldName);
     final int hitCount = docs.size();
@@ -229,10 +230,10 @@ public class DocValuesFacets {
 
 //        int min=mincount-1;  // the smallest value in the top 'N' values
 
-      long sparseExtractTime = System.nanoTime();
+      final long sparseExtractTime = System.nanoTime();
       try {
         if (counts.iterate(startTermIndex==-1?1:0, nTerms, minCount, false,
-            new SparseCounterInt.TopCallback(minCount-1, queue))) {
+            new ValueCounter.TopCallback(minCount-1, queue))) {
           pool.incWithinCount();
         } else {
           pool.incExceededCount();
@@ -262,6 +263,7 @@ public class DocValuesFacets {
       int collectCount = Math.max(0, queue.size() - off);
       assert collectCount <= lim;
 
+      final long termResolveTime = System.nanoTime();
       // the start and end indexes of our list "sorted" (starting with the highest value)
       int sortedIdxStart = queue.size() - (collectCount - 1);
       int sortedIdxEnd = queue.size() + 1;
@@ -272,12 +274,15 @@ public class DocValuesFacets {
         long pair = sorted[i];
         int c = (int)(pair >>> 32);
         int tnum = Integer.MAX_VALUE - (int)pair;
-        si.lookupOrd(startTermIndex+tnum, br);
+        res.add(resolveTerm(pool, sparseKeys, si, ft, startTermIndex+tnum, charsRef, br), c);
+/*        si.lookupOrd(startTermIndex+tnum, br);
         ft.indexedToReadable(br, charsRef);
-        res.add(charsRef.toString(), c);
+        res.add(charsRef.toString(), c);*/
       }
+      pool.incTermResolveTime(System.nanoTime() - termResolveTime);
 
     } else {
+      final long termResolveTime = System.nanoTime();
       // add results in index order
       int i=(startTermIndex==-1)?1:0;
       if (minCount<=0) {
@@ -292,16 +297,53 @@ public class DocValuesFacets {
         int c = (int) counts.get(i);
         if (c<minCount || --off>=0) continue;
         if (--lim<0) break;
-        si.lookupOrd(startTermIndex+i, br);
+        res.add(resolveTerm(pool, sparseKeys, si, ft, startTermIndex+i, charsRef, br), c);
+/*        si.lookupOrd(startTermIndex+i, br);
         ft.indexedToReadable(br, charsRef);
-        res.add(charsRef.toString(), c);
+        res.add(charsRef.toString(), c);*/
       }
+      pool.incTermResolveTime(System.nanoTime() - termResolveTime);
     }
     pool.release(counts, sparseKeys);
 
     pool.incTotalTime(System.nanoTime() - sparseTotalTime);
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
   }
+
+  /**
+   * Resolves an ordinal to an external String. The lookup might be cached.
+   *
+   * @param pool       the Searcher-instance-specific pool, potentially holding a cache of lookup terms.
+   * @param sparseKeys the sparse request, stating whether caching of terms should be used or not.
+   * @param si         term provider.
+   * @param ft         field type for mapping internal term representation to external.
+   * @param ordinal    the ordinal for the requested term.
+   * @param charsRef   independent CharsRef to avoid object allocation.
+   * @param br         independent BytesRef to avoid object allocation.
+   * @return an external String directly usable for constructing facet response.
+   */
+  private static String resolveTerm(SparseCounterPool pool, SparseKeys sparseKeys, SortedSetDocValues si,
+                                    FieldType ft, int ordinal, CharsRef charsRef, BytesRef br) {
+    if (pool.getExternalTerms() == null &&
+        sparseKeys.termLookupMaxCache > 0 && sparseKeys.termLookupMaxCache >= si.getValueCount()) {
+      // Fill term cache
+      BytesRefArray brf = new BytesRefArray(Counter.newCounter()); // TODO: Incorporate this in the overall counters
+      for (int ord = 0 ; ord < si.getValueCount() ; ord++) {
+        si.lookupOrd(ord, br);
+        ft.indexedToReadable(br, charsRef);
+        brf.append(new BytesRef(charsRef)); // Is the object allocation avoidable?
+      }
+      pool.setExternalTerms(brf);
+    }
+    if (pool.getExternalTerms() == null) {
+      // No cache, so lookup directly
+      si.lookupOrd(ordinal, br);
+      ft.indexedToReadable(br, charsRef);
+      return charsRef.toString();
+    }
+    return pool.getExternalTerms().get(br, ordinal).utf8ToString();
+  }
+
 
   /*
    * Determines the maxOrdCount for any term in the given field by looping through all live docIDs and summing the
