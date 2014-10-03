@@ -55,6 +55,7 @@ import org.apache.solr.search.SolrCache;
 import org.apache.solr.search.SolrIndexSearcher;
 import org.apache.solr.util.LongPriorityQueue;
 import org.apache.solr.util.PrimUtils;
+import org.apache.solr.util.SystemIdResolver;
 
 /**
  *
@@ -242,20 +243,18 @@ public class UnInvertedField extends DocTermOrds {
 
     final boolean isProbablySparse = pool.isProbablySparse(baseSize, sparseKeys);
     if (!isProbablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
-      pool.incSkipCount("minCount=" + mincount + ", hits=" + baseSize + "/" + maxDoc + ", terms=" + numTermsInField
-          + ", ordCount=" + termInstances);
+      pool.incFallbacks(pool.getNotSparseReason(baseSize, sparseKeys));
       return termList == null ?
           getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix) :
           SimpleFacets.fallbackGetListedTermCounts(searcher, pool, field, termList, baseDocs);
     }
 
-    pool.incSparseCalls();
     long sparseTotalTime = System.nanoTime();
     use.incrementAndGet();
 
     FieldType ft = searcher.getSchema().getFieldType(field);
 
-    NamedList<Integer> res = new NamedList<Integer>();  // order is important
+    NamedList<Integer> res = new NamedList<>();  // order is important
 
 
     //System.out.println("GET COUNTS field=" + field + " baseSize=" + baseSize + " minCount=" + mincount + " maxDoc=" + maxDoc + " numTermsInField=" + numTermsInField);
@@ -335,6 +334,7 @@ public class UnInvertedField extends DocTermOrds {
         // convert the term numbers to term values and set
         // as the label
         //System.out.println("sortStart=" + sortedIdxStart + " end=" + sortedIdxEnd);
+        final long resolveTime = System.nanoTime();
         for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
           int idx = indirect[i];
           int tnum = (int)sorted[idx];
@@ -342,6 +342,7 @@ public class UnInvertedField extends DocTermOrds {
           //System.out.println("  label=" + label);
           res.setName(idx - sortedIdxStart, label);
         }
+        pool.incTermResolveTimeRel(resolveTime);
 
       } else {
         // add results in index order
@@ -353,6 +354,7 @@ public class UnInvertedField extends DocTermOrds {
           off=0;
         }
 
+        final long resolveTime = System.nanoTime();
         for (; i < countedTerms.endTerm; i++) {
           int c = (int) (countedTerms.doNegative ? maxTermCounts[i] - countedTerms.counts.get(i) :
               countedTerms.counts.get(i));
@@ -362,6 +364,7 @@ public class UnInvertedField extends DocTermOrds {
           final String label = getReadableValue(getTermValue(countedTerms.te, i), ft, charsRef);
           res.add(label, c);
         }
+        pool.incTermResolveTimeRel(resolveTime);
       }
       pool.release(countedTerms.counts, sparseKeys);
     }
@@ -374,7 +377,7 @@ public class UnInvertedField extends DocTermOrds {
 
     //System.out.println("  res=" + res);
 
-    pool.incTotalTime(System.nanoTime() - sparseTotalTime);
+    pool.incSimpleFacetTotalTimeRel(sparseTotalTime);
     return res;
   }
 
@@ -503,7 +506,7 @@ public class UnInvertedField extends DocTermOrds {
         }
       }
     }
-    pool.incCollectTime(System.nanoTime() - sparseCollectTime);
+    pool.incCollectTimeRel(sparseCollectTime);
     return new CountedTerms(counts, startTerm, endTerm, doNegative, te);
   }
 
@@ -621,7 +624,7 @@ public class UnInvertedField extends DocTermOrds {
     } else {
       pool.incExceededCount();
     }
-    pool.incExtractTime(System.nanoTime() - sparseExtractTime);
+    pool.incExtractTimeRel(sparseExtractTime);
   }
   /**************** Sparse implementation end *******************/
 

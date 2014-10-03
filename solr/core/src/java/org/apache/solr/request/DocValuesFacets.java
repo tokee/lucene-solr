@@ -82,8 +82,9 @@ public class DocValuesFacets {
           getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
           SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termList, docs);
     }
-    final long sparseTotalTime = System.nanoTime();
+    final long fullStartTime = System.nanoTime();
 
+    // Resolve providers of terms and ordinal-mapping
     SchemaField schemaField = searcher.getSchema().getField(fieldName);
     final int hitCount = docs.size();
     FieldType ft = schemaField.getType();
@@ -110,21 +111,23 @@ public class DocValuesFacets {
       throw new UnsupportedOperationException("Currently this faceting method is limited to " + Integer.MAX_VALUE + " unique terms");
     }
 
+    // Providers ready. Ensure that the searcher-specific pool is correctly initialized
     if (!pool.isInitialized()) {
       initializePool(searcher, si, ordinalMap, schemaField, pool);
     }
 
+    // Determine if the final result set is likely to be within the sparse constraints and
+    // potentially fall back to standard Solr faceting if not
     final boolean probablySparse = pool.isProbablySparse(hitCount, sparseKeys);
     if (!probablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
-      pool.incSkipCount("minCount=" + minCount + ", hits=" + hitCount + "/" + searcher.maxDoc()
-          + ", terms=" + (si == null ? "N/A" : si.getValueCount()) + ", ordCount="
-          + (ordinalMap == null ? "N/A" : ordinalMap.getSegmentOrdinalsCount()));
+      pool.incFallbacks(pool.getNotSparseReason(hitCount, sparseKeys));
+
       return termList == null ?
           getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
           SimpleFacets.fallbackGetListedTermCounts(searcher, pool, fieldName, termList, docs);
     }
-    pool.incSparseCalls();
 
+    // Locate start and end-position in the ordinals if a prefix is given
     final BytesRef prefixRef;
     if (prefix == null) {
       prefixRef = null;
@@ -152,64 +155,34 @@ public class DocValuesFacets {
     int missingCount = -1;
     final CharsRef charsRef = new CharsRef(10);
     if (nTerms <= 0 || hitCount < minCount) {
-      pool.incTotalTime(System.nanoTime() - sparseTotalTime);
+      // Should we count this in statistics? It should be fast and is fairly independent of sparse
       return finalize(res, searcher, schemaField, docs, missingCount, missing);
     }
 
-    // Knowing the maximum value any counter can reach makes it possible to save memory by using a PackedInts structure instead of int[]
-//    final long maxCountForAnyTag = ordinalMap == null ?
-//        (sparseKeys.packed ? getMaxCountForAnyTag(si, searcher.maxDoc()) : Integer.MAX_VALUE) : // Counting max is only needed for packed
-//        ordinalMap.getMaxOrdCount();
-
-
     final ValueCounter counts = pool.acquire(sparseKeys);
-//      final int[] counts = new int[nTerms];
 
     // Calculate counts for all relevant terms if the counter structure is empty
+    // The counter structure is always empty for single-shard searches and first phase of multi-shard searches
+    // Depending on pool cache setup, it might already be full and directly usable in second phase of multi-shard searches
     if (counts.getContentKey() == null) {
       if (!probablySparse) {
+        // It is guessed that the result set will be to large to be sparse so
+        // the sparse tracker is disabled up front to speed up the collection phase
         counts.disableSparseTracking();
       }
-      long sparseCollectTime = System.nanoTime();
-      Filter filter = docs.getTopFilter();
-      List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
-      for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
-        AtomicReaderContext leaf = leaves.get(subIndex);
-        DocIdSet dis = filter.getDocIdSet(leaf, null); // solr docsets already exclude any deleted docs
-        DocIdSetIterator disi = null;
-        if (dis != null) {
-          disi = dis.iterator();
-        }
-        if (disi != null) {
-          if (schemaField.multiValued()) {
-            SortedSetDocValues sub = leaf.reader().getSortedSetDocValues(fieldName);
-            if (sub == null) {
-              sub = DocValues.EMPTY_SORTED_SET;
-            }
-            final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
-            if (singleton != null) {
-              // some codecs may optimize SORTED_SET storage for single-valued fields
-              accumSingle(counts, startTermIndex, singleton, disi, subIndex, ordinalMap);
-            } else {
-              accumMulti(counts, startTermIndex, sub, disi, subIndex, ordinalMap);
-            }
-          } else {
-            SortedDocValues sub = leaf.reader().getSortedDocValues(fieldName);
-            if (sub == null) {
-              sub = DocValues.EMPTY_SORTED;
-            }
-            accumSingle(counts, startTermIndex, sub, disi, subIndex, ordinalMap);
-          }
-        }
-      }
-      pool.incCollectTime(System.nanoTime() - sparseCollectTime);
+
+      final long sparseCollectTime = System.nanoTime();
+      collectCounts(searcher, docs, schemaField, ordinalMap, startTermIndex, counts);
+      pool.incCollectTimeRel(sparseCollectTime);
     }
 
     if (termList != null) {
+      // Specific terms were requested. This is used with fine-counting of facet values in distributed faceting
       try {
         return extractSpecificCounts(searcher, pool, si, fieldName, docs, counts, termList);
       } finally  {
         pool.release(counts, sparseKeys);
+        pool.incTermsListTotalTimeRel(fullStartTime);
       }
     }
 
@@ -243,7 +216,7 @@ public class DocValuesFacets {
             "Logic error: Out of bounds with startTermIndex=%d, nTerms=%d, minCount=%d and counts=%s",
             startTermIndex, nTerms, minCount, counts));
       }
-      pool.incExtractTime(System.nanoTime() - sparseExtractTime);
+      pool.incExtractTimeRel(sparseExtractTime);
 
 /*        for (int i=(startTermIndex==-1)?1:0; i<nTerms; i++) {
           int c = counts[i];
@@ -279,7 +252,7 @@ public class DocValuesFacets {
         ft.indexedToReadable(br, charsRef);
         res.add(charsRef.toString(), c);*/
       }
-      pool.incTermResolveTime(System.nanoTime() - termResolveTime);
+      pool.incTermResolveTimeRel(termResolveTime);
 
     } else {
       final long termResolveTime = System.nanoTime();
@@ -302,12 +275,48 @@ public class DocValuesFacets {
         ft.indexedToReadable(br, charsRef);
         res.add(charsRef.toString(), c);*/
       }
-      pool.incTermResolveTime(System.nanoTime() - termResolveTime);
+      pool.incTermResolveTimeRel(termResolveTime);
     }
     pool.release(counts, sparseKeys);
 
-    pool.incTotalTime(System.nanoTime() - sparseTotalTime);
+    pool.incSimpleFacetTotalTimeRel(fullStartTime);
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
+  }
+
+  private static void collectCounts(SolrIndexSearcher searcher, DocSet docs, SchemaField schemaField,
+                                    OrdinalMap ordinalMap, int startTermIndex, ValueCounter counts) throws IOException {
+    String fieldName = schemaField.getName();
+    Filter filter = docs.getTopFilter();
+    List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
+    for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
+      AtomicReaderContext leaf = leaves.get(subIndex);
+      DocIdSet dis = filter.getDocIdSet(leaf, null); // solr docsets already exclude any deleted docs
+      DocIdSetIterator disi = null;
+      if (dis != null) {
+        disi = dis.iterator();
+      }
+      if (disi != null) {
+        if (schemaField.multiValued()) {
+          SortedSetDocValues sub = leaf.reader().getSortedSetDocValues(fieldName);
+          if (sub == null) {
+            sub = DocValues.EMPTY_SORTED_SET;
+          }
+          final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
+          if (singleton != null) {
+            // some codecs may optimize SORTED_SET storage for single-valued fields
+            accumSingle(counts, startTermIndex, singleton, disi, subIndex, ordinalMap);
+          } else {
+            accumMulti(counts, startTermIndex, sub, disi, subIndex, ordinalMap);
+          }
+        } else {
+          SortedDocValues sub = leaf.reader().getSortedDocValues(fieldName);
+          if (sub == null) {
+            sub = DocValues.EMPTY_SORTED;
+          }
+          accumSingle(counts, startTermIndex, sub, disi, subIndex, ordinalMap);
+        }
+      }
+    }
   }
 
   /**
