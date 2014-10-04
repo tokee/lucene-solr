@@ -119,7 +119,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     for (int mod: MODULOS) {
       assertFacetEquality("Modulo check", MODULO_FIELD + ":mod_" + mod, SINGLE_DV_FIELD);
     }
-    //dumpStats();
+    dumpStats();
   }
 
   public void testMultiDocValueFaceting() throws Exception {

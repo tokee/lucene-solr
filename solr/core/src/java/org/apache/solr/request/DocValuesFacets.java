@@ -444,36 +444,42 @@ public class DocValuesFacets {
     pool.setFieldProperties((int) (si.getValueCount()+1), maxCount, searcher.maxDoc(), refCount);
   }
 
+  static int warnedOrdinal = 0;
   private static NamedList<Integer> extractSpecificCounts(
       SolrIndexSearcher searcher, SparseCounterPool pool, SortedSetDocValues si, String field, DocSet docs,
       ValueCounter counts, String termList) throws IOException {
     // TODO: Extend this to use the pool.getExternalTerms if present
-    pool.incTermsLookup(termList, true);
-    FieldType ft = searcher.getSchema().getFieldType(field);
-    List<String> terms = StrUtils.splitSmart(termList, ",", true);
+    final long startTime = System.nanoTime();
+    final List<String> terms = StrUtils.splitSmart(termList, ",", true);
+    final FieldType ft = searcher.getSchema().getFieldType(field);
+
+    int existingTerms = 0;
+
     NamedList<Integer> res = new NamedList<>();
     for (String term : terms) {
-      final long startTime = System.nanoTime();
       String internal = ft.toInternal(term);
       // TODO: Check if +1 is always the case (what about startTermIndex with prefix queries?)
       long index = 1+si.lookupTerm(new BytesRef(term));
       // TODO: Remove err-out after sufficiently testing
       int count;
       if (index < 0) { // This is OK. Asking for a non-existing term is normal in distributed faceting
-        pool.incTermLookup(term, true, System.nanoTime()-startTime);
         count = 0;
       } else if(index >= counts.size()) {
-        System.err.println("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + field + " was "
-            + index + " but the counts only go from 0 to ordinal " + counts.size() + ". Switching to searcher.numDocs");
+        if (warnedOrdinal != searcher.hashCode()) {
+          log.warn("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + field + " was "
+              + index + " but the counts only go from 0 to ordinal " + counts.size() + ". Switching to " +
+              "searcher.numDocs. This warning will not be repeated until the index has been updated.");
+          warnedOrdinal = searcher.hashCode();
+        }
         count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
-        pool.incTermLookup(term, false, System.nanoTime()-startTime);
       } else {
-        // Why only int as count?
         count = (int) counts.get((int) index);
-        pool.incTermLookup(term, true, System.nanoTime()-startTime);
+        existingTerms++;
       }
       res.add(term, count);
     }
+    pool.incTermsListLookupRel(termList, !terms.isEmpty() ? terms.get(terms.size()-1) : "",
+        existingTerms, terms.size()-existingTerms, startTime);
     return res;
   }
 

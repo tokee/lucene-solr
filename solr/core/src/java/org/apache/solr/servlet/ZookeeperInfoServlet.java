@@ -275,7 +275,7 @@ public final class ZookeeperInfoServlet extends BaseSolrServlet {
 
       Stat stat = new Stat();
       try {
-        // Trickily, the call to zkClient.getData fills in the stat variable
+        // Trickily, the call to zkClient.getData fills in the debug variable
         byte[] data = zkClient.getData(path, null, stat, true);
 
         if (stat.getEphemeralOwner() != 0) {
@@ -361,7 +361,7 @@ public final class ZookeeperInfoServlet extends BaseSolrServlet {
     boolean printZnode(JSONWriter json, String path) throws IOException {
       try {
         Stat stat = new Stat();
-        // Trickily, the call to zkClient.getData fills in the stat variable
+        // Trickily, the call to zkClient.getData fills in the debug variable
         byte[] data = zkClient.getData(path, null, stat, true);
 
         String dataStr = null;

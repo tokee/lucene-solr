@@ -699,7 +699,7 @@ public class DistribCursorPagingTest extends AbstractFullDistribZkTestBase {
    * <p>
    * Note that this method explicily uses the "cloudClient" for executing the queries, 
    * instead of relying on the test infrastructure to execute the queries redundently
-   * aainst both the cloud client as well as a control client.  This is because term stat 
+   * aainst both the cloud client as well as a control client.  This is because term debug
    * differences in a sharded setup can result in differnent scores for documents compared 
    * to the control index -- which can affect the sorting in some cases and cause false 
    * negatives in the response comparisons (even if we don't include "score" in the "fl")

@@ -441,9 +441,6 @@ public class SimpleFacets {
   public static NamedList<Integer> fallbackGetListedTermCounts(
       SolrIndexSearcher searcher, SparseCounterPool pool, String field, String termList, DocSet base)
       throws IOException {
-    if (pool != null) {
-      pool.incTermsLookup(termList, false);
-    }
     FieldType ft = searcher.getSchema().getFieldType(field);
     List<String> terms = StrUtils.splitSmart(termList, ",", true);
     NamedList<Integer> res = new NamedList<>();
@@ -452,9 +449,6 @@ public class SimpleFacets {
       String internal = ft.toInternal(term);
       int count = searcher.numDocs(new TermQuery(new Term(field, internal)), base);
       res.add(term, count);
-      if (pool != null) {
-        pool.incTermLookup(term, false, System.nanoTime() - startTime);
-      }
     }
     return res;
   }
