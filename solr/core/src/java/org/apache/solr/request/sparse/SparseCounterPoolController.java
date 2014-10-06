@@ -81,10 +81,10 @@ public class SparseCounterPoolController implements SolrCache<String, SparseCoun
    * @param maxPoolSize the maximum size of the pool for the field.
    * @return a pool of {@link ValueCounter}s.
    */
-  public SparseCounterPool acquire(String field, int maxPoolSize, int minEmptyCounters) {
+  public SparseCounterPool acquire(String field, String description, int maxPoolSize, int minEmptyCounters) {
     SparseCounterPool pool = pools.get(field);
     if (pool == null) {
-      pool = new SparseCounterPool(janitorSupervisor, field, maxPoolSize, minEmptyCounters);
+      pool = new SparseCounterPool(janitorSupervisor, field, description, maxPoolSize, minEmptyCounters);
       pools.put(field, pool);
     } else {
       pool.setMaxPoolSize(maxPoolSize);

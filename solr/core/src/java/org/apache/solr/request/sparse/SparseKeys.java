@@ -127,7 +127,10 @@ public class SparseKeys {
   /**
    * Setting this parameter to true will add a special tag with statistics. Only for patch testing!
    * Note: The statistics are delayed when performing distributed faceting. They show the state from the previous call.
+   * </p><p>
+   * This parameter has been deprecated. Specify {@code debug=timing} instead.
    */
+  @Deprecated
   public static final String STATS = "facet.sparse.stats";
   /**
    * Setting this to true resets collected statistics.
@@ -218,7 +221,7 @@ public class SparseKeys {
    */
   final public String cacheToken;
 
-  final public boolean showStats;
+  final public boolean legacyShowStats;
   final public boolean resetStats;
   final public boolean cacheDistributed;
 
@@ -247,7 +250,7 @@ public class SparseKeys {
     cacheDistributed = params.getFieldBool(field, CACHE_DISTRIBUTED, CACHE_DISTRIBUTED_DEFAULT);
     cacheToken = cacheDistributed ? params.getFieldParam(field, CACHE_TOKEN, null) : null;
 
-    showStats = params.getFieldBool(field, STATS, false);
+    legacyShowStats = params.getFieldBool(field, STATS, false);
     resetStats = params.getFieldBool(field, STATS_RESET, false);
   }
   
