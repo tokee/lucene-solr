@@ -411,25 +411,25 @@ public class SimpleFacets {
         }
         break;
       case FC:
-        SparseCounterPool pool = poolController.acquire(field, sparseKeys.poolSize, sparseKeys.poolMinEmpty);
+        SparseCounterPool pool;
         if (sf.hasDocValues()) {
+          pool = poolController.acquire(field, "DocValues", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
           counts = DocValuesFacets.getCounts(
               searcher, base, field, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
-          handleSparseStats(counts, "_sparse_stats_docval", pool, sparseKeys);
         } else if (multiToken || TrieField.getMainValuePrefix(ft) != null) {
+          pool = poolController.acquire(field, "No DocValues, multi token", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
           UnInvertedField uif = UnInvertedField.getUnInvertedField(field, searcher);
           // TODO: Sparse: Add optimized termList handling to multi token field faceting
           counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
-          handleSparseStats(counts, "_sparse_stats_fc_m", pool, sparseKeys);
         } else if (termList != null) {
-          counts = getListedTermCounts(field, termList, base);
-          break;
+          return getListedTermCounts(field, termList, base);
         } else {
           // TODO: Sparse: Add optimized termList handling to single token field faceting
+          pool = poolController.acquire(field, "No DocValues, single token", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
           counts = getFieldCacheCounts(
               searcher, base, field, offset,limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
-          handleSparseStats(counts, "_sparse_stats_fc_s", pool, sparseKeys);
         }
+        handleSparseStats(counts, pool, sparseKeys);
         break;
       default:
         throw new AssertionError();
@@ -520,10 +520,9 @@ public class SimpleFacets {
     return method;
   }
 
-  private void handleSparseStats(
-      NamedList<Integer> counts, String designation, SparseCounterPool pool, SparseKeys sparseKeys) {
+  private void handleSparseStats(NamedList<Integer> counts, SparseCounterPool pool, SparseKeys sparseKeys) {
     if (sparseKeys.showStats) {
-      counts.add(designation + " " + pool, 9000000);
+      counts.add(pool.toString(), 9000000);
     }
     if (sparseKeys.resetStats) {
       pool.clear();

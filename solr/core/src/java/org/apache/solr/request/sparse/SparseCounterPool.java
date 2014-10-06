@@ -88,6 +88,7 @@ public class SparseCounterPool {
   // The following properties are inherent to the searcher and should not change over the life of the pool, once updated.
   // maxCountForAny is a core property as it dictates both size & correctness of packed value counters.
   protected final String field;
+  protected final String description;
   private long maxCountForAny = -1;
   private long referenceCount = -1;
   private int maxDoc = -1;
@@ -139,8 +140,10 @@ public class SparseCounterPool {
   // Cached terms for fast ordinal lookup
   private BytesRefArray externalTerms = null;
 
-  public SparseCounterPool(ThreadPoolExecutor janitorSupervisor, String field, int maxPoolSize, int minEmptyCounters) {
+  public SparseCounterPool(ThreadPoolExecutor janitorSupervisor, String field, String description,
+                           int maxPoolSize, int minEmptyCounters) {
     this.field = field;
+    this.description = description;
     supervisor = janitorSupervisor;
     this.maxPoolSize = maxPoolSize;
     this.minEmptyCounters = minEmptyCounters;
@@ -470,7 +473,7 @@ public class SparseCounterPool {
     final int poolSize = pool.size();
 //    final int cleanerCoreSize = supervisor.getCorePoolSize();
     return String.format(
-        "sparse statistics: field(name=%s, uniqTerms=%d, maxDoc=%d, refs=%d, maxCountForAny=%d)," +
+        "sparse statistics: field(name=%s, description='%s', uniqTerms=%d, maxDoc=%d, refs=%d, maxCountForAny=%d)," +
             "%s, %s (last: %s), " + // simpleFacetTotal, fallbacks
             "%s, %s, %s, " + // collect, extract, resolve
             "%s, %s, " + // disables,  withinCutoff
@@ -479,8 +482,8 @@ public class SparseCounterPool {
 
             "%s, %s, " + // requestClears, backgroundClears
             "cache(hits=%d, misses=%d, %s, %s), " + // filledFrees, emptyFrees
-            "terms(%s, last#=%d, %s, %s, last=%s)",  // termsListLookup, termLookup, termLookupMissing
-        field, uniqueValues, maxDoc, referenceCount, maxCountForAny,
+            "terms(%s, last#=%d, %s, %s, last=%s, cached=%s)",  // termsListLookup, termLookup, termLookupMissing
+        field, description, uniqueValues, maxDoc, referenceCount, maxCountForAny,
         simpleFacetTotal, fallbacks, lastFallbackReason,
         collections, extractions, resolvings,
         disables, withinCutoffCount,
@@ -489,7 +492,8 @@ public class SparseCounterPool {
 
         requestClears, backgroundClears,
         cacheHits.get(), cacheMisses.get(), filledFrees, emptyFrees,
-        termsListLookup, count(lastTermsListRequest, ','), termLookup, termLookupMissing, lastTermLookup);
+        termsListLookup, count(lastTermsListRequest, ','), termLookup, termLookupMissing, lastTermLookup,
+        externalTerms == null ? "no" : Integer.toString(externalTerms.size()));
   }
 
   private int count(String str, char c) {
@@ -507,6 +511,7 @@ public class SparseCounterPool {
 
     final NamedList<Object> fieldStats = new NamedList<>();
     fieldStats.add("name", field);
+    fieldStats.add("description", description);
     fieldStats.add("uniqueTerms", uniqueValues);
     fieldStats.add("maxDoc", maxDoc);
     fieldStats.add("references", referenceCount);
