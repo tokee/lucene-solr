@@ -22,9 +22,12 @@ import org.apache.solr.common.util.NamedList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -703,6 +706,7 @@ public class SparseCounterPool {
   private class TimeStat {
     public final String name;
     public final int fractionDigits;
+    public final NumberFormat numberFormat;
     private long calls = 0;
     private long ns = 0;
     private final long M = 1000000;
@@ -714,6 +718,9 @@ public class SparseCounterPool {
     public TimeStat(String name, int fractionDigits) {
       this.name = name;
       this.fractionDigits = fractionDigits;
+      numberFormat = DecimalFormat.getInstance(Locale.ENGLISH);
+      numberFormat.setMinimumFractionDigits(fractionDigits);
+      numberFormat.setMaximumFractionDigits(fractionDigits);
       timeStats.add(this);
     }
 
@@ -739,7 +746,7 @@ public class SparseCounterPool {
 
     private String avg() {
       return calls == 0 ? "N/A" :
-          fractionDigits == 0 ? Long.toString(ns / M / calls) : String.format("%.1f", 1.0 * ns / M / calls);
+          fractionDigits == 0 ? Long.toString(ns / M / calls) : numberFormat.format(1.0 * ns / M / calls);
     }
 
     public void debug(NamedList<Object> debug) {
