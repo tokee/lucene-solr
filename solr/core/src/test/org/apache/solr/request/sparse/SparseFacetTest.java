@@ -19,6 +19,7 @@ package org.apache.solr.request.sparse;
 
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.solr.SolrTestCaseJ4;
+import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.common.params.FacetParams;
 import org.apache.solr.common.params.ModifiableSolrParams;
 import org.apache.solr.request.SolrQueryRequest;
@@ -146,7 +147,8 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     req.setParams(params);
     params.set(FacetParams.FACET, true);
     params.set(FacetParams.FACET_FIELD, SINGLE_DV_FIELD);
-    params.set(SparseKeys.STATS, true);
+    params.set(CommonParams.DEBUG, CommonParams.TIMING);
+//    params.set(SparseKeys.STATS, true);
     params.set("indent", true);
     String output = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
     System.out.println(output);

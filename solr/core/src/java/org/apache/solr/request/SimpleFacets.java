@@ -521,9 +521,14 @@ public class SimpleFacets {
   }
 
   private void handleSparseStats(NamedList<Integer> counts, SparseCounterPool pool, SparseKeys sparseKeys) {
-    if (sparseKeys.showStats) {
+    if (sparseKeys.legacyShowStats) {
       counts.add(pool.toString(), 9000000);
     }
+    String debug = params.get(CommonParams.DEBUG, null);
+    if (CommonParams.TIMING.equals(debug) || CommonParams.RESULTS.equals(debug) || CommonParams.TRACK.equals(debug)) {
+      rb.addDebugInfo(debug, pool.getStats());
+    }
+
     if (sparseKeys.resetStats) {
       pool.clear();
     }

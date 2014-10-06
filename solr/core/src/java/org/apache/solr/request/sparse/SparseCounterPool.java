@@ -512,47 +512,56 @@ public class SparseCounterPool {
   public NamedList<Object> getStats() {
     final NamedList<Object> stats = new NamedList<>();
 
-    final NamedList<Object> fieldStats = new NamedList<>();
-    fieldStats.add("name", field);
-    fieldStats.add("description", description);
-    fieldStats.add("uniqueTerms", uniqueValues);
-    fieldStats.add("maxDoc", maxDoc);
-    fieldStats.add("references", referenceCount);
-    fieldStats.add("maxCountForAny", maxCountForAny);
-    stats.add("field", fieldStats);
-
-    final NamedList<Object> perf = new NamedList<>();
-    for (TimeStat ts: timeStats) {
-      ts.debug(perf);
+    {
+      final NamedList<Object> fieldStats = new NamedList<>();
+      fieldStats.add("name", field);
+      fieldStats.add("description", description);
+      fieldStats.add("uniqueTerms", uniqueValues);
+      fieldStats.add("maxDoc", maxDoc);
+      fieldStats.add("references", referenceCount);
+      fieldStats.add("maxCountForAny", maxCountForAny);
+      stats.add("field", fieldStats);
     }
-    perf.add("currentBackgroundCleans", supervisor.getQueue().size() + supervisor.getActiveCount());
-    stats.add("performance", perf);
+    {
+      final NamedList<Object> perf = new NamedList<>();
+      for (TimeStat ts: timeStats) {
+        ts.debug(perf);
+      }
+      perf.add("currentBackgroundCleans", supervisor.getQueue().size() + supervisor.getActiveCount());
+      stats.add("performance", perf);
+    }
+    {
+      final NamedList<Object> calls = new NamedList<>();
+      calls.add("fallbacks", fallbacks.calls.get() + " (last reason: " + lastFallbackReason + ")");
+      disables.debug(calls);
+      withinCutoffCount.debug(calls);
+      exceededCutoffCount.debug(calls);
+      stats.add("calls", calls);
+    }
+    {
+      final NamedList<Object> cache = new NamedList<>();
+      cache.add("content", pool.size() + "/" + maxPoolSize);
+      emptyReuses.debug(cache);
+      emptyFrees.debug(cache);
+      filledReuses.debug(cache);
+      filledFrees.debug(cache);
+      stats.add("cache", cache);
+    }
+    {
+      final NamedList<Object> terms = new NamedList<>();
+      //"terms(%s, last#=%d, %s, %s, last=%s)",  // termsListLookup, termLookup, termLookupMissing
+      termsListLookup.debug(terms);
+      terms.add("termsListLookupLastCount", count(lastTermsListRequest, ','));
+      termLookup.debug(terms);
+      termLookupMissing.debug(terms);
+      terms.add("termLookupLast", lastTermLookup);
+      terms.add("cached", externalTerms == null ? "None" : Integer.toString(externalTerms.size()));
+      stats.add("termLookups", terms);
+    }
 
-    final NamedList<Object> calls = new NamedList<>();
-    calls.add("fallbacks", fallbacks.calls.get() + " (last reason: " + lastFallbackReason + ")");
-    disables.debug(calls);
-    withinCutoffCount.debug(calls);
-    exceededCutoffCount.debug(calls);
-    stats.add("calls", calls);
-
-    final NamedList<Object> cache = new NamedList<>();
-    cache.add("content", pool.size() + "/" + maxPoolSize);
-    emptyReuses.debug(calls);
-    emptyFrees.debug(calls);
-    filledReuses.debug(calls);
-    filledFrees.debug(calls);
-    stats.add("cache", cache);
-
-    final NamedList<Object> terms = new NamedList<>();
-    //"terms(%s, last#=%d, %s, %s, last=%s)",  // termsListLookup, termLookup, termLookupMissing
-    termsListLookup.debug(terms);
-    terms.add("termsListLookupLastCount", count(lastTermsListRequest, ','));
-    termLookup.debug(terms);
-    termLookupMissing.debug(terms);
-    terms.add("termLookupLast", lastTermLookup);
-    stats.add("termLookups", terms);
-
-    return stats;
+    final NamedList<Object> statsWrap = new NamedList<>();
+    statsWrap.add(field, stats);
+    return statsWrap;
   }
 
   /**
@@ -709,7 +718,8 @@ public class SparseCounterPool {
     public final NumberFormat numberFormat;
     private long calls = 0;
     private long ns = 0;
-    private final long M = 1000000;
+    private long lastNS = -1000000;
+    private final double M = 1000000.0;
 
     private TimeStat(String name) {
       this(name, 0);
@@ -726,27 +736,36 @@ public class SparseCounterPool {
 
     public synchronized void incRel(final long startTimeNS) {
       calls++;
-      ns += (System.nanoTime() - startTimeNS);
+      lastNS = System.nanoTime() - startTimeNS;
+      ns += lastNS;
     }
     public synchronized void incRel(final int calls, final long startTimeNS) {
       this.calls += calls;
-      ns += (System.nanoTime() - startTimeNS);
+      final long totNS = System.nanoTime() - startTimeNS;
+      if (calls != 0) {
+        lastNS = totNS / calls;
+      }
+      ns += totNS;
     }
     public synchronized void clear() {
       calls = 0;
       ns = 0;
+      lastNS = -1000000;
     }
 
     public synchronized String toString() {
       return name + "(" + stats() + ")";
     }
     public String stats() {
-      return "calls=" + calls + ", avg=" + avg() + "ms, tot=" + ns / M + "ms";
+      if (calls == 0) {
+        return "calls=0";
+      }
+      return "calls=" + calls + ", avg=" + avg() + "ms" + ", total=" + numberFormat.format(ns / M) +
+          "ms, last=" + numberFormat.format(lastNS / M) + "ms";
     }
 
     private String avg() {
-      return calls == 0 ? "N/A" :
-          fractionDigits == 0 ? Long.toString(ns / M / calls) : numberFormat.format(1.0 * ns / M / calls);
+      return calls == 0 ? "N/A" : numberFormat.format(ns / M / calls);
     }
 
     public void debug(NamedList<Object> debug) {
