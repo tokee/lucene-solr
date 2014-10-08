@@ -23,8 +23,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 
-import org.apache.lucene.codecs.PostingsFormat; // javadocs
-import org.apache.lucene.index.TermsEnum.SeekStatus;
+import org.apache.lucene.codecs.PostingsFormat;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.Bits;
@@ -119,6 +118,12 @@ public class DocTermOrds implements Accountable {
 
   /** Don't uninvert terms that exceed this count. */
   protected final int maxTermDocFreq;
+
+  /** USED IN SPARSE FACETTING
+   * During uninversion, this is the maximum termDocFreq encountered for any term.
+   */
+  protected int maxEncounteredTermDocFreq = 0;
+
 
   /** Field we are uninverting. */
   protected final String field;
@@ -246,6 +251,14 @@ public class DocTermOrds implements Accountable {
   public int numTerms() {
     return numTermsInField;
   }
+
+  /** USED FOR SPARSE FACETTING logic
+   * @return the maximum termDocFreq encountered for any term during uninversion.
+   */
+  public int getMaxEncounteredTermDocFreq() {
+    return maxEncounteredTermDocFreq;
+  }
+
 
   /**
    * Returns {@code true} if no terms were indexed.
