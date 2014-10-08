@@ -102,6 +102,8 @@ import org.apache.solr.request.LocalSolrQueryRequest;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.request.SolrRequestInfo;
 import org.apache.solr.request.UnInvertedField;
+import org.apache.solr.request.sparse.SparseCounterPoolController;
+import org.apache.solr.request.sparse.SparseKeys;
 import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.schema.IndexSchema;
 import org.apache.solr.schema.SchemaField;
@@ -293,6 +295,14 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable,SolrIn
       cacheMap = noGenericCaches;
       cacheList= noCaches;
     }
+
+    // The SparseCounterPoolController is both a cache and a factory for SparseCounterPools, so it must always be present
+    // TODO: Split these functionalities for cleaner integration with the SolrCache framework. Consider first-classing the cache
+    if (!cacheMap.containsKey(SparseCounterPoolController.CACHE_NAME)) {
+      cacheMap.put(SparseCounterPoolController.CACHE_NAME, new SparseCounterPoolController(
+          SparseKeys.POOL_MAX_COUNT_DEFAULT, SparseKeys.POOL_CLEANUP_THREADS_DEFAULT));
+    }
+
     
     // TODO: This option has been dead/noop since 3.1, should we re-enable it?
 //    optimizer = solrConfig.filtOptEnabled ? new LuceneQueryOptimizer(solrConfig.filtOptCacheSize,solrConfig.filtOptThreshold) : null;

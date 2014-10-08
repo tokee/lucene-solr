@@ -58,7 +58,6 @@ import org.apache.lucene.search.grouping.term.TermGroupFacetCollector;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.CharsRef;
-import org.apache.lucene.util.CharsRefBuilder;
 import org.apache.lucene.util.StringHelper;
 import org.apache.lucene.util.UnicodeUtil;
 import org.apache.solr.common.SolrException;
@@ -75,6 +74,9 @@ import org.apache.solr.common.util.SimpleOrderedMap;
 import org.apache.solr.common.util.StrUtils;
 import org.apache.solr.handler.component.ResponseBuilder;
 import org.apache.solr.request.IntervalFacets.FacetInterval;
+import org.apache.solr.request.sparse.SparseCounterPool;
+import org.apache.solr.request.sparse.SparseCounterPoolController;
+import org.apache.solr.request.sparse.SparseKeys;
 import org.apache.solr.schema.BoolField;
 import org.apache.solr.schema.DateField;
 import org.apache.solr.schema.FieldType;
@@ -374,6 +376,13 @@ public class SimpleFacets {
    * @see FacetParams#FACET_ZEROS
    */
   private NamedList<Integer> getTermCounts(String field, Integer mincount, DocSet base) throws IOException {
+
+    final SparseKeys sparseKeys = new SparseKeys(field, params);
+    SparseCounterPoolController poolController = (SparseCounterPoolController)searcher.getCache(
+        SparseCounterPoolController.CACHE_NAME);
+    assert poolController != null : "The SparseCounterPoolController is a factory and must be present";
+
+
     int offset = params.getFieldInt(field, FacetParams.FACET_OFFSET, 0);
     int limit = params.getFieldInt(field, FacetParams.FACET_LIMIT, 100);
     if (limit == 0) return new NamedList<>();
@@ -468,13 +477,17 @@ public class SimpleFacets {
           }
           break;
         case FC:
+          SparseCounterPool pool = poolController.acquire(field, sparseKeys.poolSize, sparseKeys.poolMinEmpty);
           if (sf.hasDocValues()) {
             counts = DocValuesFacets.getCounts(searcher, base, field, offset,limit, mincount, missing, sort, prefix);
+            handleSparseStats(counts, "_sparse_stats_docval", pool, sparseKeys);
           } else if (multiToken || TrieField.getMainValuePrefix(ft) != null) {
             UnInvertedField uif = UnInvertedField.getUnInvertedField(field, searcher);
             counts = uif.getCounts(searcher, base, offset, limit, mincount,missing,sort,prefix);
+            handleSparseStats(counts, "_sparse_stats_fc_m", pool, sparseKeys);
           } else {
             counts = getFieldCacheCounts(searcher, base, field, offset,limit, mincount, missing, sort, prefix);
+            handleSparseStats(counts, "_sparse_stats_fc_s", pool, sparseKeys);
           }
           break;
         default:
@@ -483,6 +496,16 @@ public class SimpleFacets {
     }
 
     return counts;
+  }
+
+  private void handleSparseStats(
+      NamedList<Integer> counts, String designation, SparseCounterPool pool, SparseKeys sparseKeys) {
+    if (sparseKeys.showStats) {
+      counts.add(designation + " " + pool, 9000000);
+    }
+    if (sparseKeys.resetStats) {
+      pool.clear();
+    }
   }
 
   public NamedList<Integer> getGroupedCounts(SolrIndexSearcher searcher,
