@@ -32,24 +32,26 @@
     <div id="main_content_wrap" class="outer">
       <section id="main_content" class="inner">
         <h2>
-<a name="sparse-faceting-for-solr" class="anchor" href="#sparse-faceting-for-solr"><span class="octicon octicon-link"></span></a>Sparse faceting for Solr</h2>
+<a id="sparse-faceting-for-solr" class="anchor" href="#sparse-faceting-for-solr" aria-hidden="true"><span class="octicon octicon-link"></span></a>Sparse faceting for Solr</h2>
 
 <p>This project is for the <a href="https://issues.apache.org/jira/browse/SOLR-5894">SOLR-5894</a> patch.</p>
 
 <h3>
-<a name="elevator-pitch" class="anchor" href="#elevator-pitch"><span class="octicon octicon-link"></span></a>Elevator pitch</h3>
+<a id="elevator-pitch" class="anchor" href="#elevator-pitch" aria-hidden="true"><span class="octicon octicon-link"></span></a>Elevator pitch</h3>
 
 <p>Sparse faceting speeds up the majority of Solr searches that uses faceting on large (1.000.000+ unique terms) text fields, such as <em>author</em> or <em>title</em>. The speed-up is extremely dependent on the setup, but expect at least a factor 2 for single-shard indexes and more for multi-shard.</p>
 
 <h3>
-<a name="download-and-usage" class="anchor" href="#download-and-usage"><span class="octicon octicon-link"></span></a>Download and usage</h3>
+<a id="download-and-usage" class="anchor" href="#download-and-usage" aria-hidden="true"><span class="octicon octicon-link"></span></a>Download and usage</h3>
 
 <p>Download a sparse WAR and use it instead of the standard Solr WAR. No tweaks are needed to solrconfig.xml.</p>
 
 <ul>
 <li><a href="https://github.com/tokee/lucene-solr/releases/">Solr 4.8 &amp; 4.9 sparse WAR</a></li>
-</ul><h3>
-<a name="sample-calls" class="anchor" href="#sample-calls"><span class="octicon octicon-link"></span></a>Sample calls</h3>
+</ul>
+
+<h3>
+<a id="sample-calls" class="anchor" href="#sample-calls" aria-hidden="true"><span class="octicon octicon-link"></span></a>Sample calls</h3>
 
 <ul>
 <li>
@@ -67,10 +69,12 @@ In a multi-shard setup this speeds up faceting at the cost of precision, by skip
 <li>
 <a href="http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;facet.sparse.maxtracked=255">http://localhost:8983/solr/collection1/select?wt=xml&amp;q=myquery&amp;facet.field=mytextfield&amp;<strong>facet.sparse.maxtracked=255</strong></a><br>
 Maxtracked sets an upper limit for the counts in the facets in the shards (the total count in a distributed setting might be higher). This might speed things up a bit (the values 15, 255 &amp; 65535 are good for this) and lowers the memory requirement for faceting. Use it if memory usage is paramount.</li>
-</ul><p>See <a href="https://github.com/tokee/lucene-solr/blob/lucene_solr_4_8_sparse/solr/core/src/java/org/apache/solr/request/sparse/SparseKeys.java">SparseKeys.java</a> for a detailed description of the knobs to tweak.</p>
+</ul>
+
+<p>See <a href="https://github.com/tokee/lucene-solr/blob/lucene_solr_4_8_sparse/solr/core/src/java/org/apache/solr/request/sparse/SparseKeys.java">SparseKeys.java</a> for a detailed description of the knobs to tweak.</p>
 
 <h2>
-<a name="how-well-does-this-work" class="anchor" href="#how-well-does-this-work"><span class="octicon octicon-link"></span></a>How well does this work?</h2>
+<a id="how-well-does-this-work" class="anchor" href="#how-well-does-this-work" aria-hidden="true"><span class="octicon octicon-link"></span></a>How well does this work?</h2>
 
 <p>When we enabled sparse faceting for our core index (50GB / 14M docs / 2 large, 6 small facets) at the State and University Library, Denmark, we observed that our response times during work hours were halved, compared to 7 days earlier:</p>
 
@@ -83,41 +87,71 @@ Maxtracked sets an upper limit for the counts in the facets in the shards (the t
 <p>See the links at the bottom for full reports on our observations.</p>
 
 <h3>
-<a name="is-this-reliable" class="anchor" href="#is-this-reliable"><span class="octicon octicon-link"></span></a>Is this reliable?</h3>
+<a id="is-this-reliable" class="anchor" href="#is-this-reliable" aria-hidden="true"><span class="octicon octicon-link"></span></a>Is this reliable?</h3>
 
 <p>We use it in production at <a href="http://statsbiblioteket.dk/">State and University Library, Denmark</a> with millions of unique values in the facets and at the <a href="http://netarkivet.dk/">Danish Web Archive</a> with billions of unique values in one of the facets. The patch does not change the index in any way, so the worst thing that can happen is that one needs to switch back to standard Solr.</p>
 
 <h3>
-<a name="the-sparse-principle" class="anchor" href="#the-sparse-principle"><span class="octicon octicon-link"></span></a>The sparse principle</h3>
+<a id="the-sparse-principle" class="anchor" href="#the-sparse-principle" aria-hidden="true"><span class="octicon octicon-link"></span></a>The sparse principle</h3>
 
-<p>Standard Solr fc String faceting maintains an array of counters for all possible values in the facet. The counters are incremented based on the document IDs from the search and all counters are iterated to extract top-X, including the ones that have not been touched. Sparse faceting keeps track of which counters are incremented, so only those are iterated. For small result sets and fields with many unique values, the time-saving is substantial. Empirical measurements puts "small result sets" around 8% or less of the total document count and suggests that most user-issued searches are below this.</p>
+<p>Which is really 4 different things, only one of them sparse. </p>
 
-<p>Standard Solr allocates facet counter structures when needed and frees them after use. This takes time upon allocation (think 10s of milliseconds) and taxes the garbage collector. Sparse faceting maintains a pool of counters and clears them using a background thread, meaning instant counter "allocation" and no taxing of the garbage collector.</p>
+<h4>
+<a id="1-counter-allocation-and-garbage-collection" class="anchor" href="#1-counter-allocation-and-garbage-collection" aria-hidden="true"><span class="octicon octicon-link"></span></a>1. Counter allocation and Garbage Collection</h4>
 
-<p>Distributed faceting on a multi-shard Solr setup require fine-counting for some of the terms. Standard Solr handles this with a mini-search for each term, while sparse faceting uses full counting followed by extraction of counts for the specified terms. This turns out to be much faster. Think factor 10.</p>
+<p>Both Standard Solr fc String faceting and sparse faceting uses counter structures, with 1 counter per unique value in the facet. Solr allocates one counter structure for each call and releases it to the heap after use. Such allocation takes time (think 1ms for each 1M unique facet values) and requires clean-up from the garbage collector.</p>
+
+<p>Sparse faceting maintains a pool of counters and clears them using a background thread, meaning instant counter "allocation" and deallocation with no taxing of the garbage collector. The time for cleaning a counter is proportional to the amount of updated values it contains, but even worst-case is faster that the allocate-release cycle of standard Solr.</p>
+
+<p>The pool of counters for sparse faceting is adjustable and can be turned off completely. The relevant parameter is <code>sparse.sparse.pool.size</code>.</p>
+
+<h4>
+<a id="2-counter-packing" class="anchor" href="#2-counter-packing" aria-hidden="true"><span class="octicon octicon-link"></span></a>2. Counter packing</h4>
+
+<p>Standard Solr uses an integer array to hold the counters. This requires 32 bits / unique facet value, for each call that is running.</p>
+
+<p>Sparse faceting calculates the maximum possible value for any counter in the structure and uses <a href="https://issues.apache.org/jira/browse/LUCENE-1990">PackedInts</a> to hold the values. If the highest count for a facet term with the search <code>*:*</code> is 5000, only 13 bits will be used for each counter as <code>2^13 = 8192</code>, which is enough to count to 5000. Depending on corpus this can be a huge memory saver.</p>
+
+<p>The counter structure for sparse faceting is configurable. It can use an integer array with <code>facet.sparse.packed=false</code> or can be fixed with <code>facet.sparse.maxtracked</code>. Fixing the size to something lower than the maximum count in the corpus means potentially imprecise counts, but also lower memory usage.</p>
+
+<h4>
+<a id="3-sparse-counting" class="anchor" href="#3-sparse-counting" aria-hidden="true"><span class="octicon octicon-link"></span></a>3. Sparse counting</h4>
+
+<p>Standard Solr fc String faceting maintains an array of counters for all possible values in the facet. The counters are incremented based on the document IDs from the search and all counters are iterated to extract top-X, including the ones that have not been touched.</p>
+
+<p>Sparse faceting keeps track of which counters are incremented, so only those are iterated. For small result sets and fields with many unique values, the time-saving is substantial. Empirical measurements puts "small result sets" around 8% or less of the total size and suggests that most user-issued searches are below this. For very small result sets, sparse faceting becomes practically free. </p>
+
+<h4>
+<a id="4-faster-distributed-faceting" class="anchor" href="#4-faster-distributed-faceting" aria-hidden="true"><span class="octicon octicon-link"></span></a>4. Faster distributed faceting</h4>
+
+<p>Distributed faceting on a multi-shard Solr setup require fine-counting for some of the terms. Standard Solr handles this with a mini-search for each term. Worst-case is when practically all shards needs to fine-count a term: If the <code>facet.limit</code> is 100, the number of mini-searches for each shard will be <code>100 * 1.5 + 10 = 160</code> (See the FacetComponent for details). Unfortunately this worst case is not rare. Andy Jackson from British Library called this <a href="https://twitter.com/anjacks0n/status/509284768035262464">Performance Pit of Pain</a>.</p>
+
+<p>Sparse faceting re-creates the full counter structures from the initial facet count, then iterates the fine-counting terms and locates their position in the counter structure, extracting the value directly. Although the full counter re-creation sounds costly, it is normally cheaper than the many mini-searches.</p>
+
+<p>For further speed-up, the counters from the initial facet count are cached. This reduces the fine-counting step to the locating of term positions. This cache is controlled with <code>facet.sparse.cache.distributed</code>.</p>
+
+<p>If precise counting is not essential, the fine-counting step can be disabled with <code>facet.sparse.skiprefinements</code>. Disabling this makes distributed faceting perform at practically the same speed as non-distributed.</p>
 
 <p>For a more in-depth description, see <a href="What%20is%20high%20cardinality%20anyway?">http://sbdevel.wordpress.com/2014/10/02/what-is-high-cardinality-anyway/</a></p>
 
 <h3>
-<a name="limitations" class="anchor" href="#limitations"><span class="octicon octicon-link"></span></a>Limitations</h3>
+<a id="limitations" class="anchor" href="#limitations" aria-hidden="true"><span class="octicon octicon-link"></span></a>Limitations</h3>
 
-<p>Sparse faceting may not help with single-shard searches with large result sets (&gt; 8% of index size). Fortunately it does not hurt either as it falls back to the Solr standard way of counting: There are a lot of knobs to tune this, but the default are chosen conservatively, so the chance of having worse-than-standard response times should be quite low.</p>
+<p>Sparse faceting will not help with single-shard searches with large result sets (&gt; 8% of index size). Fortunately it does not hurt either as it falls back to the Solr standard way of counting: There are a lot of knobs to tune this, but the default are chosen conservatively, so the chance of having worse-than-standard response times should be quite low.</p>
 
-<p>For multi-shard searches, sparse faceting should be faster for practically all setups and result set sizes, as long as the field uses DocValues. Similar speed up for non-DocValued fields is a question of coding time. See <a href="Add%20fast%20term%20lookup%20to%20non-DocValues%20faceting">Issue #15</a> for details and status.</p>
+<p>For multi-shard searches, sparse faceting should be faster for most setups and result set sizes, due to the more efficient fine-counting method.</p>
 
-<p>The existence of a cache for the counter structures does result in a permanent memory overhead, as opposed to a variable one with standard Solr fc faceting. The size of the cache can be controlled, so it is possible to disable it fully, if this is a concern.</p>
-
-<p>Currently only <code>facet.method=fc</code> is supported, for single- and multi-value, with and without DocValues. In theory the sparse principle can be applied to <code>facet.method=fcs</code>, although the gains will probably be somewhat smaller. This sub-project has not been started yet. See <a href="https://github.com/tokee/lucene-solr/issues/8">issue #8</a> for details.</p>
+<p>Currently only <code>facet.method=fc</code> for Strings is supported; for single- and multi-value, with and without DocValues. In theory the sparse principle can be applied to <code>facet.method=fcs</code>, although the gains will probably be somewhat smaller, at least for single shard setups. This sub-project has not been started yet. See <a href="https://github.com/tokee/lucene-solr/issues/8">issue #8</a> for details.</p>
 
 <h3>
-<a name="why-is-this-not-in-standard-solr" class="anchor" href="#why-is-this-not-in-standard-solr"><span class="octicon octicon-link"></span></a>Why is this not in standard Solr?</h3>
+<a id="why-is-this-not-in-standard-solr" class="anchor" href="#why-is-this-not-in-standard-solr" aria-hidden="true"><span class="octicon octicon-link"></span></a>Why is this not in standard Solr?</h3>
 
 <p>Basically because it needs a Solr committer to accept the patch. Visit <a href="https://issues.apache.org/jira/browse/SOLR-5894">SOLR-5894</a> and vote for it, if you want to encourage this.</p>
 
 <p>It is not just a question of the committer pressing <em>accept</em> though. The patch needs to be tested independently and the committer should have some experience with the Solr faceting code, in order to ensure that SOLR-5894 plays nice with the rest of the code base.</p>
 
 <h3>
-<a name="nitty-gritty" class="anchor" href="#nitty-gritty"><span class="octicon octicon-link"></span></a>Nitty gritty</h3>
+<a id="nitty-gritty" class="anchor" href="#nitty-gritty" aria-hidden="true"><span class="octicon octicon-link"></span></a>Nitty gritty</h3>
 
 <p>Sparseness it not related to document count per se. It is all about the facet values.</p>
 
@@ -130,15 +164,17 @@ Maxtracked sets an upper limit for the counts in the facets in the shards (the t
 <p>The index has a <em>tag</em> field with 100,000 unique values. Most documents have 1-10 tags, but every 1,000 document has 10,000 tags (the auto-tagger ran amok). It only takes a single amok-document to blow the sparse limit of 8% of the unique tags, so chances are high that it will be blown <strong>and</strong> that the sparseness guesser will estimate that it will not. This combination results in wasted work in the collector, so the sparse faceting will be worse than standard Solr. In the stats feedback, <code>exceededCutoff</code> is the number of times this has happened.</p>
 
 <h3>
-<a name="more-reading-and-tests" class="anchor" href="#more-reading-and-tests"><span class="octicon octicon-link"></span></a>More reading and tests</h3>
+<a id="more-reading-and-tests" class="anchor" href="#more-reading-and-tests" aria-hidden="true"><span class="octicon octicon-link"></span></a>More reading and tests</h3>
 
 <ul>
 <li><a href="https://sbdevel.wordpress.com/2014/06/17/terabyte-index-search-and-faceting-with-solr/">Terabyte index, search and faceting with Solr</a></li>
 <li><a href="https://sbdevel.wordpress.com/2014/08/26/ten-times-faster/">Ten times faster</a></li>
 <li><a href="https://sbdevel.wordpress.com/author/eskildsen/">Even sparse faceting is limited</a></li>
 <li><a href="https://sbdevel.wordpress.com/2014/09/09/small-scale-sparse-faceting/">Small scale sparse faceting</a></li>
-</ul><h3>
-<a name="who-made-this" class="anchor" href="#who-made-this"><span class="octicon octicon-link"></span></a>Who made this?</h3>
+</ul>
+
+<h3>
+<a id="who-made-this" class="anchor" href="#who-made-this" aria-hidden="true"><span class="octicon octicon-link"></span></a>Who made this?</h3>
 
 <p>Sparse faceting is the work of Toke Eskildsen. Most of the code was implemented on company time at the State and University Library, Denmark. It was fueled partly by the need for snappy responses from the Danish Web Archive, partly because the gains are just too awesome to let pass. Many thanks to the State and University Library for supporting Open Source by allocating the time needed to make such things public.</p>
 
