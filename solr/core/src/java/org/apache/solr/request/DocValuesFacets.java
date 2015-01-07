@@ -438,8 +438,9 @@ public class DocValuesFacets {
         maxCount = count;
       }
     }
-    log.info("Calculated maxCountForAny=" + maxCount + " for field=" + schemaField.getName()
-        + " in " + (System.nanoTime()-startTime)/1000000 + "ms");
+    log.info(String.format(
+        "Calculated maxCountForAny=%d for field%s with %d references to %d unique values in %dms",
+        maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime()-startTime)/1000000));
     // +1 as everything is shifted by 1 to use index 0 as special counter
     pool.setFieldProperties((int) (si.getValueCount()+1), maxCount, searcher.maxDoc(), refCount);
   }
