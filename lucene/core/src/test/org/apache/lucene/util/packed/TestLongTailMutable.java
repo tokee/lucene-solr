@@ -26,9 +26,39 @@ import java.util.Locale;
 public class TestLongTailMutable extends LuceneTestCase {
 
   private final static int M = 1048576;
-  public void testEstimate() {
-    final long VC = 400*M;
-    LongTailMutable.Estimate estimate = new LongTailMutable.Estimate(VC, getSampleHistogram());
+
+  public void testLinksEstimate() {
+    testEstimate(400*M, getLinksHistogram());
+  }
+
+  public void testURLShard1Estimate() {
+    testEstimate(228*M, getURLSampleHistogram());
+  }
+
+  public void testViability() {
+    LongTailMutable.Estimate estimate = new LongTailMutable.Estimate(100*M, pad(
+        1000,
+        100,
+        1,
+        3
+    ));
+    // 1+3=4 and there are 2^2=4 pointers
+    assertTrue("The layout should be viable for tailBPV=2", estimate.isViable(2));
+  }
+
+  public void testNonViability() {
+    LongTailMutable.Estimate estimate = new LongTailMutable.Estimate(100*M, pad(
+        1000,
+        100,
+        2,
+        3
+    ));
+    // 2+3=5 and there are 2^2=4 pointers
+    assertFalse("The layout should not be viable for tailBPV=2", estimate.isViable(2));
+  }
+
+  public void testEstimate(long uniqueCount, long[] histogram) {
+    LongTailMutable.Estimate estimate = new LongTailMutable.Estimate(uniqueCount, histogram);
     for (int tailBPV = 0 ; tailBPV < 64 ; tailBPV++) {
       if (estimate.isViable(tailBPV) && estimate.getFractionEstimate(tailBPV) < 1.1) {
         System.out.println(String.format(Locale.ENGLISH,
@@ -36,14 +66,32 @@ public class TestLongTailMutable extends LuceneTestCase {
             tailBPV, estimate.getMemEstimate(tailBPV) / 1024.0 / 1024 / 1024,
             0.400*estimate.getMaxBPV()/8,
             estimate.getFractionEstimate(tailBPV), estimate.getHeadValueCount(tailBPV),
-            estimate.getHeadValueCount(tailBPV)*100.0/VC));
+            estimate.getHeadValueCount(tailBPV)*100.0/uniqueCount));
       }
     }
   }
 
-  private long[] getSampleHistogram() {
-
-    return new long[] {
+  private long[] getURLSampleHistogram() { // Taken from URL from shard 1 in netarchive.dk
+    // 228M uniques
+    return pad(
+        196552211,
+        20504581,
+        5626432,
+        3187738,
+        1123002,
+        411353,
+        164206,
+        81438,
+        10421, // 256
+        2252,
+        2526,
+        100,
+        6      // 4096
+    );
+  }
+  private long[] getLinksHistogram() {
+    return pad( // Taken from links in a 2/3 build shard from netarchive.dk
+        // 400M uniques
         324916865,
         57336093,
         37200810,
@@ -52,7 +100,7 @@ public class TestLongTailMutable extends LuceneTestCase {
         7074694,
         3830153,
         2317588,
-        1439165,
+        1439165, // 256
         875950,
         541195,
         324288,
@@ -60,22 +108,20 @@ public class TestLongTailMutable extends LuceneTestCase {
         74934,
         26037,
         5630,
-        2363,
+        2363,    // 65536
         643,
         619,
         335,
         99,
-        5,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 // 32-63
-  };
-/*    return new long[] {
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 32-63
-        0, 0, 0, 0, 0, 0, 0, 0, // 24-31
-        0, 0, 5, 99, 335, 619, 643, 2363, // 16-23
-        5630, 26037, 74934, 180056, 324288, 541195, 875950, 1439165, // 8-15
-        2317588, 3830153, 7074694, 12677476, 22636130, 37200810, 57336093, 324916865 // 0-7
-    };   */
+        5
+    );
   }
 
+  private long[] pad(long... maxCounts) {
+    long[] full = new long[64];
+    for (int i = 0 ; i < maxCounts.length ; i++) {
+      full[i] = maxCounts[i];
+    }
+    return full;
+  }
 }

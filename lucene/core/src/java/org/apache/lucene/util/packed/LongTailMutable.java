@@ -106,7 +106,8 @@ public class LongTailMutable extends PackedInts.Mutable {
 
     private long estimateMem(int tailBPV) {
       long valuesAboveTailBPV = getHeadValueCount(tailBPV);
-      int pointerBPV = PackedInts.bitsRequired(valuesAboveTailBPV);
+      int pointerBPV = valuesAboveTailBPV == 0 ? 0 :
+          PackedInts.bitsRequired(valuesAboveTailBPV-1); // -1 as pointers start at 0
       if (tailBPV < pointerBPV) { // Not enough room for the pointers into head
         return 0;
       }
@@ -115,8 +116,8 @@ public class LongTailMutable extends PackedInts.Mutable {
 
     public long getHeadValueCount(int tailBPV) {
       long valuesAboveTailBPV = 0;
-      for (int bpv = 63 ; bpv > tailBPV ; bpv--) {
-        valuesAboveTailBPV += histogram[bpv];
+      for (int bpv = 64 ; bpv > tailBPV ; bpv--) {
+        valuesAboveTailBPV += histogram[bpv-1];
       }
       return valuesAboveTailBPV;
     }
