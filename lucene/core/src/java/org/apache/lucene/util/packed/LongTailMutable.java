@@ -98,7 +98,7 @@ public class LongTailMutable extends PackedInts.Mutable {
       for (int tailBPV = 1 ; tailBPV < 64 ; tailBPV++) {
         estimatedMem[tailBPV] = estimateMem(tailBPV);
         if (histogram[tailBPV] != 0) {
-          maxBPV = tailBPV;
+          maxBPV = tailBPV+1; // bits count from 0 and we need the total amounts of bits
         }
       }
       this.maxBPV = maxBPV;

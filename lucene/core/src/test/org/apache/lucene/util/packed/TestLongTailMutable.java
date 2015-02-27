@@ -28,11 +28,16 @@ public class TestLongTailMutable extends LuceneTestCase {
   private final static int M = 1048576;
 
   public void testLinksEstimate() {
-    testEstimate(400*M, getLinksHistogram());
+    testEstimate("8/9 shard links", 519*M, getLinksHistogram(), true);
   }
 
-  public void testURLShard1Estimate() {
-    testEstimate(228*M, getURLSampleHistogram());
+  public void testURLEstimate() {
+    testEstimate("Shard 1 URL", 228*M, getURLShard1Histogram(), true);
+    testEstimate("Shard 2 URL", 230*M, getURLShard2Histogram(), false);
+    testEstimate("Shard 3 URL", 214*M, getURLShard3Histogram(), false);
+  }
+  public void testHostEstimate() {
+    testEstimate("Shard 1 host", 1562680, SHARD1_HOST, false);
   }
 
   public void testViability() {
@@ -57,21 +62,33 @@ public class TestLongTailMutable extends LuceneTestCase {
     assertFalse("The layout should not be viable for tailBPV=2", estimate.isViable(2));
   }
 
-  public void testEstimate(long uniqueCount, long[] histogram) {
+  public void testEstimate(String designation, long uniqueCount, long[] histogram, boolean table) {
     LongTailMutable.Estimate estimate = new LongTailMutable.Estimate(uniqueCount, histogram);
+    final double PACKED_MB = uniqueCount*estimate.getMaxBPV()/8 / 1024.0 / 1024;
+    System.out.println(String.format(Locale.ENGLISH,
+        table ?
+            "<table style=\"width: 80%%\"><caption>%s: %s uniques, Packed64 size: %.0fMB</caption>\n" +
+                "<tr style=\"text-align: right\"><th>tailBPV</th> <th>mem</th> <th>saved</th> <th>headCounters</th></tr>" :
+            "%s: %s uniques, Packed64 size: %.0fMB",
+        designation, uniqueCount < 10*M ? uniqueCount/1000 + "K>" : uniqueCount/M + "M", PACKED_MB));
     for (int tailBPV = 0 ; tailBPV < 64 ; tailBPV++) {
-      if (estimate.isViable(tailBPV) && estimate.getFractionEstimate(tailBPV) < 1.1) {
+      if (estimate.isViable(tailBPV) && estimate.getFractionEstimate(tailBPV) <= 1.0) {
+        double mb = estimate.getMemEstimate(tailBPV) / 1024.0 / 1024;
         System.out.println(String.format(Locale.ENGLISH,
-            "tailBPV=%2d men=%4.2fGB/%4.2fGB fraction=%4.2f headValueCount=%4d (%6.4f%%)",
-            tailBPV, estimate.getMemEstimate(tailBPV) / 1024.0 / 1024 / 1024,
-            0.400*estimate.getMaxBPV()/8,
-            estimate.getFractionEstimate(tailBPV), estimate.getHeadValueCount(tailBPV),
+            table ?
+                "<tr style=\"text-align: right\"><td>%2d</td> <td>%4.0fMB</td> <td>%3.0fMB / %2.0f%%</td> <td>%4d</td></tr>" :
+                "tailBPV=%2d mem=%4.0fMB (%3.0fMB / %2.0f%% saved) headCounters=%4d (%6.4f%%)",
+            tailBPV, mb, PACKED_MB-mb,
+            (1-estimate.getFractionEstimate(tailBPV))*100, estimate.getHeadValueCount(tailBPV),
             estimate.getHeadValueCount(tailBPV)*100.0/uniqueCount));
       }
     }
+    if (table) {
+      System.out.println("</table>");
+    }
   }
 
-  private long[] getURLSampleHistogram() { // Taken from URL from shard 1 in netarchive.dk
+  private long[] getURLShard1Histogram() { // Taken from URL from shard 1 in netarchive.dk
     // 228M uniques
     return pad(
         196552211,
@@ -89,31 +106,97 @@ public class TestLongTailMutable extends LuceneTestCase {
         6      // 4096
     );
   }
+
+  private long[] SHARD1_HOST = pad(
+      // 1562680 uniques
+      194715,
+      181562,
+      178020,
+      177279,
+      168170,
+      129294,
+      90654,
+      60348,
+      39070,
+      22778,
+      13934,
+      8515,
+      5829,
+      3876,
+      1799,
+      556,
+      153,
+      44,
+      22,
+      17,
+      6,
+      3,
+      1
+  );
+
+  private long[] getURLShard2Histogram() { // Taken from URL in netarchive.dk
+    // 230M uniques
+    return pad(
+        213596462,
+        7814717,
+        3496320,
+        2446379,
+        1370559,
+        474296,
+        207471,
+        91941,
+        18593,
+        3467,
+        2754,
+        150,
+        7
+    );
+  }
+  private long[] getURLShard3Histogram() { // Taken from URL in netarchive.dk
+    // 214M uniques
+    return pad(
+        188429984,
+        17107714,
+        4977514,
+        2431354,
+        946224,
+        361199,
+        140717,
+        65064,
+        6183,
+        2278,
+        1996,
+        64,
+        3
+    );
+  }
+
+
   private long[] getLinksHistogram() {
-    return pad( // Taken from links in a 2/3 build shard from netarchive.dk
-        // 400M uniques
-        324916865,
-        57336093,
-        37200810,
-        22636130,
-        12677476,
-        7074694,
-        3830153,
-        2317588,
-        1439165, // 256
-        875950,
-        541195,
-        324288,
-        180056,
-        74934,
-        26037,
-        5630,
-        2363,    // 65536
-        643,
-        619,
-        335,
-        99,
-        5
+    return pad( // Taken from links in a 8/9 build shard from netarchive.dk
+        // 519M uniques
+        351962313,
+        64785381,
+        42315979,
+        26072745,
+        14361240,
+        8035509,
+        4611177,
+        2686949,
+        1659800,
+        1005294,
+        632518,
+        368445,
+        208885,
+        94266,
+        32975,
+        8196,
+        2807,
+        1755,
+        465,
+        540,
+        311,
+        58
     );
   }
 
