@@ -17,6 +17,9 @@ package org.apache.lucene.util.packed;
  * limitations under the License.
  */
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * Holds large values in {@link #head} and small values in {@link #tail}, thereby reducing overall memory
  * consumption, compared to {@link Packed64}. Performance overhead, compared to Packed64, is very small
@@ -34,9 +37,10 @@ public class LongTailMutable extends PackedInts.Mutable {
   private int headPos = 0;
   private final PackedInts.Mutable tail;
   private final int tailValueMask;
+  private final Map<Integer, Integer> slowHead;
 
-  public PackedInts.Mutable createEmpty(PackedInts.Reader maxCounts, double maxSizeFraction) {
-    return create(maxCounts.size(), getHistogram(maxCounts), maxSizeFraction);
+  public PackedInts.Mutable createEmpty(PackedInts.Reader maxCounts, double maxSizeFraction, int maxSlowHeadCount) {
+    return create(maxCounts.size(), getHistogram(maxCounts), maxSizeFraction, maxSlowHeadCount);
   }
 
   public static long[] getHistogram(PackedInts.Reader maxCounts) {
@@ -47,8 +51,8 @@ public class LongTailMutable extends PackedInts.Mutable {
     return histogram;
   }
 
-  public PackedInts.Reader compress(PackedInts.Reader values, double maxSizeFraction) {
-    PackedInts.Mutable mutable = createEmpty(values, maxSizeFraction);
+  public PackedInts.Reader compress(PackedInts.Reader values, double maxSizeFraction, int maxSlowHeadCount) {
+    PackedInts.Mutable mutable = createEmpty(values, maxSizeFraction, maxSlowHeadCount);
     if (mutable == null) {
       return null;
     }
@@ -58,7 +62,7 @@ public class LongTailMutable extends PackedInts.Mutable {
     return mutable;
   }
 
-  public PackedInts.Mutable create(int valueCount, long[] histogram, double maxSizeFraction) {
+  public PackedInts.Mutable create(int valueCount, long[] histogram, double maxSizeFraction, int maxSlowHeadCount) {
     if (histogram.length != 64) {
       throw new IllegalArgumentException("The histogram length must be exactly 64, but it was " + histogram.length);
     }
@@ -69,14 +73,16 @@ public class LongTailMutable extends PackedInts.Mutable {
       return null; // No viable candidate
     }
 
-    return new LongTailMutable((int) estimate.getHeadValueCount(tailBPV), valueCount, estimate.getMaxBPV(), tailBPV);
+    return new LongTailMutable((int) estimate.getHeadValueCount(tailBPV), valueCount, estimate.getMaxBPV(), tailBPV,
+        (int) estimate.getSlowHeadCount(tailBPV));
   }
 
-  public LongTailMutable(int headValueCount, int tailValueCount, int headBPV, int tailBPV) {
+  public LongTailMutable(int headValueCount, int tailValueCount, int headBPV, int tailBPV, int slowHeadCount) {
     head = PackedInts.getMutable(headValueCount, headBPV, PackedInts.FASTEST); // There should not be many values
     headBit = 1 << tailBPV;
     tail = PackedInts.getMutable(tailValueCount, tailBPV+1, PackedInts.DEFAULT);
     tailValueMask = headBit - 1;
+    slowHead = new HashMap<>(slowHeadCount);
   }
 
   public static class Estimate {
@@ -112,6 +118,15 @@ public class LongTailMutable extends PackedInts.Mutable {
         return 0;
       }
       return (valuesAboveTailBPV * maxBPV + valueCount * (tailBPV+1)) / 8;
+    }
+
+    /* The amount of values in head that cannot fit as direct pointers in tail
+     */
+    public long getSlowHeadCount(int tailBPV) {
+      long headMaxCount = (int) Math.pow(2, tailBPV);
+      long headValueCount = getHeadValueCount(tailBPV);
+       // +1 as the last pointer is a marker
+      return headValueCount > headMaxCount ? headValueCount - headMaxCount + 1 : 0;
     }
 
     public long getHeadValueCount(int tailBPV) {
