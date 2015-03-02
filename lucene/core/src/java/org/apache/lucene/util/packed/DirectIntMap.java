@@ -33,7 +33,7 @@ import java.util.Arrays;
  * </p><p>
  * This implementation is not Thread-safe.
  */
-public class CompactIntMap {
+public class DirectIntMap {
   private static final long VALUE_MASK = 0xffffffffL; // Lower 32 bits
   public static final int DEFAULT_INITIAL_SIZE = 128;
   public static final int DEFAULT_BUCKET_SIZE = 16;
@@ -46,7 +46,7 @@ public class CompactIntMap {
   private int bucketMask;
   private long[] store;
 
-  public CompactIntMap(int bucketBits, int bucketSize) {
+  public DirectIntMap(int bucketBits, int bucketSize) {
     this.bucketBits = bucketBits;
     this.bucketMask = ~(~1 << bucketBits);
     this.bucketSize = bucketSize;
@@ -83,7 +83,7 @@ public class CompactIntMap {
     // Determine if we should extend by re-hashing or extending buckets
     if (hashDoublingExtendsBucket(key)) {
       int newBucketBits = bucketBits + 1;
-      CompactIntMap cim = new CompactIntMap(newBucketBits, bucketSize);
+      DirectIntMap cim = new DirectIntMap(newBucketBits, bucketSize);
       cim.addAll(this);
       this.capacity = cim.capacity;
       this.size = cim.size;
@@ -120,7 +120,7 @@ public class CompactIntMap {
     return false; // Extended hashes are still equal
   }
 
-  private void addAll(CompactIntMap compactIntMap) {
+  private void addAll(DirectIntMap compactIntMap) {
     for (long keyValuePair: compactIntMap.store) {
       if (keyValuePair != Long.MAX_VALUE) {
         put((int) (keyValuePair >>> 32), (int) (keyValuePair & VALUE_MASK));
