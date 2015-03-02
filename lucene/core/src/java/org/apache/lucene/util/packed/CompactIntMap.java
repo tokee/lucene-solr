@@ -56,7 +56,9 @@ public class CompactIntMap {
   }
 
   public int get(int key) {
-    for (int pos = key & bucketMask ; pos < (key & bucketMask) + bucketSize ; pos++) {
+    final int bucketStart = (key & bucketMask)*bucketSize;
+    final int bucketEnd = bucketStart + bucketSize;
+    for (int pos = bucketStart ; pos < bucketEnd ; pos++) {
       if (store[pos] == Long.MAX_VALUE) {
         break;
       }
@@ -68,10 +70,11 @@ public class CompactIntMap {
   }
 
   public void put(int key, int value) {
-    final int bucketEnd = (key & bucketMask) + bucketSize;
-    for (int pos = key & bucketMask ; pos < bucketEnd ; pos++) {
+    final int bucketStart = (key & bucketMask)*bucketSize;
+    final int bucketEnd = bucketStart + bucketSize;
+    for (int pos = bucketStart ; pos < bucketEnd ; pos++) {
       if (store[pos] >>> 32 == key || store[pos] == Long.MAX_VALUE) {
-        store[pos] = (((long) key) << 32) & value;
+        store[pos] = (((long) key) << 32) | value;
         size++;
         return;
       }
@@ -100,10 +103,11 @@ public class CompactIntMap {
   }
 
   private boolean hashDoublingExtendsBucket(int key) {
+    final int bucketStart = (key & bucketMask)*bucketSize;
     final int bucketEnd = (key & bucketMask) + bucketSize;
     final int extendedMask = (bucketMask << 1) | 1;
     long lastMaskedKey = 0;
-    for (int pos = key & bucketMask ; pos < bucketEnd ; pos++) {
+    for (int pos = bucketStart ; pos < bucketEnd ; pos++) {
       if (store[pos] == Long.MAX_VALUE) {
         throw new IllegalStateException("hashDoublingExtendsBucket should never be called when there is free room");
       }
@@ -119,7 +123,7 @@ public class CompactIntMap {
   private void addAll(CompactIntMap compactIntMap) {
     for (long keyValuePair: compactIntMap.store) {
       if (keyValuePair != Long.MAX_VALUE) {
-        put((int)(keyValuePair >>> 32), (int) (keyValuePair & VALUE_MASK));
+        put((int) (keyValuePair >>> 32), (int) (keyValuePair & VALUE_MASK));
       }
     }
   }

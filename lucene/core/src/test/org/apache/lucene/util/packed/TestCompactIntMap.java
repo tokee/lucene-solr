@@ -46,7 +46,20 @@ import java.util.Random;
 @Slow
 public class TestCompactIntMap extends LuceneTestCase {
 
-  public void testBase() {
+  public void testSingle() {
+    CompactIntMap cim = new CompactIntMap(2, 8);
+    cim.put(7, 87);
+    assertEquals("Extraction for key 7 should work", 87, cim.get(7));
+  }
+
+  public void testDualDifferentBuckets() {
+    CompactIntMap cim = new CompactIntMap(2, 8);
+    cim.put(7, 87); cim.put(2, 86);
+    assertEquals("Extraction for key 7 should work", 87, cim.get(7));
+    assertEquals("Extraction for key 2 should work", 86, cim.get(2));
+  }
+
+  public void testDualSameBucket() {
     CompactIntMap cim = new CompactIntMap(2, 8);
     cim.put(7, 87); cim.put(3, 86);
     assertEquals("Extraction for key 7 should work", 87, cim.get(7));
