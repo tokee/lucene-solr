@@ -28,7 +28,7 @@ public class TestLongTailMutable extends LuceneTestCase {
   private final static int M = 1048576;
 
   public void testLinksEstimate() {
-    testEstimate("8/9 shard links", 519*M, getLinksHistogram(), true);
+    testEstimate("8/9 shard links", 519*M, getLinksHistogram(), false);
   }
 
   public void testURLEstimate() {
