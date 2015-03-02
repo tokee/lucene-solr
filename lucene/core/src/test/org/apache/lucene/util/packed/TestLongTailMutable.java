@@ -79,8 +79,9 @@ public class TestLongTailMutable extends LuceneTestCase {
                 "<tr style=\"text-align: right\"><td>%2d</td> <td>%4.0fMB</td> <td>%3.0fMB / %2.0f%%</td> <td>%4d</td></tr>" :
                 "tailBPV=%2d mem=%4.0fMB (%3.0fMB / %2.0f%% saved) headCounters=%4d (%6.4f%%)",
             tailBPV, mb, PACKED_MB-mb,
-            (1-estimate.getFractionEstimate(tailBPV))*100, estimate.getHeadValueCount(tailBPV),
-            estimate.getHeadValueCount(tailBPV)*100.0/uniqueCount));
+            // TODO: Split in fast and slow head
+            (1-estimate.getFractionEstimate(tailBPV))*100, estimate.getAllHeadValueCount(tailBPV),
+            estimate.getAllHeadValueCount(tailBPV)*100.0/uniqueCount));
       }
     }
     if (table) {

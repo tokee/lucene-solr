@@ -73,7 +73,8 @@ public class LongTailMutable extends PackedInts.Mutable {
       return null; // No viable candidate
     }
 
-    return new LongTailMutable((int) estimate.getHeadValueCount(tailBPV), valueCount, estimate.getMaxBPV(), tailBPV,
+    // TODO: This is not the correct formula!
+    return new LongTailMutable((int) estimate.getAllHeadValueCount(tailBPV), valueCount, estimate.getMaxBPV(), tailBPV,
         (int) estimate.getSlowHeadCount(tailBPV));
   }
 
@@ -90,6 +91,7 @@ public class LongTailMutable extends PackedInts.Mutable {
     private final long[] histogram;
     private final int maxBPV;
     private final long[] estimatedMem = new long[64]; // index = tailBPV, 0 = non-viable
+    private final int[] slowHeadSize = new int[64];
 
     public Estimate(PackedInts.Reader maxValues) {
       this(maxValues.size(), createHistogram(maxValues));
@@ -102,7 +104,7 @@ public class LongTailMutable extends PackedInts.Mutable {
       this.histogram = histogram;
       int maxBPV = 0;
       for (int tailBPV = 1 ; tailBPV < 64 ; tailBPV++) {
-        estimatedMem[tailBPV] = estimateMem(tailBPV);
+        fillMemAndSlowHead(tailBPV);
         if (histogram[tailBPV] != 0) {
           maxBPV = tailBPV+1; // bits count from 0 and we need the total amounts of bits
         }
@@ -110,26 +112,38 @@ public class LongTailMutable extends PackedInts.Mutable {
       this.maxBPV = maxBPV;
     }
 
-    private long estimateMem(int tailBPV) {
-      long valuesAboveTailBPV = getHeadValueCount(tailBPV);
-      int pointerBPV = valuesAboveTailBPV == 0 ? 0 :
-          PackedInts.bitsRequired(valuesAboveTailBPV-1); // -1 as pointers start at 0
-      if (tailBPV < pointerBPV) { // Not enough room for the pointers into head
-        return 0;
+    private void fillMemAndSlowHead(int tailBPV) {
+      long valuesAboveTailBPV = getAllHeadValueCount(tailBPV);
+      if (valuesAboveTailBPV == 0) { // Only tail
+        slowHeadSize[tailBPV] = 0;
+        estimatedMem[tailBPV] = valueCount * tailBPV / 8;
+        return;
       }
-      return (valuesAboveTailBPV * maxBPV + valueCount * (tailBPV+1)) / 8;
+
+      long fastHeadMaxCount = (int) Math.pow(2, tailBPV);
+      if (valuesAboveTailBPV <= fastHeadMaxCount) { // tail + fastHead
+        // TODO: Reduce fastHead bits as we know the value is always > 2^tailBPV
+        slowHeadSize[tailBPV] = 0;
+        estimatedMem[tailBPV] = valuesAboveTailBPV * maxBPV / 8 + valueCount * (tailBPV + 1) / 8;
+        return;
+      }
+
+      // Need to use slowHead
+      slowHeadSize[tailBPV] = (int) (valuesAboveTailBPV - (fastHeadMaxCount-1));
+      estimatedMem[tailBPV] = (fastHeadMaxCount-1) * maxBPV / 8 + valueCount * (tailBPV + 1) / 8
+          + (valuesAboveTailBPV-(fastHeadMaxCount-1)) * 8; // TODO: Real estimate!
     }
 
     /* The amount of values in head that cannot fit as direct pointers in tail
      */
     public long getSlowHeadCount(int tailBPV) {
-      long headMaxCount = (int) Math.pow(2, tailBPV);
-      long headValueCount = getHeadValueCount(tailBPV);
+      long fastHeadMaxCount = (int) Math.pow(2, tailBPV);
+      long allHeadValueCount = getAllHeadValueCount(tailBPV);
        // +1 as the last pointer is a marker
-      return headValueCount > headMaxCount ? headValueCount - headMaxCount + 1 : 0;
+      return allHeadValueCount > fastHeadMaxCount ? allHeadValueCount - fastHeadMaxCount + 1 : 0;
     }
 
-    public long getHeadValueCount(int tailBPV) {
+    public long getAllHeadValueCount(int tailBPV) {
       long valuesAboveTailBPV = 0;
       for (int bpv = 64 ; bpv > tailBPV ; bpv--) {
         valuesAboveTailBPV += histogram[bpv-1];
