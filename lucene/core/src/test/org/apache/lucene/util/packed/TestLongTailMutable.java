@@ -20,6 +20,7 @@ package org.apache.lucene.util.packed;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
 
+import java.util.Arrays;
 import java.util.Locale;
 
 @Slow
@@ -171,6 +172,81 @@ public class TestLongTailMutable extends LuceneTestCase {
         3
     );
   }
+
+  /*
+
+  0000
+  0000
+
+  1000
+  0000
+
+  0000
+  1000
+  100
+  000
+
+  1000
+  1000
+  100
+  000
+
+  0000
+  1000
+  000
+  100
+  10
+  00
+
+   */
+
+  public void testBitPlanePacking() {
+    final long VALUES = 519*M;
+    final long[] histogram = getLinksHistogram();
+
+    double totalBits = 2*VALUES; // Base
+    System.out.println(String.format("hist=%10d, bits=%d, total=%dMB", VALUES, 0, (int)(totalBits/8/M)));
+
+    for (int bits = 1 ; bits < 64 ; bits++) {
+      totalBits += 2 * histogram[bits-1];
+      System.out.println(String.format("hist=%10d, bits=%d, total=%dMB", histogram[bits-1], bits, (int)(totalBits/8/M)));
+      if (histogram[bits-1] == 0) {
+        break; // Shouldn't this reach 0 automatically?
+      }
+    }
+
+    System.out.println(String.format("%dMB/%dMB: %4.2f", (long)(totalBits/8/M), VALUES*4/M, totalBits / (VALUES*32)));
+  }
+
+  // if (histogram[bits+1] < histogram[bits]/2) collapse
+  public void testMultiBitPlanePacking() {
+    final long VALUES = 519*M;
+    final long[] histogram = getLinksHistogram();
+
+    final long[] values = new long[histogram.length+2];
+    System.arraycopy(histogram, 0, values, 0, histogram.length);
+    values[0] = 519*M;
+
+    double totalBits = 0;
+    int bits = 0;
+    while (bits < 64) {
+      long bitmapLength = values[bits];
+      totalBits += bitmapLength;
+      if (values[bits+1] < values[bits]/2) { // share overflow bits
+        System.out.println(String.format(
+            "Collapsing bit %d+%d (%d, %d values)", bits, bits+1, values[bits], values[bits+1]));
+        totalBits += bitmapLength;
+        bits++;
+      } else {
+        System.out.println(String.format(
+            "Plain storage of bit %d (%d values)", bits, values[bits]));
+      }
+      totalBits += bitmapLength;
+      bits++;
+    }
+    System.out.println(String.format("%dMB/%dMB: %4.2f", (long)(totalBits/8/M), VALUES*4/M, totalBits / (VALUES*32)));
+  }
+
 
 
   private long[] getLinksHistogram() {
