@@ -67,14 +67,13 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     int bit = 0;
     while (bit <= maxBit) { // What if maxBit == 64?
       int extraBitsCount = 0;
-      long extraCount = 0;
-      for (int extraBit = bit+1 ; extraBit <= maxBit ; extraBit++) {
-        extraCount += histogram[extraBit];
-        if (extraCount*2 >= histogram[bit]) {
+      for (int extraBit = 1 ; extraBit < maxBit-bit ; extraBit++) {
+        if (histogram[bit+extraBit]*2 < histogram[bit]) {
           break;
         }
         extraBitsCount++;
       }
+//      System.out.println(String.format("Plane bit %d + %d with size %d", bit, extraBitsCount, histogram[bit]));
       if (bit == maxBit) { // Last plane so no overflow
         lPlanes.add(new Packed64((int) histogram[bit], 1+extraBitsCount));
       } else { // 1 plane for valueBit, 1 for overflow
