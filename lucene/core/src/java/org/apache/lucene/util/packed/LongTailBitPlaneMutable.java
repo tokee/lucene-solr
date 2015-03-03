@@ -147,7 +147,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     // Fine-count the rest
     PackedInts.Mutable plane = planes[planeIndex];
     while (overflowPos < valueIndex) {
-      newIndex += plane.get(overflowPos) & 1;
+      newIndex += plane.get(overflowPos++) & 1;
     }
     return newIndex;
   }

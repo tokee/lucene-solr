@@ -21,6 +21,7 @@ import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
 
 import java.util.Locale;
+import java.util.Random;
 
 @Slow
 public class TestLongTailBitPlaneMutable extends LuceneTestCase {
@@ -30,6 +31,22 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
   public void testSizeEstimate() {
     LongTailBitPlaneMutable bpm = new LongTailBitPlaneMutable(shift(TestLongTailMutable.getLinksHistogram(), 519*M));
     System.out.println("Estimated memory for LongTailBitPlaneMutable: " + bpm.ramBytesUsed()/M + "MB");
+  }
+
+  public void testTrivialSpeed() {
+    final long UPDATES = 100*M;
+    LongTailBitPlaneMutable bpm = new LongTailBitPlaneMutable(
+        shift(TestLongTailMutable.getLinksHistogram(), 519*M), 10000);
+    final long start = System.nanoTime();
+    Random random = new Random(87);
+    for (long update = 0 ; update < UPDATES ; update++) {
+      int index = random.nextInt(519*M);
+      bpm.set(index, bpm.get(index)+1);
+      if ((update & 0xfff) == 0xfff) {
+        double ups = 1.0 * update / ((System.nanoTime()-start)/M);
+        System.out.println(String.format("Update %4d, %4.2f updates/ms", update, ups));
+      }
+    }
   }
 
   private static long[] shift(long[] histogram, long valueCount) {
