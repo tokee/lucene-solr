@@ -219,6 +219,15 @@ public class TestLongTailMutable extends LuceneTestCase {
   }
 
   // if (histogram[bits+1] < histogram[bits]/2) collapse
+
+  /**
+   * Current optimal space solution: Keep 1 bitplane (bitmap) for every bit in the number and 1 bitplane for
+   * signaling overflow. If a subsequent bitplane is more than half the size of the previous one, the two will
+   * share overflow bit.
+   * </p><p>
+   * As the overflow bits must be counted to infer the index of the next bit position for a given counter,
+   * the raw version is extremely slow, requiring billions of bit-checks to update a single counter.
+   */
   public void testMultiBitPlanePacking() {
     final long VALUES = 519*M;
     final long[] histogram = getLinksHistogram();
@@ -237,7 +246,7 @@ public class TestLongTailMutable extends LuceneTestCase {
             "Collapsing bit %d+%d (%d, %d values)", bits, bits+1, values[bits], values[bits+1]));
         totalBits += bitmapLength;
         bits++;
-      } else {
+      } else if (values[bits] != 0) {
         System.out.println(String.format(
             "Plain storage of bit %d (%d values)", bits, values[bits]));
       }
@@ -249,7 +258,7 @@ public class TestLongTailMutable extends LuceneTestCase {
 
 
 
-  private long[] getLinksHistogram() {
+  public static long[] getLinksHistogram() {
     return pad( // Taken from links in a 8/9 build shard from netarchive.dk
         // 519M uniques
         351962313,
@@ -277,11 +286,9 @@ public class TestLongTailMutable extends LuceneTestCase {
     );
   }
 
-  private long[] pad(long... maxCounts) {
+  private static long[] pad(long... maxCounts) {
     long[] full = new long[64];
-    for (int i = 0 ; i < maxCounts.length ; i++) {
-      full[i] = maxCounts[i];
-    }
+    System.arraycopy(maxCounts, 0, full, 0, maxCounts.length);
     return full;
   }
 }
