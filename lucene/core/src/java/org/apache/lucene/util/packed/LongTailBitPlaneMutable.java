@@ -26,14 +26,10 @@ import java.util.List;
  * Highly experimental structure for holding counters with known maxima.
  * The structure works best with long tail distributes maxima, although
  * the ordering of the maxima is assumed to be random. For sorted maxima,
- * a structure of roughly half the size is possible.
+ * a structure of a little less than half the size is possible.
  * </p><p>
  * Space saving is prioritized very high, while performance is prioritized
- * very low. Practical usage of the structure is limited.
- * </p><p>
- * If the structure worked on the full list of known maxima instead of the
- * histogram over maxima, it would be possible to chunk it for better
- * compression.
+ * very low. Practical usage of the structure is thus limited.
  * </p><p>
  * Warning: This representation does not support persistence yet.
  */
@@ -41,27 +37,18 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
   private static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 1000; // Not performance tested
 
   private final PackedInts.Mutable[] planes;
-  private final int overflowBucketSize;
-  private final int[][] overflowBuckets; // cache
+  private final int cacheChunkSize;
+  private final int[][] overflowCache; // [planeID][count(cacheChunkSize)]
   private final int maxBit;
 
-  public LongTailBitPlaneMutable(long[] histogram) {
-    this(histogram, DEFAULT_OVERFLOW_BUCKET_SIZE);
+  public LongTailBitPlaneMutable(PackedInts.Reader maxima) {
+    this(maxima, DEFAULT_OVERFLOW_BUCKET_SIZE);
   }
-  // histogram[0] = total counter amount
-  public LongTailBitPlaneMutable(long[] histogram, int overflowBucketSize) {
-    if (histogram.length != 64) {
-      throw new IllegalArgumentException("The histogram length must be exactly 64, but it was " + histogram.length);
-    }
-    this.overflowBucketSize = overflowBucketSize;
 
-    int maxBit = 0;
-    for (int bit = 0 ; bit < histogram.length ; bit++) {
-      if (histogram[bit] != 0) {
-        maxBit = bit;
-      }
-    }
-    this.maxBit = maxBit;
+  public LongTailBitPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize) {
+    this.cacheChunkSize = overflowBucketSize;
+    final long[] histogram = getHistogram(maxima);
+    maxBit = getMaxBit(histogram);
 
     List<PackedInts.Mutable> lPlanes = new ArrayList<>(64);
     int bit = 0;
@@ -82,11 +69,31 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
       bit += 1 + extraBitsCount;
     }
     planes = lPlanes.toArray(new PackedInts.Mutable[lPlanes.size()]);
-
-    overflowBuckets = new int[planes.length][];
+    overflowCache = new int[planes.length][];
     for (int planeIndex = 0 ; planeIndex < planes.length ; planeIndex++) {
-      overflowBuckets[planeIndex] = new int[planes[planeIndex].size() / overflowBucketSize + 1];
+      overflowCache[planeIndex] = new int[planes[planeIndex].size() / overflowBucketSize + 1];
     }
+    populateStaticStructures(maxima);
+  }
+
+  private int getMaxBit(long[] histogram) {
+    int maxBit = 0;
+    for (int bit = 0 ; bit < histogram.length ; bit++) {
+      if (histogram[bit] != 0) {
+        maxBit = bit;
+      }
+    }
+    return maxBit;
+  }
+
+  // histogram[0] = total count
+  private long[] getHistogram(PackedInts.Reader maxima) {
+    final long[] histogram = new long[65];
+    for (int i = 0 ; i < maxima.size() ; i++) {
+      histogram[PackedInts.bitsRequired(maxima.get(i))]++;
+    }
+    histogram[0] = maxima.size();
+    return histogram;
   }
 
   @Override
@@ -111,6 +118,11 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
       index = getNextPlaneIndex(planeIndex, index);
     }
     return value;
+  }
+
+
+  private void populateStaticStructures(PackedInts.Reader maxima) {
+    // TODO: Implement this
   }
 
   @Override
@@ -138,10 +150,10 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     int newIndex = 0;
     int overflowPos = 0;
     // Use the cache Luke
-    int validCaches = (valueIndex - 1) / overflowBucketSize;
-    int[] bucket = overflowBuckets[planeIndex];
+    int validCaches = (valueIndex - 1) / cacheChunkSize;
+    int[] bucket = overflowCache[planeIndex];
     for (int bucketIndex = 0; bucketIndex < validCaches; bucketIndex++) {
-      overflowPos += overflowBucketSize;
+      overflowPos += cacheChunkSize;
       newIndex += bucket[bucketIndex];
     }
     // Fine-count the rest
@@ -167,7 +179,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     for (PackedInts.Mutable plane: planes) {
       plane.clear();
     }
-    for (int[] overflowBucket: overflowBuckets) {
+    for (int[] overflowBucket: overflowCache) {
       Arrays.fill(overflowBucket, 0);
     }
   }
@@ -178,7 +190,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     for (PackedInts.Mutable plane: planes) {
       bytes += plane.ramBytesUsed();
     }
-    for (int[] overflowBucket: overflowBuckets) {
+    for (int[] overflowBucket: overflowCache) {
       bytes += overflowBucket.length*4;
     }
     // TODO: Use RamUsageEstimator to include object overhead etc.
