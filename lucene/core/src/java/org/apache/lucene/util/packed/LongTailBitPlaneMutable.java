@@ -37,6 +37,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
   private static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 1000; // Not performance tested
 
   private final PackedInts.Mutable[] planes;
+  private final PackedInts.Mutable[] overflows;
   private final int cacheChunkSize;
   private final int[][] overflowCache; // [planeID][count(cacheChunkSize)]
   private final int maxBit;
@@ -61,19 +62,21 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
         extraBitsCount++;
       }
 //      System.out.println(String.format("Plane bit %d + %d with size %d", bit, extraBitsCount, histogram[bit]));
-      if (bit == maxBit) { // Last plane so no overflow
-        lPlanes.add(new Packed64((int) histogram[bit], 1+extraBitsCount));
-      } else { // 1 plane for valueBit, 1 for overflow
-        lPlanes.add(new Packed64((int) histogram[bit], 2+extraBitsCount));
-      }
+      lPlanes.add(PackedInts.getMutable((int) histogram[bit], 1+extraBitsCount, PackedInts.COMPACT));
       bit += 1 + extraBitsCount;
     }
     planes = lPlanes.toArray(new PackedInts.Mutable[lPlanes.size()]);
-    overflowCache = new int[planes.length][];
+    int overflowBitmaps = planes.length == 0 ? 0 : planes.length-1;
+    overflows = new PackedInts.Mutable[overflowBitmaps];
+    overflowCache = new int[overflowBitmaps][];
     for (int planeIndex = 0 ; planeIndex < planes.length ; planeIndex++) {
       overflowCache[planeIndex] = new int[planes[planeIndex].size() / overflowBucketSize + 1];
     }
-    populateStaticStructures(maxima);
+    populateStaticStructures(maxima, histogram);
+  }
+
+  public LongTailBitPlaneMutable(long[] shift, int overflowBucketSize) {
+    this(new Packed64(1, 2), 3); // TODO: Implement this
   }
 
   private int getMaxBit(long[] histogram) {
@@ -121,8 +124,26 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
   }
 
 
-  private void populateStaticStructures(PackedInts.Reader maxima) {
-    // TODO: Implement this
+  private void populateStaticStructures(PackedInts.Reader maxima, long[] histogram) {
+    int bit = 0;
+    for (int planeIndex = 0; planeIndex < planes.length-1; planeIndex++) { // -1: Never set overflow bit on topmost
+      final PackedInts.Mutable plane = planes[planeIndex];
+      final PackedInts.Mutable overflow =
+          Packed64SingleBlock.create((int) histogram[planeIndex], 1); // Fastest singlebit
+      overflows[planeIndex] = overflow;
+      final int shift = bit + plane.getBitsPerValue();
+      int overflowIndex = 0;
+      for (int i = 0; i < plane.size(); i++) {
+        if (maxima.get(i) >>> shift != 0) {
+          overflow.set(overflowIndex++, 1);
+        }
+      }
+      System.out.println("overflowIndex=" + overflowIndex + ", " );
+      bit = shift;
+    }
+
+//      long setVal =  (value & ~(~1 <<(bpv-1))) << 1;
+
   }
 
   @Override
