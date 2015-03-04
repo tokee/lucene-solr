@@ -29,8 +29,8 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
   private final static int M = 1048576;
 
   public void testSizeEstimate() {
-    LongTailBitPlaneMutable bpm = new LongTailBitPlaneMutable(shift(TestLongTailMutable.getLinksHistogram(), 519*M));
-    System.out.println("Estimated memory for LongTailBitPlaneMutable: " + bpm.ramBytesUsed()/M + "MB");
+//    LongTailBitPlaneMutable bpm = new LongTailBitPlaneMutable(shift(TestLongTailMutable.getLinksHistogram(), 519*M));
+//    System.out.println("Estimated memory for LongTailBitPlaneMutable: " + bpm.ramBytesUsed()/M + "MB");
   }
 
   public void testTrivialSpeed() {
