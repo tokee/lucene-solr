@@ -18,6 +18,9 @@ package org.apache.lucene.util.packed;
  */
 
 
+import org.apache.lucene.search.DocIdSet;
+import org.apache.lucene.util.OpenBitSet;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -36,44 +39,79 @@ import java.util.List;
 public class LongTailBitPlaneMutable extends PackedInts.Mutable {
   private static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 1000; // Not performance tested
 
-  private final PackedInts.Mutable[] planes;
-  private final PackedInts.Mutable[] overflows;
-  private final int cacheChunkSize;
-  private final int[][] overflowCache; // [planeID][count(cacheChunkSize)]
-  private final int maxBit;
+  private final Plane[] planes;
+
+  private class Plane {
+    private final PackedInts.Mutable values;
+    private final OpenBitSet overflows;
+    private final PackedInts.Mutable overflowCache; // [count(cacheChunkSize)]
+    private final int overflowBucketSize;
+    private final int maxBit; // Max up to this point
+
+    public Plane(int valueCount, int bpv, boolean hasOverflow, int overflowBucketSize, int maxBit) {
+      values = PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
+      overflows = new OpenBitSet(hasOverflow ? valueCount : 0);
+      this.overflowBucketSize = overflowBucketSize;
+      overflowCache = PackedInts.getMutable(
+          valueCount/overflowBucketSize, PackedInts.bitsRequired(valueCount), PackedInts.COMPACT);
+      this.maxBit = maxBit;
+    }
+  }
 
   public LongTailBitPlaneMutable(PackedInts.Reader maxima) {
     this(maxima, DEFAULT_OVERFLOW_BUCKET_SIZE);
   }
 
   public LongTailBitPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize) {
-    this.cacheChunkSize = overflowBucketSize;
     final long[] histogram = getHistogram(maxima);
-    maxBit = getMaxBit(histogram);
+    int maxBit = getMaxBit(histogram);
 
-    List<PackedInts.Mutable> lPlanes = new ArrayList<>(64);
+    List<Plane> lPlanes = new ArrayList<>(64);
     int bit = 0;
     while (bit <= maxBit) { // What if maxBit == 64?
       int extraBitsCount = 0;
-      for (int extraBit = 1 ; extraBit < maxBit-bit ; extraBit++) {
-        if (histogram[bit+extraBit]*2 < histogram[bit]) {
+      for (int extraBit = 1; extraBit < maxBit - bit; extraBit++) {
+        if (histogram[bit + extraBit] * 2 < histogram[bit]) {
           break;
         }
         extraBitsCount++;
       }
 //      System.out.println(String.format("Plane bit %d + %d with size %d", bit, extraBitsCount, histogram[bit]));
-      lPlanes.add(PackedInts.getMutable((int) histogram[bit], 1+extraBitsCount, PackedInts.COMPACT));
       bit += 1 + extraBitsCount;
+
+      lPlanes.add(new Plane((int) histogram[bit], 1 + extraBitsCount, bit < maxBit, overflowBucketSize, bit));
     }
-    planes = lPlanes.toArray(new PackedInts.Mutable[lPlanes.size()]);
-    int overflowBitmaps = planes.length == 0 ? 0 : planes.length-1;
-    overflows = new PackedInts.Mutable[overflowBitmaps];
-    overflowCache = new int[overflowBitmaps][];
-    for (int planeIndex = 0 ; planeIndex < planes.length ; planeIndex++) {
-      overflowCache[planeIndex] = new int[planes[planeIndex].size() / overflowBucketSize + 1];
-    }
+    planes = lPlanes.toArray(new Plane[lPlanes.size()]);
     populateStaticStructures(maxima, histogram);
   }
+
+
+  private void populateStaticStructures(PackedInts.Reader maxima, long[] histogram) {
+    final int[] overflowIndex = new int[planes.length];
+    int bit = 0;
+    for (int planeIndex = 0; planeIndex < planes.length-1; planeIndex++) { // -1: Never set overflow bit on topmost
+      final Plane plane = planes[planeIndex];
+      for (int i = 0; i < maxima.size(); i++) {
+        if (bit == 0 || planes[planeIndex - 1].overflows.fastGet(i)) {
+          final long maxValue = maxima.get(i);
+          if (maxValue >>> plane.maxBit != 0) {
+            plane.overflows.fastSet(overflowIndex[planeIndex]);
+          }
+          overflowIndex[planeIndex]++;
+
+          // Update cache
+          final int cacheIndex = overflowIndex[planeIndex]/plane.overflowBucketSize;
+          if (overflowIndex[planeIndex] % plane.overflowBucketSize == 0) {
+            plane.overflowCache.set(cacheIndex, plane.overflowCache.get(cacheIndex-1)+1);
+          } else {
+            plane.overflowCache.set(cacheIndex, plane.overflowCache.get(cacheIndex));
+          }
+        }
+      }
+      bit += plane.values.getBitsPerValue();
+    }
+  }
+
 
   public LongTailBitPlaneMutable(long[] shift, int overflowBucketSize) {
     this(new Packed64(1, 2), 3); // TODO: Implement this
@@ -105,14 +143,11 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     int shift = 0;
     // Move up in the planes until there are no more overflow-bits
     for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
-      PackedInts.Mutable plane = planes[planeIndex];
-      final long planeVal = plane.get(index);
-      final int bpv = plane.getBitsPerValue();
-      long counterVal = bpv == 1 ?
-          planeVal : // last plane
-          planeVal >> 1; // Remove the overflow bit
+      Plane plane = planes[planeIndex];
+      final long counterVal = plane.values.get(index);
+      final int bpv = plane.values.getBitsPerValue();
       value |= counterVal << shift;
-      if (planeIndex == planes.length-1 || (planeVal & 1) != 1) { // Finished
+      if (planeIndex == planes.length-1 || !plane.overflows.get(index)) { // Finished
         break;
       }
 
@@ -121,29 +156,6 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
       index = getNextPlaneIndex(planeIndex, index);
     }
     return value;
-  }
-
-
-  private void populateStaticStructures(PackedInts.Reader maxima, long[] histogram) {
-    int bit = 0;
-    for (int planeIndex = 0; planeIndex < planes.length-1; planeIndex++) { // -1: Never set overflow bit on topmost
-      final PackedInts.Mutable plane = planes[planeIndex];
-      final PackedInts.Mutable overflow =
-          Packed64SingleBlock.create((int) histogram[planeIndex], 1); // Fastest singlebit
-      overflows[planeIndex] = overflow;
-      final int shift = bit + plane.getBitsPerValue();
-      int overflowIndex = 0;
-      for (int i = 0; i < plane.size(); i++) {
-        if (maxima.get(i) >>> shift != 0) {
-          overflow.set(overflowIndex++, 1);
-        }
-      }
-      System.out.println("overflowIndex=" + overflowIndex + ", " );
-      bit = shift;
-    }
-
-//      long setVal =  (value & ~(~1 <<(bpv-1))) << 1;
-
   }
 
   @Override
