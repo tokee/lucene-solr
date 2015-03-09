@@ -28,31 +28,36 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
 
   private final static int M = 1048576;
 
-  public void testSizeEstimate() {
-//    LongTailBitPlaneMutable bpm = new LongTailBitPlaneMutable(shift(TestLongTailMutable.getLinksHistogram(), 519*M));
-//    System.out.println("Estimated memory for LongTailBitPlaneMutable: " + bpm.ramBytesUsed()/M + "MB");
-  }
+  public void testRandom() {
+    final int COUNTERS = 100;
+    final int MAX = 1000;
+    final int updates = M;
+    final PackedInts.Reader maxima = getMaxima(COUNTERS, MAX);
 
-  public void testTrivialSpeed() {
-    final long UPDATES = 100*M;
-    LongTailBitPlaneMutable bpm = new LongTailBitPlaneMutable(
-        shift(TestLongTailMutable.getLinksHistogram(), 519*M), 10000);
-    final long start = System.nanoTime();
-    Random random = new Random(87);
-    for (long update = 0 ; update < UPDATES ; update++) {
-      int index = random.nextInt(519*M);
-      bpm.set(index, bpm.get(index)+1);
-      if ((update & 0xfff) == 0xfff) {
-        double ups = 1.0 * update / ((System.nanoTime()-start)/M);
-        System.out.println(String.format("Update %4d, %4.2f updates/ms", update, ups));
+    PackedInts.Mutable expected = PackedInts.getMutable(COUNTERS, PackedInts.bitsRequired(MAX), PackedInts.FASTEST);
+    PackedInts.Mutable bpm = new LongTailBitPlaneMutable(maxima);
+    for (int update = 0 ; update < updates ; update++) {
+      int index = random().nextInt(COUNTERS);
+      System.out.println("Update " + update + " with index " + index);
+      while (expected.get(index) >= maxima.get(index)) {
+        index++;
+        if (index == COUNTERS) {
+          index = 0;
+        }
       }
+      expected.set(index, expected.get(index));
+      bpm.set(index, bpm.get(index));
+      assertEquals("After " + (update+1) + " updates the BPM-value should be as expected",
+          expected.get(index), bpm.get(index));
     }
   }
 
-  private static long[] shift(long[] histogram, long valueCount) {
-    System.arraycopy(histogram, 0, histogram, 1, histogram.length-1);
-    histogram[0] = valueCount;
-    return histogram;
+  private PackedInts.Reader getMaxima(int counters, int max) {
+    final PackedInts.Mutable maxima = PackedInts.getMutable(counters, 30, PackedInts.FASTEST);
+    for (int i = 0 ; i < counters ; i++) {
+      maxima.set(i, random().nextInt(max-1)+1);
+    }
+    return maxima;
   }
 
 }

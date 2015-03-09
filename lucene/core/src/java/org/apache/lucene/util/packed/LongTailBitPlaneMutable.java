@@ -18,11 +18,10 @@ package org.apache.lucene.util.packed;
  */
 
 
-import org.apache.lucene.search.DocIdSet;
 import org.apache.lucene.util.OpenBitSet;
+import org.apache.lucene.util.RamUsageEstimator;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -40,42 +39,6 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
   private static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 1000; // Not performance tested
 
   private final Plane[] planes;
-
-  /**
-   * The bits needed for a counter are divided among 1 or more planes.
-   * Each plane holds n bits, where n > 0.
-   * Besides the bits themselves, each plane (except the last) holds 1 bit for each value,
-   * signalling if the value overflows onto the next plane.
-   * </p><p>
-   * Example:
-   * There are 5 counters, where the max for the first counter is 10, the max for the second
-   * counter is 1 and the maxima for the rest are 16, 2 and 3. The bits needed to hold the
-   * first counter is 4, since {@code 2^3-1 < 10 < 2^4-1}. The bits needed for the rest of
-   * the values are 1, 5, 2 and 2.<br/>
-   * plane(0) holds the 2 least significant bits (bits 0+1), plane(1) holds bits 2+3, plane(2) holds bit 4.<br/>
-   * plane(0) holds 5 * 2 value bits + 5 * 1 overflow-bit.<br/>
-   * plane(1) holds 2 * 1 value bits + 2 * 1 overflow-bit.<br/>
-   * plane(2) holds 1 * 1 value bits and no overflow bits, since it is the last one.<br/>
-   * Stepping through the maxima-bits 4, 1, 5, 2 and 2, we have<br/>
-   * plane(0).overflowBits = 1 0 1 0 0<br/>
-   * plane(1).overflowBits = 0 1
-   */
-  private class Plane {
-    private final PackedInts.Mutable values;
-    private final OpenBitSet overflows;
-    private final PackedInts.Mutable overflowCache; // [count(cacheChunkSize)]
-    private final int overflowBucketSize;
-    private final int maxBit; // Max up to this point
-
-    public Plane(int valueCount, int bpv, boolean hasOverflow, int overflowBucketSize, int maxBit) {
-      values = PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
-      overflows = new OpenBitSet(hasOverflow ? valueCount : 0);
-      this.overflowBucketSize = overflowBucketSize;
-      overflowCache = PackedInts.getMutable(
-          valueCount/overflowBucketSize, PackedInts.bitsRequired(valueCount), PackedInts.COMPACT);
-      this.maxBit = maxBit;
-    }
-  }
 
   public LongTailBitPlaneMutable(PackedInts.Reader maxima) {
     this(maxima, DEFAULT_OVERFLOW_BUCKET_SIZE);
@@ -156,17 +119,13 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     int shift = 0;
     // Move up in the planes until there are no more overflow-bits
     for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
-      Plane plane = planes[planeIndex];
-      final long counterVal = plane.values.get(index);
-      final int bpv = plane.values.getBitsPerValue();
-      value |= counterVal << shift;
+      final Plane plane = planes[planeIndex];
+      value |= plane.values.get(index) << shift;
       if (planeIndex == planes.length-1 || !plane.overflows.get(index)) { // Finished
         break;
       }
-
-      // Raising level increases counter bits in powers of 2
-      shift += bpv - 1;
-      index = getNextPlaneIndex(planeIndex, index);
+      shift += plane.values.getBitsPerValue();
+      index = plane.getNextPlaneIndex(index);
     }
     return value;
   }
@@ -174,72 +133,103 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
   @Override
   public void set(int index, long value) {
     for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
-      PackedInts.Mutable plane = planes[planeIndex];
-      final int bpv = plane.getBitsPerValue();
-      if (planeIndex == planes.length-1) { // Last plane so just store the bits
-        plane.set(index, value & ~(~1 << bpv));
+      final Plane plane = planes[planeIndex];
+      final int bpv = plane.values.getBitsPerValue();
+
+      plane.values.set(index, value & ~(~1 << bpv));
+      if (planeIndex == planes.length-1 || !plane.overflows.get(index)) {
         break;
       }
-      // We know there's an overflow bit
-      long setVal =  (value & ~(~1 <<(bpv-1))) << 1;
+      // Overflow-bit is set. We need to go up a level, even if the value is 0, to ensure full reset of the bits
       value = value >> bpv-1;
-      if (value != 0 || (plane.get(index) & 1) != 0) { // Once overflow is set, it must stay
-        setVal |= 1;
-      }
-      plane.set(index, setVal);
-      index = getNextPlaneIndex(planeIndex, index);
+      index = plane.getNextPlaneIndex(index);
     }
-  }
-
-  // Find new index by counting previous overflow-bits
-  private int getNextPlaneIndex(int planeIndex, int valueIndex) {
-    int newIndex = 0;
-    int overflowPos = 0;
-    // Use the cache Luke
-    int validCaches = (valueIndex - 1) / cacheChunkSize;
-    int[] bucket = overflowCache[planeIndex];
-    for (int bucketIndex = 0; bucketIndex < validCaches; bucketIndex++) {
-      overflowPos += cacheChunkSize;
-      newIndex += bucket[bucketIndex];
-    }
-    // Fine-count the rest
-    PackedInts.Mutable plane = planes[planeIndex];
-    while (overflowPos < valueIndex) {
-      newIndex += plane.get(overflowPos++) & 1;
-    }
-    return newIndex;
   }
 
   @Override
   public int size() {
-    return planes.length == 0 ? 0 : planes[0].size();
+    return planes.length == 0 ? 0 : planes[0].values.size();
   }
 
   @Override
   public int getBitsPerValue() {
-    return maxBit;
+    return planes.length == 0 ? 0 : planes[planes.length-1].maxBit;
   }
 
   @Override
   public void clear() {
-    for (PackedInts.Mutable plane: planes) {
-      plane.clear();
-    }
-    for (int[] overflowBucket: overflowCache) {
-      Arrays.fill(overflowBucket, 0);
+    for (Plane plane: planes) {
+      plane.values.clear();
     }
   }
 
   @Override
   public long ramBytesUsed() {
-    long bytes = 0;
-    for (PackedInts.Mutable plane: planes) {
+    long bytes = RamUsageEstimator.alignObjectSize(RamUsageEstimator.NUM_BYTES_OBJECT_REF);
+    for (Plane plane: planes) {
       bytes += plane.ramBytesUsed();
     }
-    for (int[] overflowBucket: overflowCache) {
-      bytes += overflowBucket.length*4;
-    }
-    // TODO: Use RamUsageEstimator to include object overhead etc.
     return bytes;
   }
+
+  /**
+   * The bits needed for a counter are divided among 1 or more planes.
+   * Each plane holds n bits, where n > 0.
+   * Besides the bits themselves, each plane (except the last) holds 1 bit for each value,
+   * signalling if the value overflows onto the next plane.
+   * </p><p>
+   * Example:
+   * There are 5 counters, where the max for the first counter is 10, the max for the second
+   * counter is 1 and the maxima for the rest are 16, 2 and 3. The bits needed to hold the
+   * first counter is 4, since {@code 2^3-1 < 10 < 2^4-1}. The bits needed for the rest of
+   * the values are 1, 5, 2 and 2.<br/>
+   * plane(0) holds the 2 least significant bits (bits 0+1), plane(1) holds bits 2+3, plane(2) holds bit 4.<br/>
+   * plane(0) holds 5 * 2 value bits + 5 * 1 overflow-bit.<br/>
+   * plane(1) holds 2 * 1 value bits + 2 * 1 overflow-bit.<br/>
+   * plane(2) holds 1 * 1 value bits and no overflow bits, since it is the last one.<br/>
+   * Stepping through the maxima-bits 4, 1, 5, 2 and 2, we have<br/>
+   * plane(0).overflowBits = 1 0 1 0 0<br/>
+   * plane(1).overflowBits = 0 1
+   */
+  private class Plane {
+    private final PackedInts.Mutable values;
+    private final OpenBitSet overflows;
+    private final PackedInts.Mutable overflowCache; // [count(cacheChunkSize)]
+    private final int overflowBucketSize;
+    private final int maxBit; // Max up to this point
+
+    public Plane(int valueCount, int bpv, boolean hasOverflow, int overflowBucketSize, int maxBit) {
+      values = PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
+      overflows = new OpenBitSet(hasOverflow ? valueCount : 0);
+      this.overflowBucketSize = overflowBucketSize;
+      overflowCache = PackedInts.getMutable(
+          valueCount/overflowBucketSize, PackedInts.bitsRequired(valueCount), PackedInts.COMPACT);
+      this.maxBit = maxBit;
+    }
+    public long ramBytesUsed() {
+      return RamUsageEstimator.alignObjectSize(
+          3*RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2*RamUsageEstimator.NUM_BYTES_INT) +
+          values.ramBytesUsed() + RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + overflows.size() / 8 +
+          overflowCache.ramBytesUsed();
+    }
+
+    // Using the overflow and overflowCache, calculate the index into the next plane
+    public int getNextPlaneIndex(int index) {
+      int startIndex = 0;
+      int nextIndex = 0;
+      if (index > overflowBucketSize) {
+        nextIndex = (int) overflowCache.get(index / overflowBucketSize);
+        startIndex = index - (index / overflowBucketSize * overflowBucketSize);
+      }
+      // It would be nice to use cardinality in this situation, but that only works on the full bitset(?)
+      for (int i = startIndex ; i < index ; i++) {
+        if (overflows.fastGet(i)) {
+          nextIndex++;
+        }
+      }
+      return nextIndex;
+    }
+  }
+
+
 }
