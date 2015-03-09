@@ -28,6 +28,25 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
 
   private final static int M = 1048576;
 
+  public void testSmall() {
+    final int[] MAXIMA = new int[]{10, 1, 16, 2, 3};
+    final int MAX = 16;
+    final PackedInts.Mutable maxima =
+        PackedInts.getMutable(MAXIMA.length, PackedInts.bitsRequired(MAX), PackedInts.COMPACT);
+    for (int i = 0 ; i < MAXIMA.length ; i++) {
+      maxima.set(i, MAXIMA[i]);
+    }
+
+    PackedInts.Mutable bpm = new LongTailBitPlaneMutable(maxima);
+    bpm.set(1, bpm.get(1)+1);
+    assertEquals("Test 1: index 1", 1, bpm.get(1));
+    bpm.set(0, bpm.get(0)+1);
+    assertEquals("Test 2: index 0", 1, bpm.get(0));
+    bpm.set(0, bpm.get(0)+1);
+    bpm.set(0, bpm.get(0)+1);
+    assertEquals("Test 3: index 0", 3, bpm.get(0));
+  }
+
   public void testRandom() {
     final int COUNTERS = 100;
     final int MAX = 1000;

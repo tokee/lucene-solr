@@ -68,10 +68,12 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
   }
 
   private void populateStaticStructures(PackedInts.Reader maxima) {
+    System.out.println("Populating " + planes.length + " planes with overflow data");
     final int[] overflowIndex = new int[planes.length];
     int bit = 0;
     for (int planeIndex = 0; planeIndex < planes.length-1; planeIndex++) { // -1: Never set overflow bit on topmost
       final Plane plane = planes[planeIndex];
+      System.out.println(plane.toString());
       for (int i = 0; i < maxima.size(); i++) {
         if (bit == 0 || planes[planeIndex - 1].overflows.fastGet(i)) {
           final long maxValue = maxima.get(i);
@@ -82,7 +84,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
 
           // Update cache
           final int cacheIndex = overflowIndex[planeIndex]/plane.overflowBucketSize;
-          if (overflowIndex[planeIndex] % plane.overflowBucketSize == 0) {
+          if (overflowIndex[planeIndex] % plane.overflowBucketSize == 0) { // Over the edge
             plane.overflowCache.set(cacheIndex, plane.overflowCache.get(cacheIndex-1)+1); // Transfer previous sum
           } else {
             plane.overflowCache.set(cacheIndex, plane.overflowCache.get(cacheIndex)+1);
@@ -202,13 +204,14 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
       values = PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
       overflows = new OpenBitSet(hasOverflow ? valueCount : 0);
       this.overflowBucketSize = overflowBucketSize;
-      overflowCache = PackedInts.getMutable(
-          valueCount/overflowBucketSize, PackedInts.bitsRequired(valueCount), PackedInts.COMPACT);
+      overflowCache = PackedInts.getMutable( // TODO: Spare the +1
+          valueCount / overflowBucketSize + 1, PackedInts.bitsRequired(valueCount), PackedInts.COMPACT);
       this.maxBit = maxBit;
     }
+
     public long ramBytesUsed() {
       return RamUsageEstimator.alignObjectSize(
-          3*RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2*RamUsageEstimator.NUM_BYTES_INT) +
+          3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) +
           values.ramBytesUsed() + RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + overflows.size() / 8 +
           overflowCache.ramBytesUsed();
     }
@@ -222,14 +225,38 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
         startIndex = index - (index / overflowBucketSize * overflowBucketSize);
       }
       // It would be nice to use cardinality in this situation, but that only works on the full bitset(?)
-      for (int i = startIndex ; i < index ; i++) {
+      for (int i = startIndex; i < index; i++) {
         if (overflows.fastGet(i)) {
           nextIndex++;
         }
       }
       return nextIndex;
     }
+
+    public String toString() {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < values.getBitsPerValue(); i++) {
+        sb.append(String.format("Values(%2d): ", maxBit - values.getBitsPerValue() + i));
+        toString(sb, values, i);
+      }
+      sb.append("\nOverflow:   ");
+      toString(sb, overflows);
+      sb.append("\n");
+      return sb.toString();
+    }
+
+    private final int MAX_PRINT = 20;
+
+    private void toString(StringBuilder sb, PackedInts.Mutable values, int bit) {
+      for (int i = 0; i < MAX_PRINT && i < values.size(); i++) {
+        sb.append((values.get(i) >> bit) & 1);
+      }
+    }
+
+    private void toString(StringBuilder sb, OpenBitSet overflow) {
+      for (int i = 0; i < MAX_PRINT && i < values.size(); i++) {
+        sb.append(overflow.get(i) ? "*" : " ");
+      }
+    }
   }
-
-
 }
