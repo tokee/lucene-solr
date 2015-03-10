@@ -93,7 +93,7 @@ public class TestLongTailMutable extends LuceneTestCase {
   }
 
   public void testLargePerformance() {
-    testPerformance(reduce(TestLongTailBitPlaneMutable.links20150209, 10), 10*M);
+    testPerformance(reduce(TestLongTailBitPlaneMutable.links20150209, 5), 10*M);
   }
 
   private long[] reduce(long[] values, int divisor) {
@@ -108,11 +108,11 @@ public class TestLongTailMutable extends LuceneTestCase {
     final PackedInts.Reader maxima = TestLongTailBitPlaneMutable.getMaxima(histogram);
     System.out.println("Testing " + maxima.size() + " values with max bit " + maxBit(histogram));
 
-    final PackedInts.Mutable ltbpm = new LongTailBitPlaneMutable(maxima);
+    final LongTailBitPlaneMutable ltbpm = new LongTailBitPlaneMutable(maxima);
     final PackedInts.Mutable ltm = LongTailMutable.create(histogram, 0.99);
     final PackedInts.Mutable packed = PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.FAST);
-    System.out.println(String.format("Memory usage: ltbpm=%dMB, ltm=%dMB, packed=%dMB",
-        ltbpm.ramBytesUsed()/M, ltm.ramBytesUsed()/M, packed.ramBytesUsed()/M));
+    System.out.println(String.format("Memory usage: ltbpm=%dMB (%dMB), ltm=%dMB, packed=%dMB",
+        ltbpm.ramBytesUsed()/M, ltbpm.ramBytesUsed(true)/M, ltm.ramBytesUsed()/M, packed.ramBytesUsed()/M));
 
     for (int i = 0 ; i < 10 ; i++) {
       final long seed = random().nextLong();
