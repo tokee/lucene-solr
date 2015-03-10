@@ -69,6 +69,36 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     populateStaticStructures(maxima);
   }
 
+  // pos 0 = first bit
+  public static long estimateBytesNeeded(long[] histogram) {
+    System.arraycopy(histogram, 0, histogram, 1, histogram.length-1);
+    histogram[0] = 0;
+    for (int i = 1 ; i < histogram.length ; i++) {
+      for (int j = i-1 ; j >= 0 ; j--) {
+        histogram[j] += histogram[i];
+      }
+    }
+    int maxBit = getMaxBit(histogram);
+
+    long mem = 0;
+    int bit = 1; // All values require at least 0 bits
+    while (bit <= maxBit) { // What if maxBit == 64?
+      int extraBitsCount = 0;
+      for (int extraBit = 1; extraBit < maxBit - bit; extraBit++) {
+        if (histogram[bit + extraBit] * 2 < histogram[bit]) {
+          break;
+        }
+        extraBitsCount++;
+      }
+      final int planeMaxBit = bit + extraBitsCount;
+      // Yes, very ugly. We should calculate this without temporarily constructing the plane
+      mem += new Plane((int) histogram[bit], 1 + extraBitsCount,
+          planeMaxBit < maxBit, DEFAULT_OVERFLOW_BUCKET_SIZE, planeMaxBit).ramBytesUsed();
+      bit += 1 + extraBitsCount;
+    }
+    return mem;
+  }
+
   private int max(long[] histogram, int startBit) {
     long max = histogram[startBit];
     for (int i = startBit+1 ; i < histogram.length ; i++) {
@@ -114,7 +144,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
 //    }
   }
 
-  private int getMaxBit(long[] histogram) {
+  public static int getMaxBit(long[] histogram) {
     int maxBit = 0;
     for (int bit = 0 ; bit < histogram.length ; bit++) {
       if (histogram[bit] != 0) {
@@ -251,7 +281,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
    * plane(0).overflowBits = 1 0 1 0 0<br/>
    * plane(1).overflowBits = 0 1
    */
-  private class Plane {
+  private static class Plane {
     private final PackedInts.Mutable values;
     private final OpenBitSet overflows;
     private final PackedInts.Mutable overflowCache; // [count(cacheChunkSize)]

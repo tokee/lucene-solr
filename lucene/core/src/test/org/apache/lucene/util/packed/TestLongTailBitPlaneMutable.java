@@ -21,7 +21,6 @@ import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
 
 import java.util.Locale;
-import java.util.Random;
 
 @Slow
 public class TestLongTailBitPlaneMutable extends LuceneTestCase {
@@ -61,11 +60,11 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
       maxima.set(i, MAXIMA[i]);
     }
     System.out.println("maxima: " + toString(maxima));
-
     LongTailBitPlaneMutable bpm = new LongTailBitPlaneMutable(maxima);
+
     bpm.inc(1);
     assertEquals("Test 1: index 1", 1, bpm.get(1));
-    assertEquals("The unmodified counter 0 should be zero", 0 , bpm.get(0));
+    assertEquals("The unmodified counter 0 should be zero", 0, bpm.get(0));
     bpm.inc(0);
     assertEquals("Test 2: index 0", 1, bpm.get(0));
     bpm.inc(0);
@@ -82,20 +81,52 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
     final int updates = M;
     final PackedInts.Reader maxima = getMaxima(COUNTERS, MAX);
 
-    PackedInts.Mutable expected = PackedInts.getMutable(COUNTERS, PackedInts.bitsRequired(MAX), PackedInts.FASTEST);
-    PackedInts.Mutable bpm = new LongTailBitPlaneMutable(maxima);
+    assertMonkey(maxima, updates);
+  }
+
+  public void testRandomSmallLongTail() {
+//    PackedInts.Reader maxima = getMaxima(TestLongTailMutable.getLinksHistogram());
+    PackedInts.Reader maxima = getMaxima(TestLongTailMutable.pad(1, 3, 2));
+    assertMonkey(maxima, 21);
+  }
+
+  public void testRandomRealWorldHistogramLongTail() {
+    assertMonkey(getMaxima(links20150209), M);
+  }
+
+  public void testBytesEstimation() {
+    System.out.println(String.format("ltbpm=%d/%d/%dMB",
+        LongTailBitPlaneMutable.estimateBytesNeeded(links20150209) / M,
+        640280533L*(LongTailBitPlaneMutable.getMaxBit(links20150209)+1)/8/M,
+        640280533L*4/M));
+  }
+
+  private void assertMonkey(PackedInts.Reader maxima, int updates) {
+    LongTailBitPlaneMutable bpm = new LongTailBitPlaneMutable(maxima);
+    PackedInts.Mutable expected = PackedInts.getMutable(bpm.size(), bpm.getBitsPerValue(), PackedInts.FASTEST);
+    System.out.println(String.format(Locale.ENGLISH, "Memory used: %d/%dMB (%4.2f%%)",
+        bpm.ramBytesUsed()/M, maxima.ramBytesUsed()/M, bpm.ramBytesUsed() * 100.0 / maxima.ramBytesUsed()));
     for (int update = 0 ; update < updates ; update++) {
-      int index = random().nextInt(COUNTERS);
+      int index = random().nextInt(maxima.size());
       while (expected.get(index) >= maxima.get(index)) {
         index++;
-        if (index == COUNTERS) {
+        if (index == maxima.size()) {
           index = 0;
         }
       }
-      expected.set(index, expected.get(index));
-      bpm.set(index, bpm.get(index));
-      assertEquals("After " + (update+1) + " updates the BPM-value should be as expected",
-          expected.get(index), bpm.get(index));
+      expected.set(index, expected.get(index)+1);
+      try {
+        bpm.inc(index);
+//        bpm.set(index, bpm.get(index));
+      } catch (Exception e) {
+        fail("Unexpected exception calling bmp.inc(" + index + "): " +  e.getMessage());
+      }
+      try {
+        assertEquals("After " + (update+1) + " updates the BPM-value should be as expected",
+            expected.get(index), bpm.get(index));
+      } catch (Exception e) {
+        fail("Unexpected exception calling bmp.get(" + index + "): " + e.getMessage());
+      }
     }
   }
 
@@ -117,5 +148,70 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
     }
     return maxima;
   }
+
+  // Index 0 = first bit
+  private PackedInts.Reader getMaxima(long[] histogram) {
+    System.out.println("Creating random maxima from histogram...");
+    long valueCount = 0;
+    long maxValueBits = 0;
+    long valueBits = 0;
+    for (long h: histogram) {
+      valueBits++;
+      if (h != 0) {
+        valueCount += h;
+        maxValueBits = valueBits;
+      }
+    }
+    PackedInts.Mutable maxima =
+        PackedInts.getMutable((int) valueCount, (int) maxValueBits, PackedInts.FASTEST);
+    int maxpos = 0;
+    for (int valueBit = 1 ; valueBit <= maxValueBits; valueBit++) {
+      long val = (long) Math.pow(2, valueBit)-1;
+      for (int i = 0 ; i < histogram[valueBit-1] ; i++) {
+        maxima.set(maxpos, val);
+        maxpos++;
+      }
+    }
+    System.out.println("Shuffling maxima...");
+    shuffle(maxima);
+    System.out.println("Finished maxima creation");
+    return maxima;
+  }
+
+  // Fisher–Yates shuffle
+  private static void shuffle(PackedInts.Mutable maxima) {
+    for (int i = maxima.size()-1 ; i > 0 ; i--) {
+      final int index = random().nextInt(i+1);
+      long val = maxima.get(index);
+      maxima.set(index, maxima.get(i));
+      maxima.set(i, val);
+    }
+  }
+
+  public static final long[] links20150209 = TestLongTailMutable.pad( // Taken from a test-index with 217M docs / 906G   425799733,
+      425799733,
+      85835129,
+      52695663,
+      33153759,
+      18864935,
+      10245205,
+      5691412,
+      3223077,
+      1981279,
+      1240879,
+      714595,
+      429129,
+      225416,
+      114271,
+      45521,
+      12966,
+      4005,
+      1764,
+      805,
+      789,
+      123,
+      77,
+      1
+  );
 
 }

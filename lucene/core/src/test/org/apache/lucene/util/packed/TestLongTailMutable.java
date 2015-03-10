@@ -256,8 +256,6 @@ public class TestLongTailMutable extends LuceneTestCase {
     System.out.println(String.format("%dMB/%dMB: %4.2f", (long)(totalBits/8/M), VALUES*4/M, totalBits / (VALUES*32)));
   }
 
-
-
   public static long[] getLinksHistogram() {
     return pad( // Taken from links in a 8/9 build shard from netarchive.dk
         // 519M uniques
@@ -286,7 +284,7 @@ public class TestLongTailMutable extends LuceneTestCase {
     );
   }
 
-  private static long[] pad(long... maxCounts) {
+  public static long[] pad(long... maxCounts) {
     long[] full = new long[64];
     System.arraycopy(maxCounts, 0, full, 0, maxCounts.length);
     return full;
