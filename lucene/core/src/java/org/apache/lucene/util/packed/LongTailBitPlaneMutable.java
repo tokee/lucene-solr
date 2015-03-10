@@ -122,18 +122,16 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
       for (int i = 0; i < maxima.size(); i++) {
         if (bit == 1 || (maxima.get(i) >>> planes[planeIndex - 1].maxBit) != 0) {
           final long maxValue = maxima.get(i);
+          final int cacheIndex = overflowIndex[planeIndex]/plane.overflowBucketSize;
+          if (cacheIndex > 0 && overflowIndex[planeIndex] % plane.overflowBucketSize == 0) { // Over the edge
+            plane.overflowCache.set(cacheIndex, plane.overflowCache.get(cacheIndex - 1)); // Transfer previous sum
+          }
+
           if (maxValue >>> plane.maxBit != 0) {
             plane.overflows.fastSet(overflowIndex[planeIndex]);
+            plane.overflowCache.set(cacheIndex, plane.overflowCache.get(cacheIndex) + 1);
           }
           overflowIndex[planeIndex]++;
-
-          // Update cache
-          final int cacheIndex = overflowIndex[planeIndex]/plane.overflowBucketSize;
-          if (overflowIndex[planeIndex] % plane.overflowBucketSize == 0) { // Over the edge
-            plane.overflowCache.set(cacheIndex, plane.overflowCache.get(cacheIndex-1)+1); // Transfer previous sum
-          } else {
-            plane.overflowCache.set(cacheIndex, plane.overflowCache.get(cacheIndex)+1);
-          }
         }
       }
       bit += plane.values.getBitsPerValue();
@@ -203,7 +201,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
       final Plane plane = planes[planeIndex];
       final int bpv = plane.values.getBitsPerValue();
 
-      plane.values.set(index, value & ~(~1 << bpv));
+      plane.values.set(index, value & ~(~1 << (bpv-1)));
       if (planeIndex == planes.length-1 || !plane.overflows.get(index)) {
         break;
       }
@@ -224,7 +222,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
       final int bpv = plane.values.getBitsPerValue();
       long value = plane.values.get(index);
       value++;
-      plane.values.set(index, value & ~(~1 << bpv));
+      plane.values.set(index, value & ~(~1 << (bpv-1)));
       if (planeIndex == planes.length-1 || (value >>> bpv) == 0) { // No overflow
         break;
       }
@@ -260,6 +258,20 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
       bytes += plane.ramBytesUsed();
     }
     return bytes;
+  }
+
+  public String toString(boolean verbose) {
+    StringBuilder sb = new StringBuilder();
+    if (verbose) {
+      for (Plane plane: planes) {
+        sb.append(plane.toString());
+        sb.append("\n");
+      }
+    } else {
+      sb.append(super.toString());
+    }
+
+    return sb.toString();
   }
 
   /**
@@ -310,17 +322,17 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     public int getNextPlaneIndex(int index) {
       int startIndex = 0;
       int nextIndex = 0;
-      if (index > overflowBucketSize) {
-        nextIndex = (int) overflowCache.get(index / overflowBucketSize);
-        startIndex = index - (index / overflowBucketSize * overflowBucketSize);
+      if (index >= overflowBucketSize) {
+        nextIndex = (int) overflowCache.get(index / overflowBucketSize -1);
+        startIndex = index / overflowBucketSize * overflowBucketSize;
       }
       // It would be nice to use cardinality in this situation, but that only works on the full bitset(?)
-      for (int i = startIndex; i < index; i++) {
+      for (int i = startIndex; i <= index; i++) {
         if (overflows.fastGet(i)) {
           nextIndex++;
         }
       }
-      return nextIndex;
+      return nextIndex-1;
     }
 
     public String toString() {
@@ -332,6 +344,8 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
       }
       sb.append("Overflow:   ");
       toString(sb, overflows);
+      sb.append(" cache: ");
+      toString(sb, overflowCache);
       return sb.toString();
     }
 
@@ -340,6 +354,12 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     private void toString(StringBuilder sb, PackedInts.Mutable values, int bit) {
       for (int i = 0; i < MAX_PRINT && i < values.size(); i++) {
         sb.append((values.get(i) >> bit) & 1);
+      }
+    }
+
+    private void toString(StringBuilder sb, PackedInts.Mutable values) {
+      for (int i = 0; i < MAX_PRINT && i < values.size(); i++) {
+        sb.append(values.get(i)).append(" ");
       }
     }
 
