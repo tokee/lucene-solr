@@ -17,6 +17,8 @@ package org.apache.lucene.util.packed;
  * limitations under the License.
  */
 
+import org.apache.lucene.util.Incrementable;
+
 /**
  * Holds large values in {@link #head} and small values in {@link #tail}, thereby reducing overall memory
  * consumption, compared to {@link Packed64}. Performance overhead, compared to Packed64, is very small
@@ -28,12 +30,20 @@ package org.apache.lucene.util.packed;
  * </p><p>
  * Warning: This representation does not support persistence yet.
  */
-public class LongTailMutable extends PackedInts.Mutable {
+public class LongTailMutable extends PackedInts.Mutable implements Incrementable {
   private final PackedInts.Mutable head;
   private final int headBit;
   private int headPos = 0;
   private final PackedInts.Mutable tail;
   private final int tailValueMask;
+
+  public static long totalCounters(long[] histogram) {
+    long total = 0;
+    for (long v: histogram) {
+      total += v;
+    }
+    return total;
+  }
 
   public PackedInts.Mutable createEmpty(PackedInts.Reader maxCounts, double maxSizeFraction) {
     return create(maxCounts.size(), getHistogram(maxCounts), maxSizeFraction);
@@ -58,7 +68,10 @@ public class LongTailMutable extends PackedInts.Mutable {
     return mutable;
   }
 
-  public PackedInts.Mutable create(int valueCount, long[] histogram, double maxSizeFraction) {
+  public static PackedInts.Mutable create(long[] histogram, double maxSizeFraction) {
+    return create((int) totalCounters(histogram), histogram, maxSizeFraction);
+  }
+  public static PackedInts.Mutable create(int valueCount, long[] histogram, double maxSizeFraction) {
     if (histogram.length != 64) {
       throw new IllegalArgumentException("The histogram length must be exactly 64, but it was " + histogram.length);
     }

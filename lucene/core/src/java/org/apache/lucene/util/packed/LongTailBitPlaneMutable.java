@@ -18,6 +18,7 @@ package org.apache.lucene.util.packed;
  */
 
 
+import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.OpenBitSet;
 import org.apache.lucene.util.RamUsageEstimator;
 
@@ -35,7 +36,7 @@ import java.util.List;
  * </p><p>
  * Warning: This representation does not support persistence yet.
  */
-public class LongTailBitPlaneMutable extends PackedInts.Mutable {
+public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incrementable {
   private static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 1000; // Not performance tested
 
   private final Plane[] planes;

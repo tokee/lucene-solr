@@ -17,10 +17,12 @@ package org.apache.lucene.util.packed;
  * limitations under the License.
  */
 
+import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
 
 import java.util.Locale;
+import java.util.Random;
 
 @Slow
 public class TestLongTailMutable extends LuceneTestCase {
@@ -71,8 +73,8 @@ public class TestLongTailMutable extends LuceneTestCase {
     System.out.println(source + ": " + valueCount + " counters, max bit " + maxBit(histogram));
     System.out.println(String.format("Solr default int[]: %4dMB", intC/M));
     System.out.println(String.format("Sparse PackedInts:  %4dMB", packC/M));
-    System.out.println(String.format("Long Tail Dual:     %4dMB", ltmC/M));
-    System.out.println(String.format("Long Tail Planes:   %4dMB", ltbpmC/M));
+    System.out.println(String.format("Long Tail Dual:     %4dMB", ltmC / M));
+    System.out.println(String.format("Long Tail Planes:   %4dMB", ltbpmC / M));
     System.out.println(String.format("Long Tail Planes+:  %4dMB", ltbpmeC / M));
   }
 
@@ -84,6 +86,77 @@ public class TestLongTailMutable extends LuceneTestCase {
       }
     }
     return maxBit;
+  }
+
+  public void testSimplePerformance() {
+    testPerformance(pad(10000, 2000, 10, 3, 2, 1), 10000);
+  }
+
+  public void testLargePerformance() {
+    testPerformance(reduce(TestLongTailBitPlaneMutable.links20150209, 10), 10*M);
+  }
+
+  private long[] reduce(long[] values, int divisor) {
+    final long[] result = new long[values.length];
+    for (int i = 0 ; i < values.length ; i++) {
+      result[i] = values[i] / divisor;
+    }
+    return result;
+  }
+
+  private void testPerformance(long[] histogram, int updates) {
+    final PackedInts.Reader maxima = TestLongTailBitPlaneMutable.getMaxima(histogram);
+    System.out.println("Testing " + maxima.size() + " values with max bit " + maxBit(histogram));
+
+    final PackedInts.Mutable ltbpm = new LongTailBitPlaneMutable(maxima);
+    final PackedInts.Mutable ltm = LongTailMutable.create(histogram, 0.99);
+    final PackedInts.Mutable packed = PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.FAST);
+    System.out.println(String.format("Memory usage: ltbpm=%dMB, ltm=%dMB, packed=%dMB",
+        ltbpm.ramBytesUsed()/M, ltm.ramBytesUsed()/M, packed.ramBytesUsed()/M));
+
+    for (int i = 0 ; i < 10 ; i++) {
+      final long seed = random().nextLong();
+      {
+        ltbpm.clear();
+        double avg = measure(maxima, ltbpm, updates, new Random(seed));
+        System.out.println(String.format("LongTailBitPlaneMutable: %5d updates/ms", (long)avg));
+      }
+      {
+        ltm.clear();
+        double avg = measure(maxima, ltm, updates, new Random(seed));
+        System.out.println(String.format("LongTailMutable:         %5d updates/ms", (long)avg));
+      }
+      {
+        packed.clear();
+        double avg = measure(maxima, packed, updates, new Random(seed));
+        System.out.println(String.format("Packed:                  %5d updates/ms", (long)avg));
+      }
+      System.out.println("");
+    }
+  }
+
+  // Runs a performance test and reports updates/ms
+  private double measure(
+      PackedInts.Reader maxima, PackedInts.Mutable counters, long updates, Random random) {
+    assertEquals("maxima must have the same lengthas counters", maxima.size(), counters.size());
+    final PackedInts.Mutable tracker =
+        PackedInts.getMutable(maxima.size(), maxima.getBitsPerValue(), PackedInts.FAST);
+    final Incrementable incCounters = counters instanceof Incrementable ?
+        (Incrementable)counters :
+        new Incrementable.IncrementableMutable(counters);
+
+    long start = System.nanoTime();
+    for (int i = 0 ; i < updates ; i++) {
+      int index = random.nextInt(counters.size());
+      while (tracker.get(index) == maxima.get(index)) {
+        if (++index == counters.size()) {
+          index = 0;
+        }
+      }
+      tracker.set(index, tracker.get(index)+1);
+      incCounters.inc(index);
+    }
+    return ((double)updates)/(System.nanoTime()-start)*1000000;
   }
 
   public void testNonViability() {
@@ -98,7 +171,7 @@ public class TestLongTailMutable extends LuceneTestCase {
   }
 
   public void testEstimate(String designation, long[] histogram, boolean table) {
-    long uniqueCount = totalCounters(histogram);
+    long uniqueCount = LongTailMutable.totalCounters(histogram);
     LongTailMutable.Estimate estimate = new LongTailMutable.Estimate(uniqueCount, histogram);
     final double PACKED_MB = uniqueCount*estimate.getMaxBPV()/8 / 1024.0 / 1024;
     System.out.println(String.format(Locale.ENGLISH,
@@ -123,14 +196,6 @@ public class TestLongTailMutable extends LuceneTestCase {
     if (table) {
       System.out.println("</table>");
     }
-  }
-
-  private long totalCounters(long[] histogram) {
-    long total = 0;
-    for (long v: histogram) {
-      total += v;
-    }
-    return total;
   }
 
   private long[] getURLShard1Histogram() { // Taken from URL from shard 1 in netarchive.dk

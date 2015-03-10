@@ -197,7 +197,7 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
   }
 
   // Index 0 = first bit
-  private PackedInts.Reader getMaxima(long[] histogram) {
+  public static PackedInts.Reader getMaxima(long[] histogram) {
     System.out.println("Creating random maxima from histogram...");
     long valueCount = 0;
     long maxValueBits = 0;
