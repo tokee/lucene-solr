@@ -28,7 +28,7 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
 
   private final static int M = 1048576;
 
-  public void testSmall() {
+  public void testSmallAdd() {
     final int[] MAXIMA = new int[]{10, 1, 16, 2, 3};
     final int MAX = 16;
     final PackedInts.Mutable maxima =
@@ -36,15 +36,44 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
     for (int i = 0 ; i < MAXIMA.length ; i++) {
       maxima.set(i, MAXIMA[i]);
     }
+    System.out.println("maxima: " + toString(maxima));
 
     PackedInts.Mutable bpm = new LongTailBitPlaneMutable(maxima);
     bpm.set(1, bpm.get(1)+1);
     assertEquals("Test 1: index 1", 1, bpm.get(1));
+    assertEquals("The unmodified counter 0 should be zero", 0 , bpm.get(0));
     bpm.set(0, bpm.get(0)+1);
     assertEquals("Test 2: index 0", 1, bpm.get(0));
     bpm.set(0, bpm.get(0)+1);
     bpm.set(0, bpm.get(0)+1);
     assertEquals("Test 3: index 0", 3, bpm.get(0));
+    bpm.set(0, bpm.get(0)+1);
+    assertEquals("Test 4: index 0", 4, bpm.get(0));
+    bpm.set(2, bpm.get(2)+1);
+  }
+
+  public void testSmallInc() {
+    final int[] MAXIMA = new int[]{10, 1, 16, 2, 3};
+    final int MAX = 16;
+    final PackedInts.Mutable maxima =
+        PackedInts.getMutable(MAXIMA.length, PackedInts.bitsRequired(MAX), PackedInts.COMPACT);
+    for (int i = 0 ; i < MAXIMA.length ; i++) {
+      maxima.set(i, MAXIMA[i]);
+    }
+    System.out.println("maxima: " + toString(maxima));
+
+    LongTailBitPlaneMutable bpm = new LongTailBitPlaneMutable(maxima);
+    bpm.inc(1);
+    assertEquals("Test 1: index 1", 1, bpm.get(1));
+    assertEquals("The unmodified counter 0 should be zero", 0 , bpm.get(0));
+    bpm.inc(0);
+    assertEquals("Test 2: index 0", 1, bpm.get(0));
+    bpm.inc(0);
+    bpm.inc(0);
+    assertEquals("Test 3: index 0", 3, bpm.get(0));
+    bpm.inc(0);
+    assertEquals("Test 4: index 0", 4, bpm.get(0));
+    bpm.inc(2);
   }
 
   public void testRandom() {
@@ -57,7 +86,6 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
     PackedInts.Mutable bpm = new LongTailBitPlaneMutable(maxima);
     for (int update = 0 ; update < updates ; update++) {
       int index = random().nextInt(COUNTERS);
-      System.out.println("Update " + update + " with index " + index);
       while (expected.get(index) >= maxima.get(index)) {
         index++;
         if (index == COUNTERS) {
@@ -69,6 +97,17 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
       assertEquals("After " + (update+1) + " updates the BPM-value should be as expected",
           expected.get(index), bpm.get(index));
     }
+  }
+
+  private String toString(PackedInts.Reader maxima) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0 ; i < maxima.size() ; i++) {
+      if (sb.length() > 0) {
+        sb.append(", ");
+      }
+      sb.append(Long.toString(maxima.get(i)));
+    }
+    return sb.toString();
   }
 
   private PackedInts.Reader getMaxima(int counters, int max) {

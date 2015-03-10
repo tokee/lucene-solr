@@ -49,7 +49,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     int maxBit = getMaxBit(histogram);
 
     List<Plane> lPlanes = new ArrayList<>(64);
-    int bit = 0;
+    int bit = 1; // All values require at least 0 bits
     while (bit <= maxBit) { // What if maxBit == 64?
       int extraBitsCount = 0;
       for (int extraBit = 1; extraBit < maxBit - bit; extraBit++) {
@@ -59,23 +59,38 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
         extraBitsCount++;
       }
 //      System.out.println(String.format("Plane bit %d + %d with size %d", bit, extraBitsCount, histogram[bit]));
-      bit += 1 + extraBitsCount;
 
-      lPlanes.add(new Plane((int) histogram[bit], 1 + extraBitsCount, bit < maxBit, overflowBucketSize, bit));
+      final int planeMaxBit = bit + extraBitsCount;
+      lPlanes.add(new Plane((int) histogram[bit], 1 + extraBitsCount,
+          planeMaxBit < maxBit, overflowBucketSize, planeMaxBit));
+      bit += 1 + extraBitsCount;
     }
     planes = lPlanes.toArray(new Plane[lPlanes.size()]);
     populateStaticStructures(maxima);
   }
 
+  private int max(long[] histogram, int startBit) {
+    long max = histogram[startBit];
+    for (int i = startBit+1 ; i < histogram.length ; i++) {
+      if (histogram[i] > max) {
+        max = histogram[i];
+      }
+    }
+    return (int) max;
+  }
+
   private void populateStaticStructures(PackedInts.Reader maxima) {
-    System.out.println("Populating " + planes.length + " planes with overflow data");
+//    System.out.println("Populating " + planes.length + " planes with overflow data. Initial empty layout:");
+//    for (Plane plane: planes) {
+//      System.out.println(plane.toString());
+//    }
+
     final int[] overflowIndex = new int[planes.length];
-    int bit = 0;
+    int bit = 1;
     for (int planeIndex = 0; planeIndex < planes.length-1; planeIndex++) { // -1: Never set overflow bit on topmost
       final Plane plane = planes[planeIndex];
-      System.out.println(plane.toString());
       for (int i = 0; i < maxima.size(); i++) {
-        if (bit == 0 || planes[planeIndex - 1].overflows.fastGet(i)) {
+        if (bit == 1 || (maxima.get(i) >>> planes[planeIndex - 1].maxBit) != 0) {
           final long maxValue = maxima.get(i);
           if (maxValue >>> plane.maxBit != 0) {
             plane.overflows.fastSet(overflowIndex[planeIndex]);
@@ -93,6 +108,10 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
       }
       bit += plane.values.getBitsPerValue();
     }
+//    System.out.println("Finished populating " + planes.length + " planes with overflow data. Overflow flagged layout:");
+//    for (Plane plane: planes) {
+//      System.out.println(plane.toString());
+//    }
   }
 
   private int getMaxBit(long[] histogram) {
@@ -109,10 +128,25 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
   private long[] getHistogram(PackedInts.Reader maxima) {
     final long[] histogram = new long[65];
     for (int i = 0 ; i < maxima.size() ; i++) {
-      histogram[PackedInts.bitsRequired(maxima.get(i))]++;
+      int bitsRequired = PackedInts.bitsRequired(maxima.get(i));
+      for (int br = 1; br <=bitsRequired ; br++) {
+        histogram[br]++;
+      }
     }
     histogram[0] = maxima.size();
+//    System.out.println("histogram: " + toString(histogram));
     return histogram;
+  }
+
+  private String toString(long[] histogram) {
+    StringBuilder sb = new StringBuilder();
+    for (long valueCount : histogram) {
+      if (sb.length() > 0) {
+        sb.append(", ");
+      }
+      sb.append(Long.toString(valueCount));
+    }
+    return sb.toString();
   }
 
   @Override
@@ -134,6 +168,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
 
   @Override
   public void set(int index, long value) {
+//    System.out.println("\nset(" + index + ", " + value + ")");
     for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
       final Plane plane = planes[planeIndex];
       final int bpv = plane.values.getBitsPerValue();
@@ -143,9 +178,32 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
         break;
       }
       // Overflow-bit is set. We need to go up a level, even if the value is 0, to ensure full reset of the bits
-      value = value >> bpv-1;
+      value = value >> bpv;
       index = plane.getNextPlaneIndex(index);
     }
+//    for (Plane plane: planes) {
+//      System.out.println(plane.toString());
+//    }
+  }
+
+  // Inc should really be part of the PackedInts.Mutable API
+  public void inc(int index) {
+//    System.out.println("\ninc(" + index+ ")");
+    for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
+      final Plane plane = planes[planeIndex];
+      final int bpv = plane.values.getBitsPerValue();
+      long value = plane.values.get(index);
+      value++;
+      plane.values.set(index, value & ~(~1 << bpv));
+      if (planeIndex == planes.length-1 || (value >>> bpv) == 0) { // No overflow
+        break;
+      }
+      // We know there is actual overflow. As this is an inc, we know the overflow is 1
+      index = plane.getNextPlaneIndex(index);
+    }
+//    for (Plane plane: planes) {
+//      System.out.println(plane.toString());
+//    }
   }
 
   @Override
@@ -201,6 +259,8 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     private final int maxBit; // Max up to this point
 
     public Plane(int valueCount, int bpv, boolean hasOverflow, int overflowBucketSize, int maxBit) {
+      System.out.println(String.format("Creating plane(#values=%d, bpv=%d, overflow=%b, maxBit=%d)",
+          valueCount, bpv, hasOverflow, maxBit));
       values = PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
       overflows = new OpenBitSet(hasOverflow ? valueCount : 0);
       this.overflowBucketSize = overflowBucketSize;
@@ -238,10 +298,10 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
       for (int i = 0; i < values.getBitsPerValue(); i++) {
         sb.append(String.format("Values(%2d): ", maxBit - values.getBitsPerValue() + i));
         toString(sb, values, i);
+        sb.append("\n");
       }
-      sb.append("\nOverflow:   ");
+      sb.append("Overflow:   ");
       toString(sb, overflows);
-      sb.append("\n");
       return sb.toString();
     }
 
@@ -255,7 +315,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
 
     private void toString(StringBuilder sb, OpenBitSet overflow) {
       for (int i = 0; i < MAX_PRINT && i < values.size(); i++) {
-        sb.append(overflow.get(i) ? "*" : " ");
+        sb.append(overflow.get(i) ? "*" : "-");
       }
     }
   }
