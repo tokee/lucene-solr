@@ -71,29 +71,33 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
 
   // pos 0 = first bit
   public static long estimateBytesNeeded(long[] histogram) {
-    System.arraycopy(histogram, 0, histogram, 1, histogram.length-1);
-    histogram[0] = 0;
-    for (int i = 1 ; i < histogram.length ; i++) {
+    return estimateBytesNeeded(histogram, false);
+  }
+  public static long estimateBytesNeeded(long[] histogram, boolean extraInstance) {
+    long[] full = new long[histogram.length+1];
+    System.arraycopy(histogram, 0, full, 1, histogram.length);
+    full[0] = 0;
+    for (int i = 1 ; i < full.length ; i++) {
       for (int j = i-1 ; j >= 0 ; j--) {
-        histogram[j] += histogram[i];
+        full[j] += full[i];
       }
     }
-    int maxBit = getMaxBit(histogram);
+    int maxBit = getMaxBit(full);
 
     long mem = 0;
     int bit = 1; // All values require at least 0 bits
     while (bit <= maxBit) { // What if maxBit == 64?
       int extraBitsCount = 0;
       for (int extraBit = 1; extraBit < maxBit - bit; extraBit++) {
-        if (histogram[bit + extraBit] * 2 < histogram[bit]) {
+        if (full[bit + extraBit] * 2 < full[bit]) {
           break;
         }
         extraBitsCount++;
       }
       final int planeMaxBit = bit + extraBitsCount;
       // Yes, very ugly. We should calculate this without temporarily constructing the plane
-      mem += new Plane((int) histogram[bit], 1 + extraBitsCount,
-          planeMaxBit < maxBit, DEFAULT_OVERFLOW_BUCKET_SIZE, planeMaxBit).ramBytesUsed();
+      mem += new Plane((int) full[bit], 1 + extraBitsCount,
+          planeMaxBit < maxBit, DEFAULT_OVERFLOW_BUCKET_SIZE, planeMaxBit).ramBytesUsed(extraInstance);
       bit += 1 + extraBitsCount;
     }
     return mem;
@@ -253,9 +257,12 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
 
   @Override
   public long ramBytesUsed() {
+    return ramBytesUsed(false);
+  }
+  public long ramBytesUsed(boolean extraInstance) {
     long bytes = RamUsageEstimator.alignObjectSize(RamUsageEstimator.NUM_BYTES_OBJECT_REF);
     for (Plane plane: planes) {
-      bytes += plane.ramBytesUsed();
+      bytes += plane.ramBytesUsed(extraInstance);
     }
     return bytes;
   }
@@ -301,8 +308,8 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     private final int maxBit; // Max up to this point
 
     public Plane(int valueCount, int bpv, boolean hasOverflow, int overflowBucketSize, int maxBit) {
-      System.out.println(String.format("Creating plane(#values=%d, bpv=%d, overflow=%b, maxBit=%d)",
-          valueCount, bpv, hasOverflow, maxBit));
+//      System.out.println(String.format("Creating plane(#values=%d, bpv=%d, overflow=%b, maxBit=%d)",
+//          valueCount, bpv, hasOverflow, maxBit));
       values = PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
       overflows = new OpenBitSet(hasOverflow ? valueCount : 0);
       this.overflowBucketSize = overflowBucketSize;
@@ -312,10 +319,16 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable {
     }
 
     public long ramBytesUsed() {
-      return RamUsageEstimator.alignObjectSize(
-          3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) +
-          values.ramBytesUsed() + RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + overflows.size() / 8 +
-          overflowCache.ramBytesUsed();
+      return ramBytesUsed(false);
+    }
+
+    public long ramBytesUsed(boolean extraInstance) {
+      long bytes =RamUsageEstimator.alignObjectSize(
+          3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) + values.ramBytesUsed();
+      if (!extraInstance) {
+        bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + overflows.size() / 8 + overflowCache.ramBytesUsed();
+      }
+      return bytes;
     }
 
     // Using the overflow and overflowCache, calculate the index into the next plane

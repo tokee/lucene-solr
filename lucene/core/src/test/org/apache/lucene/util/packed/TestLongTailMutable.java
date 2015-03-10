@@ -20,7 +20,6 @@ package org.apache.lucene.util.packed;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
 
-import java.util.Arrays;
 import java.util.Locale;
 
 @Slow
@@ -28,17 +27,17 @@ public class TestLongTailMutable extends LuceneTestCase {
 
   private final static int M = 1048576;
 
-  public void testLinksEstimate() {
-    testEstimate("8/9 shard links", 519*M, getLinksHistogram(), false);
+  public void testLinksEstimate() { // 519*M
+    testEstimate("8/9 shard links", getLinksHistogram(), false);
   }
 
   public void testURLEstimate() {
-    testEstimate("Shard 1 URL", 228*M, getURLShard1Histogram(), true);
-    testEstimate("Shard 2 URL", 230*M, getURLShard2Histogram(), false);
-    testEstimate("Shard 3 URL", 214*M, getURLShard3Histogram(), false);
+    testEstimate("Shard 1 URL", getURLShard1Histogram(), false);
+    testEstimate("Shard 2 URL", getURLShard2Histogram(), false);
+    testEstimate("Shard 3 URL", getURLShard3Histogram(), false);
   }
-  public void testHostEstimate() {
-    testEstimate("Shard 1 host", 1562680, SHARD1_HOST, false);
+  public void testHostEstimate() { // 1562680
+    testEstimate("Shard 1 host", SHARD1_HOST, false);
   }
 
   public void testViability() {
@@ -52,6 +51,41 @@ public class TestLongTailMutable extends LuceneTestCase {
     assertTrue("The layout should be viable for tailBPV=2", estimate.isViable(2));
   }
 
+
+  public void testMemoryUsages() {
+    dumpImplementationMemUsages("Shard 1 URL", getURLShard1Histogram());
+    dumpImplementationMemUsages("Links raw", getLinksHistogram());
+    dumpImplementationMemUsages("Links 20150309", TestLongTailBitPlaneMutable.links20150209);
+  }
+
+  private void dumpImplementationMemUsages(String source, long[] histogram) {
+    long valueCount = 0;
+    for (long values: histogram) {
+      valueCount += values;
+    }
+    final long intC = valueCount*4;
+    final long packC = valueCount * maxBit(histogram) / 8;
+    final long ltbpmC = LongTailBitPlaneMutable.estimateBytesNeeded(histogram);
+    final long ltbpmeC = LongTailBitPlaneMutable.estimateBytesNeeded(histogram, true);
+    final long ltmC = LongTailMutable.estimateBytesNeeded(histogram, (int) valueCount);
+    System.out.println(source + ": " + valueCount + " counters, max bit " + maxBit(histogram));
+    System.out.println(String.format("Solr default int[]: %4dMB", intC/M));
+    System.out.println(String.format("Sparse PackedInts:  %4dMB", packC/M));
+    System.out.println(String.format("Long Tail Dual:     %4dMB", ltmC/M));
+    System.out.println(String.format("Long Tail Planes:   %4dMB", ltbpmC/M));
+    System.out.println(String.format("Long Tail Planes+:  %4dMB", ltbpmeC / M));
+  }
+
+  private int maxBit(long[] histogram) {
+    int maxBit = 0;
+    for (int i = 0 ; i < histogram.length ; i++) {
+      if (histogram[i] != 0) {
+        maxBit = i+1; // Counting from 0
+      }
+    }
+    return maxBit;
+  }
+
   public void testNonViability() {
     LongTailMutable.Estimate estimate = new LongTailMutable.Estimate(100*M, pad(
         1000,
@@ -63,7 +97,8 @@ public class TestLongTailMutable extends LuceneTestCase {
     assertFalse("The layout should not be viable for tailBPV=2", estimate.isViable(2));
   }
 
-  public void testEstimate(String designation, long uniqueCount, long[] histogram, boolean table) {
+  public void testEstimate(String designation, long[] histogram, boolean table) {
+    long uniqueCount = totalCounters(histogram);
     LongTailMutable.Estimate estimate = new LongTailMutable.Estimate(uniqueCount, histogram);
     final double PACKED_MB = uniqueCount*estimate.getMaxBPV()/8 / 1024.0 / 1024;
     System.out.println(String.format(Locale.ENGLISH,
@@ -81,13 +116,21 @@ public class TestLongTailMutable extends LuceneTestCase {
                 "tailBPV=%2d mem=%4.0fMB (%3.0fMB / %2.0f%% saved) headCounters=%4d (%6.4f%%)",
             tailBPV, mb, PACKED_MB-mb,
             // TODO: Split in fast and slow head
-            (1-estimate.getFractionEstimate(tailBPV))*100, estimate.getAllHeadValueCount(tailBPV),
-            estimate.getAllHeadValueCount(tailBPV)*100.0/uniqueCount));
+            (1-estimate.getFractionEstimate(tailBPV))*100, estimate.getHeadValueCount(tailBPV),
+            estimate.getHeadValueCount(tailBPV)*100.0/uniqueCount));
       }
     }
     if (table) {
       System.out.println("</table>");
     }
+  }
+
+  private long totalCounters(long[] histogram) {
+    long total = 0;
+    for (long v: histogram) {
+      total += v;
+    }
+    return total;
   }
 
   private long[] getURLShard1Histogram() { // Taken from URL from shard 1 in netarchive.dk
