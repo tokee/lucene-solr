@@ -37,7 +37,7 @@ import java.util.List;
  * Warning: This representation does not support persistence yet.
  */
 public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incrementable {
-  private static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 1000; // Not performance tested
+  public static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 1000; // Not performance tested
 
   private final Plane[] planes;
 
@@ -158,6 +158,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
   }
 
   // histogram[0] = total count
+  // Special histogram where the counts are summed downwards
   private long[] getHistogram(PackedInts.Reader maxima) {
     final long[] histogram = new long[65];
     for (int i = 0 ; i < maxima.size() ; i++) {

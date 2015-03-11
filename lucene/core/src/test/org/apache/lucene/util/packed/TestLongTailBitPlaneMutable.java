@@ -17,8 +17,10 @@ package org.apache.lucene.util.packed;
  * limitations under the License.
  */
 
+import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
+import org.apache.lucene.util.RamUsageEstimator;
 
 import java.util.Locale;
 
@@ -198,6 +200,32 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
 
   // Index 0 = first bit
   public static PackedInts.Reader getMaxima(long[] histogram) {
+    return new PackedWrapped(
+        LongTailIntGenerator.GenerateLongtailDistribution(TestLongTailMutable.toInt(histogram), 1000));
+
+  }
+
+  private static final class PackedWrapped extends PackedInts.ReaderImpl {
+    private final int[] values;
+
+    public PackedWrapped(int[] values) {
+      super(values.length, 32);
+      this.values = values;
+    }
+
+    @Override
+    public long ramBytesUsed() {
+      return RamUsageEstimator.alignObjectSize(RamUsageEstimator.NUM_BYTES_OBJECT_REF) +
+          RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + 4*values.length;
+    }
+
+    @Override
+    public long get(int docID) {
+      return values[docID];
+    }
+  }
+
+  public static PackedInts.Reader oldGetMaxima(long[] histogram) {
     System.out.println("Creating random maxima from histogram...");
     long valueCount = 0;
     long maxValueBits = 0;
