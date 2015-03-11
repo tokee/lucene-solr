@@ -93,7 +93,7 @@ public class TestLongTailMutable extends LuceneTestCase {
   }
 
   public void testLargePerformance() {
-    testPerformance(reduce(TestLongTailBitPlaneMutable.links20150209, 5), 10*M);
+    testPerformance(reduce(TestLongTailBitPlaneMutable.links20150209, 3), 10*M);
   }
 
   private long[] reduce(long[] values, int divisor) {
@@ -110,7 +110,7 @@ public class TestLongTailMutable extends LuceneTestCase {
 
     final LongTailBitPlaneMutable ltbpm = new LongTailBitPlaneMutable(maxima);
     final PackedInts.Mutable ltm = LongTailMutable.create(histogram, 0.99);
-    final PackedInts.Mutable packed = PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.FAST);
+    final PackedInts.Mutable packed = PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.COMPACT);
     System.out.println(String.format("Memory usage: ltbpm=%dMB (%dMB), ltm=%dMB, packed=%dMB",
         ltbpm.ramBytesUsed()/M, ltbpm.ramBytesUsed(true)/M, ltm.ramBytesUsed()/M, packed.ramBytesUsed()/M));
 
