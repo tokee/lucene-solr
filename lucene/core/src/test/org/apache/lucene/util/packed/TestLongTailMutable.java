@@ -21,6 +21,9 @@ import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 
@@ -58,6 +61,8 @@ public class TestLongTailMutable extends LuceneTestCase {
     dumpImplementationMemUsages("Shard 1 URL", getURLShard1Histogram());
     dumpImplementationMemUsages("Links raw", getLinksHistogram());
     dumpImplementationMemUsages("Links 20150309", TestLongTailBitPlaneMutable.links20150209);
+    final long[] tegHistogram = getHistogram(LongTailIntGenerator.GenerateLongtailDistribution(300000000, 500000, 1000));
+    dumpImplementationMemUsages("TEG histogram generator", tegHistogram);
   }
 
   private void dumpImplementationMemUsages(String source, long[] histogram) {
@@ -89,14 +94,15 @@ public class TestLongTailMutable extends LuceneTestCase {
   }
 
   public void testSimplePerformance() {
-    testPerformance(pad(10000, 2000, 10, 3, 2, 1), 10000);
+    testPerformance(pad(10000, 2000, 10, 3, 2, 1), 5, 10000);
   }
 
   public void testLargePerformance() {
-    testPerformance(reduce(TestLongTailBitPlaneMutable.links20150209, 3), 10*M);
+    final int[] UPDATES = new int[] {M, 10*M, 100*M};
+    testPerformance(reduce(TestLongTailBitPlaneMutable.links20150209, 5), 9, UPDATES);
   }
 
-  private long[] reduce(long[] values, int divisor) {
+  public static long[] reduce(long[] values, int divisor) {
     final long[] result = new long[values.length];
     for (int i = 0 ; i < values.length ; i++) {
       result[i] = values[i] / divisor;
@@ -104,59 +110,139 @@ public class TestLongTailMutable extends LuceneTestCase {
     return result;
   }
 
-  private void testPerformance(long[] histogram, int updates) {
+  private void testPerformance(long[] histogram, int runs, int... updates) {
     final PackedInts.Reader maxima = TestLongTailBitPlaneMutable.getMaxima(histogram);
-    System.out.println("Testing " + maxima.size() + " values with max bit " + maxBit(histogram));
+    List<StatHolder> stats = new ArrayList<>();
+    System.out.println("Initializing implementations");
+    int cache = LongTailBitPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
+    for (int cacheDivider: new int[]{1, 2, 5, 10, 20, 50}) {
+      stats.add(new StatHolder(
+          new LongTailBitPlaneMutable(maxima, cache/cacheDivider),
+          "N-plane (cache 1/" + cache/cacheDivider + ")",
+          1
+      ));
+    }
+    stats.add(new StatHolder(
+        LongTailMutable.create(histogram, 0.99),
+        "Dual-plane",
+        1
+    ));
+    stats.add(new StatHolder(
+        PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.COMPACT),
+        "PackedInts.COMPACT",
+        1
+    ));
+    stats.add(new StatHolder(
+        PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.FAST),
+        "PackedInts.FAST",
+        1
+    ));
+/*    stats.add(new StatHolder(
+        PackedInts.getMutable(maxima.size(), 31, PackedInts.FASTEST),
+        "PackedInts int[]",
+        updates
+    ));*/
 
-    final LongTailBitPlaneMutable ltbpm = new LongTailBitPlaneMutable(maxima);
-    final PackedInts.Mutable ltm = LongTailMutable.create(histogram, 0.99);
-    final PackedInts.Mutable packed = PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.COMPACT);
-    System.out.println(String.format("Memory usage: ltbpm=%dMB (%dMB), ltm=%dMB, packed=%dMB",
-        ltbpm.ramBytesUsed()/M, ltbpm.ramBytesUsed(true)/M, ltm.ramBytesUsed()/M, packed.ramBytesUsed()/M));
+    PackedInts.Mutable valueIncrements = null;
+    for (StatHolder stat: stats) {
+      System.out.print(stat.designation + "  ");
+    }
+    System.out.println();
 
-    for (int i = 0 ; i < 10 ; i++) {
-      final long seed = random().nextLong();
-      {
-        ltbpm.clear();
-        double avg = measure(maxima, ltbpm, updates, new Random(seed));
-        System.out.println(String.format("LongTailBitPlaneMutable: %5d updates/ms", (long)avg));
+    for (int update: updates) {
+      System.out.println(String.format("Performing %d test runs of %dM updates in %dM counters with max bit %d",
+          runs, update / M, maxima.size() / 1000000, maxBit(histogram)));
+
+      for (StatHolder stat : stats) {
+        stat.setUpdates(update);
       }
-      {
-        ltm.clear();
-        double avg = measure(maxima, ltm, updates, new Random(seed));
-        System.out.println(String.format("LongTailMutable:         %5d updates/ms", (long)avg));
+      for (int i = 0; i < runs; i++) {
+        System.out.print("[generating update");
+        final long seed = random().nextLong();
+        // Generate the increments to run
+        valueIncrements = generateValueIncrements(maxima, update, valueIncrements, seed);
+        System.out.print("] ");
+        for (StatHolder stat : stats) {
+          stat.impl.clear();
+          long ns = measure(stat.impl, valueIncrements);
+          stat.addTiming(ns);
+          System.out.print(String.format(Locale.ENGLISH, "%6d", (long) (((double) update) / ns * 1000000)));
+        }
+        System.out.println();
       }
-      {
-        packed.clear();
-        double avg = measure(maxima, packed, updates, new Random(seed));
-        System.out.println(String.format("Packed:                  %5d updates/ms", (long)avg));
+      for (StatHolder stat : stats) {
+        System.out.println(stat);
       }
-      System.out.println("");
     }
   }
 
-  // Runs a performance test and reports updates/ms
-  private double measure(
-      PackedInts.Reader maxima, PackedInts.Mutable counters, long updates, Random random) {
-    assertEquals("maxima must have the same lengthas counters", maxima.size(), counters.size());
+  private class StatHolder {
+    private final PackedInts.Mutable impl;
+    private final String designation;
+    private final List<Long> timings = new ArrayList<>();
+    private int updatesPerTiming;
+
+    public StatHolder(PackedInts.Mutable impl, String designation, int updatesPerTiming) {
+      this.impl = impl;
+      this.designation = designation;
+      this.updatesPerTiming = updatesPerTiming;
+    }
+
+    public void addTiming(long ns) {
+      timings.add(ns);
+    }
+
+    public double getMedianUpdatesPerMS() {
+      Collections.sort(timings);
+      return timings.isEmpty() ? 0 : ((double)updatesPerTiming)/timings.get(timings.size()/2)*1000000;
+    }
+
+    public String toString() {
+      return String.format("%-22s (%3dMB): %5d updates/ms median",
+          designation, impl.ramBytesUsed()/M, (long)getMedianUpdatesPerMS());
+    }
+
+    public void setUpdates(int updates) {
+      updatesPerTiming = updates;
+      timings.clear();
+    }
+  }
+
+  private PackedInts.Mutable generateValueIncrements(
+      PackedInts.Reader maxima, int updates, PackedInts.Mutable increments, long seed) {
+    if (increments != null && increments.size() == updates) {
+      increments.clear();
+    } else {
+      increments = PackedInts.getMutable(updates, PackedInts.bitsRequired(maxima.size()), PackedInts.FAST);
+    }
+    final Random random = new Random(seed);
     final PackedInts.Mutable tracker =
         PackedInts.getMutable(maxima.size(), maxima.getBitsPerValue(), PackedInts.FAST);
+
+    for (int i = 0 ; i < updates ; i++) {
+      int index = random.nextInt(maxima.size());
+      while (tracker.get(index) == maxima.get(index)) {
+        if (++index == maxima.size()) {
+          index = 0;
+        }
+      }
+      tracker.set(index, tracker.get(index)+1);
+      increments.set(i, index);
+    }
+    return increments;
+  }
+
+  // Runs a performance test and reports time spend as nano seconds
+  private long measure(PackedInts.Mutable counters, PackedInts.Reader valueIncrements) {
     final Incrementable incCounters = counters instanceof Incrementable ?
         (Incrementable)counters :
         new Incrementable.IncrementableMutable(counters);
 
     long start = System.nanoTime();
-    for (int i = 0 ; i < updates ; i++) {
-      int index = random.nextInt(counters.size());
-      while (tracker.get(index) == maxima.get(index)) {
-        if (++index == counters.size()) {
-          index = 0;
-        }
-      }
-      tracker.set(index, tracker.get(index)+1);
-      incCounters.inc(index);
+    for (int i = 0 ; i < valueIncrements.size() ; i++) {
+      incCounters.inc((int) valueIncrements.get(i));
     }
-    return ((double)updates)/(System.nanoTime()-start)*1000000;
+    return System.nanoTime()-start;
   }
 
   public void testNonViability() {
@@ -196,6 +282,63 @@ public class TestLongTailMutable extends LuceneTestCase {
     if (table) {
       System.out.println("</table>");
     }
+  }
+
+  public void testLongTailRandomGenerator() {
+    final long[] histogram = getHistogram(LongTailIntGenerator.GenerateLongtailDistribution(300000000 , 500000,1000));
+    System.out.println(toString(histogram, "\n"));
+  }
+
+  public void testLongTailExistingGenerator() {
+    final long[] in = reduce(TestLongTailBitPlaneMutable.links20150209, 10);
+    System.out.println("*** Input histogram");
+    System.out.println(toString(in, "\n"));
+
+    final long[] histogram = getHistogram(LongTailIntGenerator.GenerateLongtailDistribution(toInt(in), 1000));
+    System.out.println("*** Output histogram");
+    System.out.println(toString(histogram, "\n"));
+  }
+
+  public static int[] toInt(long[] values) {
+    final int[] ints = new int[values.length];
+    for (int i = 0 ; i < values.length ; i++) {
+      ints[i] = (int)values[i];
+    }
+    return ints;
+  }
+
+  public void testPrintRealWorldDistribution() {
+    System.out.println(toString(getLinksHistogram(), "\n"));
+  }
+
+  private String toString(long[] histogram, String divider) {
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i <= maxBit(histogram); i++) {
+      long maxValue = histogram[i];
+      if (sb.length() > 0) {
+        sb.append(divider);
+      }
+      sb.append(String.format("Bit %2d: %9d", i+1, maxValue));
+    }
+    return sb.toString();
+  }
+
+  // histogram[0] = first bit
+  public static long[] getHistogram(int[] maxima) {
+    final long[] histogram = new long[64];
+    for (int maxValue : maxima) {
+      int bitsRequired = PackedInts.bitsRequired(maxValue);
+      histogram[bitsRequired == 0 ? 0 : bitsRequired - 1]++;
+    }
+    return histogram;
+  }
+  public static long[] getHistogram(long[] maxima) {
+    final long[] histogram = new long[64];
+    for (long maxValue : maxima) {
+      int bitsRequired = PackedInts.bitsRequired(maxValue);
+      histogram[bitsRequired == 0 ? 0 : bitsRequired - 1]++;
+    }
+    return histogram;
   }
 
   private long[] getURLShard1Histogram() { // Taken from URL from shard 1 in netarchive.dk
