@@ -176,7 +176,7 @@ public class TestLongTailMutable extends LuceneTestCase {
             new LongTailBitPlaneMutable(maxima, cache, mp, LongTailBitPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
         stats.add(new StatHolder(
             ltbpm,
-            "N-plane(#" + ltbpm.getPlaneCount() + "1/" + cache + ")",
+            "N-plane(#" + ltbpm.getPlaneCount() + ", 1/" + cache + ")",
             1
         ));
       }
