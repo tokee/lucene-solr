@@ -115,10 +115,19 @@ public class TestLongTailMutable extends LuceneTestCase {
         CACHE[i] = Integer.parseInt(tokens[i]);
       }
     }
+    int[] MAX_PLANES = new int[]{64};
+    if (args.length > 3) {
+      String[] tokens = args[3].split(" ");
+      MAX_PLANES = new int[tokens.length];
+      for (int i = 0 ; i < tokens.length ; i++) {
+        MAX_PLANES[i] = Integer.parseInt(tokens[i]);
+      }
+    }
 
     System.out.println(
-        "Using divisor " + divisor + ", updates " + toString(UPDATES) + " and 1/cache " + toString(CACHE));
-    measurePerformance(reduce(TestLongTailBitPlaneMutable.links20150209, divisor), RUNS, UPDATES, CACHE);
+        "Using divisor " + divisor + ", updates " + toString(UPDATES) + ", 1/cache " + toString(CACHE)
+            + " and max planes " + toString(MAX_PLANES));
+    measurePerformance(reduce(TestLongTailBitPlaneMutable.links20150209, divisor), RUNS, UPDATES, CACHE, MAX_PLANES);
   }
 
   private static String toString(int[] values) {
@@ -135,14 +144,16 @@ public class TestLongTailMutable extends LuceneTestCase {
   public void testSimplePerformance() {
     final int[] UPDATES = new int[] {1000, 10000};
     final int[] CACHES = new int[] {1000, 500, 200, 100, 50, 20};
-    measurePerformance(pad(10000, 2000, 10, 3, 2, 1), 5, UPDATES, CACHES);
+    final int[] MAX_PLANES = new int[] {1, 2, 3, 4, 64};
+    measurePerformance(pad(10000, 2000, 10, 3, 2, 1), 5, UPDATES, CACHES, MAX_PLANES);
   }
 
   public void testLargePerformance() {
     final int DIVISOR = 1;
     final int[] UPDATES = new int[] {M/10, M, 10*M, 100*M};
     final int[] CACHES = new int[] {1000, 500, 200, 100, 50, 20};
-    measurePerformance(reduce(TestLongTailBitPlaneMutable.links20150209, DIVISOR), 9, UPDATES, CACHES);
+    final int[] MAX_PLANES = new int[] {4, 64};
+    measurePerformance(reduce(TestLongTailBitPlaneMutable.links20150209, DIVISOR), 9, UPDATES, CACHES, MAX_PLANES);
   }
 
   public static long[] reduce(long[] values, int divisor) {
@@ -153,17 +164,19 @@ public class TestLongTailMutable extends LuceneTestCase {
     return result;
   }
 
-  private static void measurePerformance(long[] histogram, int runs, int[] updates, int[] caches) {
+  private static void measurePerformance(long[] histogram, int runs, int[] updates, int[] caches, int[] maxPlanes) {
     System.out.println("Creating pseudo-random maxima from histogram" + heap());
     final PackedInts.Reader maxima = TestLongTailBitPlaneMutable.getMaxima(histogram);
     List<StatHolder> stats = new ArrayList<>();
     System.out.println("Initializing implementations" + heap());
 //    int cache = LongTailBitPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
-    if (caches != null) {
-      for (int cache: caches) {
+    for (int cache : caches) {
+      for (int mp: maxPlanes) {
+        LongTailBitPlaneMutable ltbpm =
+            new LongTailBitPlaneMutable(maxima, cache, mp, LongTailBitPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
         stats.add(new StatHolder(
-            new LongTailBitPlaneMutable(maxima, cache),
-            "N-plane (cache 1/" + cache + ")",
+            ltbpm,
+            "N-plane(#" + ltbpm.getPlaneCount() + "1/" + cache + ")",
             1
         ));
       }

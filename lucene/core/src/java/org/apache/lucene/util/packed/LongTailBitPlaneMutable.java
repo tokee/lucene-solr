@@ -37,7 +37,9 @@ import java.util.List;
  * Warning: This representation does not support persistence yet.
  */
 public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incrementable {
-  public static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 1000; // Not performance tested
+  public static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 1000; // Should probably be a low lower (100 or so)
+  public static final int DEFAULT_MAX_PLANES = 64; // No default limit
+  public static final double DEFAULT_COLLAPSE_FRACTION = 0.01; // If there's <= 1% counters left, pack them in 1 plane
 
   private final Plane[] planes;
 
@@ -46,35 +48,64 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
   }
 
   public LongTailBitPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize) {
-    final long[] histogram = getHistogram(maxima);
-    int maxBit = getMaxBit(histogram);
+    this(maxima, overflowBucketSize, DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION);
 
-    List<Plane> lPlanes = new ArrayList<>(64);
+
+  }
+  public LongTailBitPlaneMutable(
+      PackedInts.Reader maxima, int overflowBucketSize, int maxPlanes, double collapseFraction) {
+    final List<PseudoPlane> pseudoPlanes = getLayout(maxima, overflowBucketSize, maxPlanes, collapseFraction);
+    planes = new Plane[pseudoPlanes.size()];
+    for (int i = 0 ; i < pseudoPlanes.size() ; i++) {
+      planes[i] = pseudoPlanes.get(i).createPlane();
+    }
+    populateStaticStructures(maxima);
+  }
+
+  private static List<PseudoPlane> getLayout(
+      PackedInts.Reader maxima, int overflowBucketSize, int maxPlanes, double collapseFraction) {
+    return getLayout(getZeroBitHistogram(maxima), overflowBucketSize, maxPlanes, collapseFraction);
+  }
+  private static List<PseudoPlane> getLayout(
+        long[] zeroHistogram, int overflowBucketSize, int maxPlanes, double collapseFraction) {
+    int maxBit = getMaxBit(zeroHistogram);
+
+    List<PseudoPlane> pseudoPlanes = new ArrayList<>(64);
     int bit = 1; // All values require at least 0 bits
     while (bit <= maxBit) { // What if maxBit == 64?
       int extraBitsCount = 0;
-      for (int extraBit = 1; extraBit < maxBit - bit; extraBit++) {
-        if (histogram[bit + extraBit] * 2 < histogram[bit]) {
-          break;
+      if (((double)zeroHistogram[bit]/zeroHistogram[0] <= collapseFraction) ||
+          pseudoPlanes.size() == maxPlanes-1) {
+        extraBitsCount = maxBit-bit;
+      } else{
+        for (int extraBit = 1; extraBit < maxBit - bit; extraBit++) {
+          if (zeroHistogram[bit + extraBit] * 2 < zeroHistogram[bit]) {
+            break;
+          }
+          extraBitsCount++;
         }
-        extraBitsCount++;
       }
 //      System.out.println(String.format("Plane bit %d + %d with size %d", bit, extraBitsCount, histogram[bit]));
 
       final int planeMaxBit = bit + extraBitsCount;
-      lPlanes.add(new Plane((int) histogram[bit], 1 + extraBitsCount,
+      pseudoPlanes.add(new PseudoPlane((int) zeroHistogram[bit], 1 + extraBitsCount,
           planeMaxBit < maxBit, overflowBucketSize, planeMaxBit));
       bit += 1 + extraBitsCount;
     }
-    planes = lPlanes.toArray(new Plane[lPlanes.size()]);
-    populateStaticStructures(maxima);
+    return pseudoPlanes;
   }
 
   // pos 0 = first bit
   public static long estimateBytesNeeded(long[] histogram) {
-    return estimateBytesNeeded(histogram, false);
+    return estimateBytesNeeded(
+        histogram, DEFAULT_OVERFLOW_BUCKET_SIZE, DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, false);
   }
   public static long estimateBytesNeeded(long[] histogram, boolean extraInstance) {
+    return estimateBytesNeeded(
+        histogram, DEFAULT_OVERFLOW_BUCKET_SIZE, DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, extraInstance);
+  }
+  public static long estimateBytesNeeded(
+      long[] histogram, int overflowBucketSize, int maxPlanes, double collapseFraction, boolean extraInstance) {
     long[] full = new long[histogram.length+1];
     System.arraycopy(histogram, 0, full, 1, histogram.length);
     full[0] = 0;
@@ -83,23 +114,9 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
         full[j] += full[i];
       }
     }
-    int maxBit = getMaxBit(full);
-
     long mem = 0;
-    int bit = 1; // All values require at least 0 bits
-    while (bit <= maxBit) { // What if maxBit == 64?
-      int extraBitsCount = 0;
-      for (int extraBit = 1; extraBit < maxBit - bit; extraBit++) {
-        if (full[bit + extraBit] * 2 < full[bit]) {
-          break;
-        }
-        extraBitsCount++;
-      }
-      final int planeMaxBit = bit + extraBitsCount;
-      // Yes, very ugly. We should calculate this without temporarily constructing the plane
-      mem += new Plane((int) full[bit], 1 + extraBitsCount,
-          planeMaxBit < maxBit, DEFAULT_OVERFLOW_BUCKET_SIZE, planeMaxBit).ramBytesUsed(extraInstance);
-      bit += 1 + extraBitsCount;
+    for (PseudoPlane pp: getLayout(histogram, overflowBucketSize, maxPlanes, collapseFraction)) {
+      mem += pp.estimateBytesNeeded(extraInstance);
     }
     return mem;
   }
@@ -159,7 +176,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
 
   // histogram[0] = total count
   // Special histogram where the counts are summed downwards
-  private long[] getHistogram(PackedInts.Reader maxima) {
+  private static long[] getZeroBitHistogram(PackedInts.Reader maxima) {
     final long[] histogram = new long[65];
     for (int i = 0 ; i < maxima.size() ; i++) {
       int bitsRequired = PackedInts.bitsRequired(maxima.get(i));
@@ -200,6 +217,10 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
     return value;
   }
 
+  public int getPlaneCount() {
+    return planes.length;
+  }
+
   @Override
   public void set(int index, long value) {
 //    System.out.println("\nset(" + index + ", " + value + ")");
@@ -221,6 +242,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
   }
 
   // Inc should really be part of the PackedInts.Mutable API
+  @Override
   public void inc(int index) {
 //    System.out.println("\ninc(" + index+ ")");
     for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
@@ -281,6 +303,44 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
     }
 
     return sb.toString();
+  }
+
+  /**
+   * A description of a plane. Used for estimations.
+   */
+  private static class PseudoPlane {
+    private final int valueCount;
+    private final int bpv;
+    private final boolean hasOverflows;
+    private final int maxBit;
+    private final int overflowBucketSize;
+
+    private PseudoPlane(int valueCount, int bpv, boolean hasOverflows, int overflowBucketSize, int maxBit) {
+      this.valueCount = valueCount;
+      this.bpv = bpv;
+      this.hasOverflows = hasOverflows;
+      this.maxBit = maxBit;
+      this.overflowBucketSize = overflowBucketSize;
+    }
+
+    public Plane createPlane() {
+      return new Plane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
+    }
+
+    public long estimateBytesNeeded(boolean extraInstance) {
+      long bytes =RamUsageEstimator.alignObjectSize(
+          3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) +
+          RamUsageEstimator.NUM_BYTES_ARRAY_HEADER +
+          valueCount*bpv/8; // Assuming compact values
+      if (!extraInstance) {
+        bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER;
+        if (hasOverflows) {
+              bytes += valueCount/8 + // overflow bits
+                  valueCount/overflowBucketSize*PackedInts.bitsRequired(valueCount);
+        }
+      }
+      return bytes;
+    }
   }
 
   /**
