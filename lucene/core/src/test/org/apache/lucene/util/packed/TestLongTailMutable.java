@@ -20,6 +20,7 @@ package org.apache.lucene.util.packed;
 import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
+import org.junit.runner.RunWith;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 
+@RunWith(com.carrotsearch.randomizedtesting.RandomizedRunner.class)
 @Slow
 public class TestLongTailMutable extends LuceneTestCase {
 
@@ -83,7 +85,7 @@ public class TestLongTailMutable extends LuceneTestCase {
     System.out.println(String.format("Long Tail Planes+:  %4dMB", ltbpmeC / M));
   }
 
-  private int maxBit(long[] histogram) {
+  private static int maxBit(long[] histogram) {
     int maxBit = 0;
     for (int i = 0 ; i < histogram.length ; i++) {
       if (histogram[i] != 0) {
@@ -94,12 +96,20 @@ public class TestLongTailMutable extends LuceneTestCase {
   }
 
   public void testSimplePerformance() {
-    testPerformance(pad(10000, 2000, 10, 3, 2, 1), 5, 10000);
+    measurePerformance(pad(10000, 2000, 10, 3, 2, 1), 5, 10000);
+  }
+
+
+  public static void main(String[] args) {
+    int divisor = args.length == 0 ? 1 : Integer.parseInt(args[0]);
+    System.out.println("Using divisor " + divisor);
+    final int[] UPDATES = new int[] {M/10, M, 10*M, 100*M};
+    measurePerformance(reduce(TestLongTailBitPlaneMutable.links20150209, divisor), 9, UPDATES);
   }
 
   public void testLargePerformance() {
-    final int[] UPDATES = new int[] {M, 10*M, 100*M};
-    testPerformance(reduce(TestLongTailBitPlaneMutable.links20150209, 5), 9, UPDATES);
+    final int[] UPDATES = new int[] {M/10, M, 10*M, 100*M};
+    measurePerformance(reduce(TestLongTailBitPlaneMutable.links20150209, 1), 9, UPDATES);
   }
 
   public static long[] reduce(long[] values, int divisor) {
@@ -110,10 +120,11 @@ public class TestLongTailMutable extends LuceneTestCase {
     return result;
   }
 
-  private void testPerformance(long[] histogram, int runs, int... updates) {
+  private static void measurePerformance(long[] histogram, int runs, int... updates) {
+    System.out.println("Creating pseudo-random maxima from histogram" + heap());
     final PackedInts.Reader maxima = TestLongTailBitPlaneMutable.getMaxima(histogram);
     List<StatHolder> stats = new ArrayList<>();
-    System.out.println("Initializing implementations");
+    System.out.println("Initializing implementations" + heap());
     int cache = LongTailBitPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
     for (int cacheDivider: new int[]{1, 2, 5, 10, 20, 50}) {
       stats.add(new StatHolder(
@@ -150,15 +161,15 @@ public class TestLongTailMutable extends LuceneTestCase {
     System.out.println();
 
     for (int update: updates) {
-      System.out.println(String.format("Performing %d test runs of %dM updates in %dM counters with max bit %d",
-          runs, update / M, maxima.size() / 1000000, maxBit(histogram)));
+      System.out.println(String.format("Performing %d test runs of %dM updates in %dM counters with max bit %d%s",
+          runs, update / M, maxima.size() / 1000000, maxBit(histogram), heap()));
 
       for (StatHolder stat : stats) {
         stat.setUpdates(update);
       }
       for (int i = 0; i < runs; i++) {
         System.out.print("[generating update");
-        final long seed = random().nextLong();
+        final long seed = new Random().nextLong(); // Should really be random() but we want to run under main
         // Generate the increments to run
         valueIncrements = generateValueIncrements(maxima, update, valueIncrements, seed);
         System.out.print("] ");
@@ -176,7 +187,13 @@ public class TestLongTailMutable extends LuceneTestCase {
     }
   }
 
-  private class StatHolder {
+  private static String heap() {
+    Runtime runtime = Runtime.getRuntime();
+    return " (" + (runtime.totalMemory() - runtime.freeMemory()) / M + "/" +
+        runtime.maxMemory()/M + "MB heap used)";
+  }
+
+  private static class StatHolder {
     private final PackedInts.Mutable impl;
     private final String designation;
     private final List<Long> timings = new ArrayList<>();
@@ -186,6 +203,8 @@ public class TestLongTailMutable extends LuceneTestCase {
       this.impl = impl;
       this.designation = designation;
       this.updatesPerTiming = updatesPerTiming;
+      System.out.println("Created StatHolder: " + impl.getClass().getSimpleName() + ": " + designation + " ("
+      + impl.ramBytesUsed()/M + "MB)" + heap());
     }
 
     public void addTiming(long ns) {
@@ -208,7 +227,7 @@ public class TestLongTailMutable extends LuceneTestCase {
     }
   }
 
-  private PackedInts.Mutable generateValueIncrements(
+  private static PackedInts.Mutable generateValueIncrements(
       PackedInts.Reader maxima, int updates, PackedInts.Mutable increments, long seed) {
     if (increments != null && increments.size() == updates) {
       increments.clear();
@@ -233,7 +252,7 @@ public class TestLongTailMutable extends LuceneTestCase {
   }
 
   // Runs a performance test and reports time spend as nano seconds
-  private long measure(PackedInts.Mutable counters, PackedInts.Reader valueIncrements) {
+  private static long measure(PackedInts.Mutable counters, PackedInts.Reader valueIncrements) {
     final Incrementable incCounters = counters instanceof Incrementable ?
         (Incrementable)counters :
         new Incrementable.IncrementableMutable(counters);
