@@ -77,12 +77,18 @@ public class TestLongTailMutable extends LuceneTestCase {
     final long ltbpmC = LongTailBitPlaneMutable.estimateBytesNeeded(histogram);
     final long ltbpmeC = LongTailBitPlaneMutable.estimateBytesNeeded(histogram, true);
     final long ltmC = LongTailMutable.estimateBytesNeeded(histogram, (int) valueCount);
+    long lowest = 0; // TODO: Something is wrong as this is not lowest
+    for (int i = 0 ; i < histogram[i] ; i++) {
+      lowest += histogram[i] * (i+1) / 8;
+    }
+
     System.out.println(source + ": " + valueCount + " counters, max bit " + maxBit(histogram));
     System.out.println(String.format("Solr default int[]: %4dMB", intC/M));
     System.out.println(String.format("Sparse PackedInts:  %4dMB", packC/M));
     System.out.println(String.format("Long Tail Dual:     %4dMB", ltmC / M));
     System.out.println(String.format("Long Tail Planes:   %4dMB", ltbpmC / M));
     System.out.println(String.format("Long Tail Planes+:  %4dMB", ltbpmeC / M));
+    System.out.println(String.format("Lowest possible:    %4dMB", lowest / M));
   }
 
   private static int maxBit(long[] histogram) {
@@ -250,7 +256,7 @@ public class TestLongTailMutable extends LuceneTestCase {
           "<tr style=\"text-align: right;\"><th>%s</th> <td>%d</td>",
           stat.designation, stat.impl.ramBytesUsed()/M));
       for (int i = 0 ; i < updates.length ; i++) {
-        System.out.print(String.format(Locale.ENGLISH, " <th>%.0f</th>", stat.ups.get(i)));
+        System.out.print(String.format(Locale.ENGLISH, " <td>%.0f</td>", stat.ups.get(i)));
       }
       System.out.println("</tr>");
     }
