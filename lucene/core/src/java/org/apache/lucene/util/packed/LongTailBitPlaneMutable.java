@@ -106,6 +106,15 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
   }
   public static long estimateBytesNeeded(
       long[] histogram, int overflowBucketSize, int maxPlanes, double collapseFraction, boolean extraInstance) {
+    long[] full = directHistogramToFullZero(histogram);
+    long mem = 0;
+    for (PseudoPlane pp: getLayout(full, overflowBucketSize, maxPlanes, collapseFraction)) {
+      mem += pp.estimateBytesNeeded(extraInstance);
+    }
+    return mem;
+  }
+
+  private static long[] directHistogramToFullZero(long[] histogram) {
     long[] full = new long[histogram.length+1];
     System.arraycopy(histogram, 0, full, 1, histogram.length);
     full[0] = 0;
@@ -114,11 +123,7 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
         full[j] += full[i];
       }
     }
-    long mem = 0;
-    for (PseudoPlane pp: getLayout(histogram, overflowBucketSize, maxPlanes, collapseFraction)) {
-      mem += pp.estimateBytesNeeded(extraInstance);
-    }
-    return mem;
+    return full;
   }
 
   private int max(long[] histogram, int startBit) {
@@ -328,15 +333,14 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
     }
 
     public long estimateBytesNeeded(boolean extraInstance) {
-      long bytes =RamUsageEstimator.alignObjectSize(
-          3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) +
-          RamUsageEstimator.NUM_BYTES_ARRAY_HEADER +
-          valueCount*bpv/8; // Assuming compact values
+      long bytes = RamUsageEstimator.alignObjectSize(
+          3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) + // Plane object
+          RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + valueCount*bpv/8; // Values, assuming compact
       if (!extraInstance) {
-        bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER;
+        bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER; // overflow header
         if (hasOverflows) {
               bytes += valueCount/8 + // overflow bits
-                  valueCount/overflowBucketSize*PackedInts.bitsRequired(valueCount);
+                  valueCount/overflowBucketSize*PackedInts.bitsRequired(valueCount)/8; // Cache
         }
       }
       return bytes;
