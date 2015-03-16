@@ -40,6 +40,9 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 1000; // Should probably be a low lower (100 or so)
   public static final int DEFAULT_MAX_PLANES = 64; // No default limit
   public static final double DEFAULT_COLLAPSE_FRACTION = 0.01; // If there's <= 1% counters left, pack them in 1 plane
+  public static final IMPL DEFAULT_IMPLEMENTATION = IMPL.split;
+
+  public static enum IMPL {split, shift}
 
   /**
    * Visualizing the counters as vertical pillars of bits (marked with #):
@@ -84,13 +87,14 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   }
 
   public NPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize) {
-    this(maxima, overflowBucketSize, DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION);
+    this(maxima, overflowBucketSize, DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, DEFAULT_IMPLEMENTATION);
   }
-  public NPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize, int maxPlanes, double collapseFraction) {
+  public NPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize, int maxPlanes, double collapseFraction,
+                       IMPL implementation) {
     final List<PseudoPlane> pseudoPlanes = getLayout(maxima, overflowBucketSize, maxPlanes, collapseFraction);
     planes = new Plane[pseudoPlanes.size()];
     for (int i = 0 ; i < pseudoPlanes.size() ; i++) {
-      planes[i] = pseudoPlanes.get(i).createPlane();
+      planes[i] = pseudoPlanes.get(i).createPlane(implementation);
     }
     populateStaticStructures(maxima);
   }
@@ -100,7 +104,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     return getLayout(getZeroBitHistogram(maxima), overflowBucketSize, maxPlanes, collapseFraction);
   }
   private static List<PseudoPlane> getLayout(
-        long[] zeroHistogram, int overflowBucketSize, int maxPlanes, double collapseFraction) {
+      long[] zeroHistogram, int overflowBucketSize, int maxPlanes, double collapseFraction) {
     int maxBit = getMaxBit(zeroHistogram);
 
     List<PseudoPlane> pseudoPlanes = new ArrayList<>(64);
@@ -131,18 +135,21 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   // pos 0 = first bit
   public static long estimateBytesNeeded(long[] histogram) {
     return estimateBytesNeeded(
-        histogram, DEFAULT_OVERFLOW_BUCKET_SIZE, DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, false);
+        histogram, DEFAULT_OVERFLOW_BUCKET_SIZE, DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, false,
+        DEFAULT_IMPLEMENTATION);
   }
   public static long estimateBytesNeeded(long[] histogram, boolean extraInstance) {
     return estimateBytesNeeded(
-        histogram, DEFAULT_OVERFLOW_BUCKET_SIZE, DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, extraInstance);
+        histogram, DEFAULT_OVERFLOW_BUCKET_SIZE, DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, extraInstance,
+        DEFAULT_IMPLEMENTATION);
   }
   public static long estimateBytesNeeded(
-      long[] histogram, int overflowBucketSize, int maxPlanes, double collapseFraction, boolean extraInstance) {
+      long[] histogram, int overflowBucketSize, int maxPlanes, double collapseFraction, boolean extraInstance,
+      IMPL impl) {
     long[] full = directHistogramToFullZero(histogram);
     long mem = 0;
     for (PseudoPlane pp: getLayout(full, overflowBucketSize, maxPlanes, collapseFraction)) {
-      mem += pp.estimateBytesNeeded(extraInstance);
+      mem += pp.estimateBytesNeeded(extraInstance, impl);
     }
     return mem;
   }
@@ -326,22 +333,33 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       this.overflowBucketSize = overflowBucketSize;
     }
 
-    public Plane createPlane() {
-      return new SplitPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
+    public Plane createPlane(IMPL impl) {
+      switch (impl) {
+        case split: return new SplitPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
+        case shift: return new ShiftPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
+        default: throw new UnsupportedOperationException("No Plane implementation available for " + impl);
+      }
     }
 
-    public long estimateBytesNeeded(boolean extraInstance) {
-      long bytes = RamUsageEstimator.alignObjectSize(
-          3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) + // Plane object
-          RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + valueCount*bpv/8; // Values, assuming compact
-      if (!extraInstance) {
-        bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER; // overflow header
-        if (hasOverflows) {
+    public long estimateBytesNeeded(boolean extraInstance, IMPL impl) {
+      switch (impl) {
+        case split: {
+          long bytes = RamUsageEstimator.alignObjectSize(
+              3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) + // Plane object
+              RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + valueCount*bpv/8; // Values, assuming compact
+          if (!extraInstance) {
+            bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER; // overflow header
+            if (hasOverflows) {
               bytes += valueCount/8 + // overflow bits
                   valueCount/overflowBucketSize*PackedInts.bitsRequired(valueCount)/8; // Cache
+            }
+          }
+          return bytes;
         }
+        case shift: return -1;
+        // TODO: Add shift
+        default: throw new UnsupportedOperationException("No memory estimation available for " + impl);
       }
-      return bytes;
     }
   }
 
@@ -512,6 +530,109 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       sb.append(" cache: ");
       NPlaneMutable.toString(sb, overflowCache);
       return sb.toString();
+    }
+  }
+
+  private static class ShiftPlane extends Plane {
+    private final PackedInts.Mutable values;
+    private final PackedInts.Mutable overflowCache; // [count(cacheChunkSize)]
+    private final int overflowBucketSize;
+
+    public ShiftPlane(int valueCount, int bpv, boolean hasOverflow, int overflowBucketSize, int maxBit) {
+      super(valueCount, bpv, maxBit, hasOverflow);
+      values = PackedInts.getMutable(valueCount, hasOverflow ? bpv+1 : bpv, PackedInts.COMPACT);
+      this.overflowBucketSize = overflowBucketSize;
+      overflowCache = PackedInts.getMutable( // TODO: Spare the +1
+          valueCount / overflowBucketSize + 1, PackedInts.bitsRequired(valueCount), PackedInts.COMPACT);
+    }
+
+    @Override
+    public boolean inc(int index) {
+      final long rawValue = values.get(index);
+      long value = hasOverflow ? rawValue >>> 1 : rawValue;
+      value++;
+      values.set(index, ((value & ~(~1 << (values.getBitsPerValue()-1))) << 1) | (rawValue & 0x1));
+      return (value >>> bpv) != 0;
+    }
+
+    @Override
+    public void set(int index, long value) {
+      if (hasOverflow) {
+        values.set(index, (value << 1) | (values.get(index) & 0x1));
+      } else {
+        values.set(index, value);
+      }
+    }
+
+    @Override
+    public boolean isOverflow(int index) {
+      return (values.get(index) & 0x1) == 1;
+    }
+
+    // Nukes existing values
+    @Override
+    public void setOverflow(int index) {
+      values.set(index, 1);
+    }
+
+    @Override
+    public void finalizeOverflow() {
+      if (!hasOverflow) {
+        return;
+      }
+      for (int i = 0; i < valueCount; i++) {
+        final int cacheIndex = i/overflowBucketSize;
+        if (cacheIndex > 0 && i%overflowBucketSize == 0) { // Over the edge
+          overflowCache.set(cacheIndex, overflowCache.get(cacheIndex - 1)); // Transfer previous sum
+        }
+
+        if (!isOverflow(i)) {
+          continue;
+        }
+        overflowCache.set(cacheIndex, overflowCache.get(cacheIndex) + 1);
+      }
+    }
+
+    // Quite heavy as we cannot user Arrays.fill underneath
+    @Override
+    public void clear() {
+      for (int i = 0; i < valueCount ; i++) {
+        values.set(i, values.get(i) & 0x1);
+      }
+    }
+
+    @Override
+    public long get(int index) {
+      return hasOverflow ? values.get(index) >>> 1 : values.get(index);
+    }
+
+    @Override
+    public long ramBytesUsed(boolean extraInstance) {
+      return RamUsageEstimator.alignObjectSize(
+          2 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) +
+          values.ramBytesUsed();
+    }
+
+    // Using the overflow and overflowCache, calculate the index into the next plane
+    @Override
+    protected int getNextPlaneIndex(int index) {
+      int startIndex = 0;
+      int nextIndex = 0;
+      if (index >= overflowBucketSize) {
+        nextIndex = (int) overflowCache.get(index / overflowBucketSize -1);
+        startIndex = index / overflowBucketSize * overflowBucketSize;
+      }
+      // It would be nice to use cardinality in this situation, but that only works on the full bitset(?)
+      for (int i = startIndex; i <= index; i++) {
+        if (isOverflow(i)) {
+          nextIndex++;
+        }
+      }
+      return nextIndex-1;
+    }
+
+    public String toString() {
+      return "ShiftPlane(" + valueCount + " values, " + bpv + " bpv)";
     }
   }
 

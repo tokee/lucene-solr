@@ -179,7 +179,8 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     for (int cache : caches) {
       for (int mp: maxPlanes) {
         NPlaneMutable ltbpm =
-            new NPlaneMutable(maxima, cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
+            new NPlaneMutable(maxima, cache, mp,
+                NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.DEFAULT_IMPLEMENTATION);
         stats.add(new StatHolder(
             ltbpm,
             "N-plane(#" + ltbpm.getPlaneCount() + ", 1/" + cache + ")",
