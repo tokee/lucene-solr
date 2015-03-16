@@ -37,15 +37,11 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
   private final PackedInts.Mutable tail;
   private final int tailValueMask;
 
-  public String toString() {
-    return "DualPlaneMutable(head(" + head.size() + " values, " + head.getBitsPerValue() + " bpv), "
-        + "tail(" + tail.size() + " values, " + tail.getBitsPerValue() + " bpv (incl. 1 pointer))";
-  }
-
   public static long totalCounters(long[] histogram) {
     long total = 0;
-    for (long v: histogram) {
-      total += v;
+    for (int i = 0; i < histogram.length; i++) {
+      //total += histogram[i];
+      total += histogram[i]*(i+1); // TODO: Check if we need the factor by exhaustive inc-test on a small sample
     }
     return total;
   }
@@ -269,6 +265,11 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
   @Override
   public long ramBytesUsed() {
     return head.ramBytesUsed() + tail.ramBytesUsed();
+  }
+
+  public String toString() {
+    return "DualPlaneMutable(head(" + head.size() + " values, " + head.getBitsPerValue() + " bpv), "
+        + "tail(" + tail.size() + " values, " + tail.getBitsPerValue() + " bpv (incl. 1 pointer))";
   }
 
 }

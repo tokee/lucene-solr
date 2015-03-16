@@ -54,7 +54,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
 
   public void testOverflowFail() {
     final int[] MAXIMA = new int[]{10, 1, 16, 140};
-    DualPlaneMutable dpm = DualPlaneMutable.create(LongTailPerformance.pad(getHistogram(MAXIMA)), 1.0);
+    DualPlaneMutable dpm = DualPlaneMutable.create(LongTailPerformance.pad(LongTailPerformance.getHistogram(MAXIMA)), 1.0);
     System.out.println(dpm);
     dpm.set(3, 14);
     assertEquals("The value at position 3 should be correct after set", 14, dpm.get(3));
@@ -62,7 +62,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
 
   public void testOverflowCache() {
     final int[] MAXIMA = new int[]{10, 1, 16, 2, 3, 2, 3, 100, 140};
-    DualPlaneMutable dpm = DualPlaneMutable.create(LongTailPerformance.pad(getHistogram(MAXIMA)), 1.0);
+    DualPlaneMutable dpm = DualPlaneMutable.create(LongTailPerformance.pad(LongTailPerformance.getHistogram(MAXIMA)), 1.0);
     final int[][] TESTS = new int[][]{
         {8, 14},
         {7, 50},
@@ -96,14 +96,14 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     dumpImplementationMemUsages("Shard 1 URL", getURLShard1Histogram());
     dumpImplementationMemUsages("Links raw", getLinksHistogram());
     dumpImplementationMemUsages("Links 20150309", LongTailPerformance.links20150209);
-    final long[] tegHistogram = getHistogram(LongTailIntGenerator.GenerateLongtailDistribution(640000000, 500000, 101));
+    final long[] tegHistogram = LongTailPerformance.getHistogram(LongTailIntGenerator.GenerateLongtailDistribution(640000000, 500000, 101));
     dumpImplementationMemUsages("TEG histogram generator", tegHistogram);
   }
 
   private void dumpImplementationMemUsages(String source, long[] histogram) {
     long valueCount = 0;
-    for (long values: histogram) {
-      valueCount += values;
+    for (int i = 0; i < histogram.length; i++) {
+      valueCount += histogram[i]*(i+1);
     }
     final long intC = valueCount*4;
     final long packC = valueCount * LongTailPerformance.maxBit(histogram) / 8;
@@ -164,7 +164,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
   }
 
   public void testLongTailRandomGenerator() {
-    final long[] histogram = getHistogram(LongTailIntGenerator.GenerateLongtailDistribution(300000000 , 500000,1000));
+    final long[] histogram = LongTailPerformance.getHistogram(LongTailIntGenerator.GenerateLongtailDistribution(300000000, 500000, 1000));
     System.out.println(toString(histogram, "\n"));
   }
 
@@ -173,7 +173,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     System.out.println("*** Input histogram");
     System.out.println(toString(in, "\n"));
 
-    final long[] histogram = getHistogram(LongTailIntGenerator.generateFromBitHistogram(LongTailPerformance.toGeneratorHistogram(in), 1000));
+    final long[] histogram = LongTailPerformance.getHistogram(LongTailIntGenerator.generateFromBitHistogram(LongTailPerformance.toGeneratorHistogram(in), 1000));
     System.out.println("*** Output histogram");
     System.out.println(toString(histogram, "\n"));
   }
@@ -194,15 +194,6 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     return sb.toString();
   }
 
-  // histogram[0] = first bit
-  public static long[] getHistogram(int[] maxima) {
-    final long[] histogram = new long[64];
-    for (int maxValue : maxima) {
-      int bitsRequired = PackedInts.bitsRequired(maxValue);
-      histogram[bitsRequired == 0 ? 0 : bitsRequired - 1]++;
-    }
-    return histogram;
-  }
   public static long[] getHistogram(long[] maxima) {
     final long[] histogram = new long[64];
     for (long maxValue : maxima) {

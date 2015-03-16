@@ -26,6 +26,16 @@ import java.util.Locale;
 public class TestNPlaneMutable extends LuceneTestCase {
   private final static int M = 1048576;
 
+  // Triggers ArrayIndexOutOfBoundsException
+  public void testTriggerShiftError() {
+    final int DIVISOR = 500;
+    final int[] UPDATES = new int[] {M};
+    final int[] CACHES = new int[] {1000};
+    final int[] MAX_PLANES = new int[] {4};
+    LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
+        9, UPDATES, CACHES, MAX_PLANES);
+  }
+
   public void testSmallAdd() {
     final int[] MAXIMA = new int[]{10, 1, 16, 2, 3};
     final int MAX = 16;
@@ -141,10 +151,18 @@ public class TestNPlaneMutable extends LuceneTestCase {
     NPlaneMutable bpm = new NPlaneMutable(maxima);
     for (int i = 0 ; i < maxima.size() ; i++) {
       bpm.set(i, maxima.get(i));
-      assertEquals("The set value at index " + i + " should be correct", maxima.get(i), bpm.get(i));
+      assertEquals("The set max value at index " + i + " should be correct", maxima.get(i), bpm.get(i));
     }
     for (int i = 0 ; i < maxima.size() ; i++) {
       assertEquals("The previously set value at index " + i + " should be correct", maxima.get(i), bpm.get(i));
+    }
+    for (int i = 0 ; i < maxima.size() ; i++) {
+      bpm.set(i, maxima.get(i)-1);
+      assertEquals("The set max-1 value at index " + i + " should be correct", maxima.get(i)-1, bpm.get(i));
+    }
+    for (int i = 0 ; i < maxima.size() ; i++) {
+      bpm.inc(i);
+      assertEquals("The set max-1 value + inc at index " + i + " should be correct", maxima.get(i), bpm.get(i));
     }
   }
 

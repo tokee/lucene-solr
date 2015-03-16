@@ -43,14 +43,6 @@ public class LongTailPerformance {
     measurePerformance(pad(10000, 2000, 10, 3, 2, 1), 5, UPDATES, CACHES, MAX_PLANES);
   }
 
-  public static void testLargePerformance() {
-    final int DIVISOR = 50;
-    final int[] UPDATES = new int[] {M /10, M, 10* M, 100* M};
-    final int[] CACHES = new int[] {1000, 500, 200, 100, 50, 20};
-    final int[] MAX_PLANES = new int[] {4, 64};
-    measurePerformance(reduce(links20150209, DIVISOR), 9, UPDATES, CACHES, MAX_PLANES);
-  }
-
   // main(divisor "million updates" "N-plane 1/cache" "max planes")
   public static void main(String[] args) {
     final int RUNS = 9;
@@ -89,6 +81,7 @@ public class LongTailPerformance {
   static void measurePerformance(long[] histogram, int runs, int[] updates, int[] caches, int[] maxPlanes) {
     System.out.println("Creating pseudo-random maxima from histogram" + heap());
     final PackedInts.Reader maxima = getMaxima(histogram);
+    histogram = getHistogram(maxima); // Re-calc as the maxima generator rounds up to nearest prime
     List<StatHolder> stats = new ArrayList<>();
     System.out.println("Initializing implementations" + heap());
 //    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
@@ -216,6 +209,24 @@ public class LongTailPerformance {
       incCounters.inc((int) valueIncrements.get(i));
     }
     return System.nanoTime()-start;
+  }
+
+  // histogram[0] = first bit
+  public static long[] getHistogram(int[] maxima) {
+    final long[] histogram = new long[64];
+    for (int maxValue : maxima) {
+      int bitsRequired = PackedInts.bitsRequired(maxValue);
+      histogram[bitsRequired == 0 ? 0 : bitsRequired - 1]++;
+    }
+    return histogram;
+  }
+  public static long[] getHistogram(PackedInts.Reader maxima) {
+    final long[] histogram = new long[64];
+    for (int i = 0 ; i < maxima.size() ; i++) {
+      int bitsRequired = PackedInts.bitsRequired(maxima.get(i));
+      histogram[bitsRequired == 0 ? 0 : bitsRequired - 1]++;
+    }
+    return histogram;
   }
 
   private static class StatHolder {

@@ -264,10 +264,14 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public void inc(int index) {
 //    System.out.println("\ninc(" + index+ ")");
     for (final Plane plane : planes) {
-      if (!plane.inc(index)) { // No overflow; exit immediately. Note: There is no check for overflow beyond maxima
-        break;
+      try {
+        if (!plane.inc(index)) { // No overflow; exit immediately. Note: There is no check for overflow beyond maxima
+          break;
+        }
+      } catch (ArrayIndexOutOfBoundsException e) {
+        throw new ArrayIndexOutOfBoundsException("inc(" + index + ") on " + plane);
       }
-      // We know there is actual overflow. As this is an inc, we know the overflow is 1
+        // We know there is actual overflow. As this is an inc, we know the overflow is 1
       index = plane.getNextPlaneIndex(index);
     }
   }
@@ -422,6 +426,10 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     public abstract void clear();
 
     public abstract long get(int index);
+
+    public String toString() {
+      return "Plane(#values=" + valueCount + ", bpv=" + bpv + ", maxBit=" + maxBit + ", overflow=" + hasOverflow + ")";
+    }
   }
 
   private static class SplitPlane extends Plane {
@@ -632,7 +640,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     }
 
     public String toString() {
-      return "ShiftPlane(" + valueCount + " values, " + bpv + " bpv)";
+      return "ShiftPlane(" + super.toString() + ")";
     }
   }
 
