@@ -171,20 +171,16 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       final Plane plane = planes[planeIndex];
       for (int i = 0; i < maxima.size(); i++) {
         if (bit == 1 || (maxima.get(i) >>> planes[planeIndex - 1].maxBit) != 0) {
-          final long maxValue = maxima.get(i);
-          final int cacheIndex = overflowIndex[planeIndex]/plane.overflowBucketSize;
-          if (cacheIndex > 0 && overflowIndex[planeIndex] % plane.overflowBucketSize == 0) { // Over the edge
-            plane.overflowCache.set(cacheIndex, plane.overflowCache.get(cacheIndex - 1)); // Transfer previous sum
-          }
-
-          if (maxValue >>> plane.maxBit != 0) {
-            plane.overflows.fastSet(overflowIndex[planeIndex]);
-            plane.overflowCache.set(cacheIndex, plane.overflowCache.get(cacheIndex) + 1);
+          if (maxima.get(i) >>> plane.maxBit != 0) {
+            plane.setOverflow(overflowIndex[planeIndex]);
           }
           overflowIndex[planeIndex]++;
         }
       }
-      bit += plane.values.getBitsPerValue();
+      bit += plane.bpv;
+    }
+    for (Plane plane: planes) {
+      plane.finalizeOverflow();
     }
 //    System.out.println("Finished populating " + planes.length + " planes with overflow data. Overflow flagged layout:");
 //    for (Plane plane: planes) {
@@ -224,11 +220,11 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     // Move up in the planes until there are no more overflow-bits
     for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
       final Plane plane = planes[planeIndex];
-      value |= plane.values.get(index) << shift;
-      if (planeIndex == planes.length-1 || !plane.overflows.get(index)) { // Finished
+      value |= plane.get(index) << shift;
+      if (planeIndex == planes.length-1 || !plane.isOverflow(index)) { // Finished
         break;
       }
-      shift += plane.values.getBitsPerValue();
+      shift += plane.bpv;
       index = plane.getNextPlaneIndex(index);
     }
     return value;
@@ -243,14 +239,13 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 //    System.out.println("\nset(" + index + ", " + value + ")");
     for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
       final Plane plane = planes[planeIndex];
-      final int bpv = plane.values.getBitsPerValue();
 
-      plane.values.set(index, value & ~(~1 << (bpv-1)));
-      if (planeIndex == planes.length-1 || !plane.overflows.get(index)) {
+      plane.set(index, value & ~(~1 << (plane.bpv-1)));
+      if (planeIndex == planes.length-1 || !plane.isOverflow(index)) {
         break;
       }
       // Overflow-bit is set. We need to go up a level, even if the value is 0, to ensure full reset of the bits
-      value = value >> bpv;
+      value = value >> plane.bpv;
       index = plane.getNextPlaneIndex(index);
     }
 //    for (Plane plane: planes) {
@@ -272,7 +267,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
   @Override
   public int size() {
-    return planes.length == 0 ? 0 : planes[0].values.size();
+    return planes.length == 0 ? 0 : planes[0].valueCount;
   }
 
   @Override
@@ -283,7 +278,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   @Override
   public void clear() {
     for (Plane plane: planes) {
-      plane.values.clear();
+      plane.clear();
     }
   }
 
@@ -332,7 +327,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     }
 
     public Plane createPlane() {
-      return new Plane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
+      return new SplitPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
     }
 
     public long estimateBytesNeeded(boolean extraInstance) {
@@ -369,30 +364,64 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * plane(0).overflowBits = 1 0 1 0 0<br/>
    * plane(1).overflowBits = 0 1
    */
-  private static class Plane {
-    private final PackedInts.Mutable values;
-    private final OpenBitSet overflows;
-    private final PackedInts.Mutable overflowCache; // [count(cacheChunkSize)]
-    private final int overflowBucketSize;
-    private final int maxBit; // Max up to this point
+  private abstract static class Plane {
+    public final int valueCount;
+    public final int bpv;
+    public final int maxBit; // Max up to this point
+    public final boolean hasOverflow;
 
-    public Plane(int valueCount, int bpv, boolean hasOverflow, int overflowBucketSize, int maxBit) {
-//      System.out.println(String.format("Creating plane(#values=%d, bpv=%d, overflow=%b, maxBit=%d)",
-//          valueCount, bpv, hasOverflow, maxBit));
-      values = PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
-      overflows = new OpenBitSet(hasOverflow ? valueCount : 0);
-      this.overflowBucketSize = overflowBucketSize;
-      overflowCache = PackedInts.getMutable( // TODO: Spare the +1
-          valueCount / overflowBucketSize + 1, PackedInts.bitsRequired(valueCount), PackedInts.COMPACT);
+    public Plane(int valueCount, int bpv, int maxBit, boolean hasOverflow) {
+      this.valueCount = valueCount;
+      this.bpv = bpv;
       this.maxBit = maxBit;
+      this.hasOverflow = hasOverflow;
     }
-
     /**
      * Increment the value at the given index by 1.
      * </p><p>
      * @param index the value to increment.
      * @return true if the value resulted in an overflow.
      */
+    public abstract boolean inc(int index);
+
+    // max of 2^bpv-1 must be ensured by the caller
+    public abstract void set(int index, long value);
+
+    public abstract boolean isOverflow(int index);
+
+    public abstract long ramBytesUsed(boolean extraInstance);
+
+    protected abstract int getNextPlaneIndex(int index);
+
+    public abstract void setOverflow(int index);
+
+    public abstract void finalizeOverflow();
+
+    public long ramBytesUsed() {
+      return ramBytesUsed(false);
+    }
+
+    public abstract void clear();
+
+    public abstract long get(int index);
+  }
+
+  private static class SplitPlane extends Plane {
+    private final PackedInts.Mutable values;
+    private final OpenBitSet overflows;
+    private final PackedInts.Mutable overflowCache; // [count(cacheChunkSize)]
+    private final int overflowBucketSize;
+
+    public SplitPlane(int valueCount, int bpv, boolean hasOverflow, int overflowBucketSize, int maxBit) {
+      super(valueCount, bpv, maxBit, hasOverflow);
+      values = PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
+      overflows = new OpenBitSet(hasOverflow ? valueCount : 0);
+      this.overflowBucketSize = overflowBucketSize;
+      overflowCache = PackedInts.getMutable( // TODO: Spare the +1
+          valueCount / overflowBucketSize + 1, PackedInts.bitsRequired(valueCount), PackedInts.COMPACT);
+    }
+
+    @Override
     public boolean inc(int index) {
       long value = values.get(index);
       value++;
@@ -400,10 +429,50 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       return (value >>> values.getBitsPerValue()) != 0;
     }
 
-    public long ramBytesUsed() {
-      return ramBytesUsed(false);
+    @Override
+    public void set(int index, long value) {
+      values.set(index, value);
     }
 
+    @Override
+    public boolean isOverflow(int index) {
+      return overflows.get(index);
+    }
+
+    @Override
+    public void setOverflow(int index) {
+      overflows.fastSet(index);
+    }
+
+    @Override
+    public void finalizeOverflow() {
+      if (!hasOverflow) {
+        return;
+      }
+      for (int i = 0; i < valueCount; i++) {
+        final int cacheIndex = i/overflowBucketSize;
+        if (cacheIndex > 0 && i%overflowBucketSize == 0) { // Over the edge
+          overflowCache.set(cacheIndex, overflowCache.get(cacheIndex - 1)); // Transfer previous sum
+        }
+
+        if (!overflows.get(i)) {
+          continue;
+        }
+        overflowCache.set(cacheIndex, overflowCache.get(cacheIndex) + 1);
+      }
+    }
+
+    @Override
+    public void clear() {
+      values.clear();
+    }
+
+    @Override
+    public long get(int index) {
+      return values.get(index);
+    }
+
+    @Override
     public long ramBytesUsed(boolean extraInstance) {
       long bytes =RamUsageEstimator.alignObjectSize(
           3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) + values.ramBytesUsed();
@@ -414,7 +483,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     }
 
     // Using the overflow and overflowCache, calculate the index into the next plane
-    public int getNextPlaneIndex(int index) {
+    @Override
+    protected int getNextPlaneIndex(int index) {
       int startIndex = 0;
       int nextIndex = 0;
       if (index >= overflowBucketSize) {
@@ -434,34 +504,34 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       StringBuilder sb = new StringBuilder();
       for (int i = 0; i < values.getBitsPerValue(); i++) {
         sb.append(String.format("Values(%2d): ", maxBit - values.getBitsPerValue() + i));
-        toString(sb, values, i);
+        NPlaneMutable.toString(sb, values, i);
         sb.append("\n");
       }
       sb.append("Overflow:   ");
-      toString(sb, overflows);
+      NPlaneMutable.toString(sb, overflows);
       sb.append(" cache: ");
-      toString(sb, overflowCache);
+      NPlaneMutable.toString(sb, overflowCache);
       return sb.toString();
     }
+  }
 
-    private final int MAX_PRINT = 20;
+  private static int MAX_PRINT = 20;
 
-    private void toString(StringBuilder sb, PackedInts.Mutable values, int bit) {
-      for (int i = 0; i < MAX_PRINT && i < values.size(); i++) {
-        sb.append((values.get(i) >> bit) & 1);
-      }
+  private static void toString(StringBuilder sb, PackedInts.Mutable values, int bit) {
+    for (int i = 0; i < MAX_PRINT && i < values.size(); i++) {
+      sb.append((values.get(i) >> bit) & 1);
     }
+  }
 
-    private void toString(StringBuilder sb, PackedInts.Mutable values) {
-      for (int i = 0; i < MAX_PRINT && i < values.size(); i++) {
-        sb.append(values.get(i)).append(" ");
-      }
+  private static void toString(StringBuilder sb, PackedInts.Mutable values) {
+    for (int i = 0; i < MAX_PRINT && i < values.size(); i++) {
+      sb.append(values.get(i)).append(" ");
     }
+  }
 
-    private void toString(StringBuilder sb, OpenBitSet overflow) {
-      for (int i = 0; i < MAX_PRINT && i < values.size(); i++) {
-        sb.append(overflow.get(i) ? "*" : "-");
-      }
+  private static void toString(StringBuilder sb, OpenBitSet overflow) {
+    for (int i = 0; i < MAX_PRINT && i < overflow.size(); i++) {
+      sb.append(overflow.get(i) ? "*" : "-");
     }
   }
 }

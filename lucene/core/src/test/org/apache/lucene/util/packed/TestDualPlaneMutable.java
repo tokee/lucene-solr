@@ -155,7 +155,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
   }
 
   public void testLargePerformance() {
-    final int DIVISOR = 1;
+    final int DIVISOR = 50;
     final int[] UPDATES = new int[] {M/10, M, 10*M, 100*M};
     final int[] CACHES = new int[] {1000, 500, 200, 100, 50, 20};
     final int[] MAX_PLANES = new int[] {4, 64};

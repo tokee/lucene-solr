@@ -128,7 +128,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
   }
 
   public void testRandomRealWorldHistogramLongTail() {
-    assertMonkey(getMaxima(links20150209), M);
+    assertMonkey(getMaxima(TestDualPlaneMutable.reduce(links20150209, 10)), M);
   }
 
   public void testBytesEstimation() {
