@@ -20,6 +20,8 @@ package org.apache.lucene.util.packed;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 @Slow
@@ -34,6 +36,35 @@ public class TestNPlaneMutable extends LuceneTestCase {
     final int[] MAX_PLANES = new int[] {4};
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
         9, UPDATES, CACHES, MAX_PLANES);
+  }
+
+  public void testOverflow() {
+    final int DIVISOR = 500;
+    final int CACHE = 1000;
+    final int MAX_PLANES = 4;
+    long[] histogram = LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR);
+
+    final PackedInts.Reader maxima = LongTailPerformance.getMaxima(histogram);
+    NPlaneMutable nplane =
+        new NPlaneMutable(maxima, CACHE, MAX_PLANES, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.shift);
+
+    for (int planeIndex = 0 ; planeIndex < nplane.planes.length ; planeIndex++) {
+      NPlaneMutable.Plane plane = nplane.planes[planeIndex];
+      if (!plane.hasOverflow) {
+        continue;
+      }
+      int overflows = 0;
+      for (int i = 0 ; i < plane.valueCount ; i++) {
+        if (plane.isOverflow(i)) {
+          overflows++;
+        }
+      }
+      if (planeIndex != 0) {
+        assertEquals("The number of set overflows for plane " + planeIndex + " should match plane " + planeIndex+1,
+            nplane.planes[planeIndex+1].valueCount, overflows);
+      }
+    }
+
   }
 
   public void testSmallAdd() {

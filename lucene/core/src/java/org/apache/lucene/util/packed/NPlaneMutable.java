@@ -75,7 +75,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * share those 2 bits, rather than using an extra overflow bit set.
    * </p>
    */
-  private final Plane[] planes;
+  final Plane[] planes;
 
   /**
    * Create a mutable of length {@code maxima.size()} capable of holding values up to the given maxima.
@@ -189,6 +189,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     for (Plane plane: planes) {
       plane.finalizeOverflow();
     }
+
 //    System.out.println("Finished populating " + planes.length + " planes with overflow data. Overflow flagged layout:");
 //    for (Plane plane: planes) {
 //      System.out.println(plane.toString());
@@ -386,7 +387,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * plane(0).overflowBits = 1 0 1 0 0<br/>
    * plane(1).overflowBits = 0 1
    */
-  private abstract static class Plane {
+  public abstract static class Plane {
     public final int valueCount;
     public final int bpv;
     public final int maxBit; // Max up to this point
@@ -601,7 +602,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       }
     }
 
-    // Quite heavy as we cannot user Arrays.fill underneath
+    // Quite heavy as we cannot use Arrays.fill underneath
     @Override
     public void clear() {
       for (int i = 0; i < valueCount ; i++) {
