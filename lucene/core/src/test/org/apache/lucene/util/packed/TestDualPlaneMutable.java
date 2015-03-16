@@ -178,14 +178,15 @@ public class TestDualPlaneMutable extends LuceneTestCase {
 //    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
     for (int cache : caches) {
       for (int mp: maxPlanes) {
-        NPlaneMutable ltbpm =
-            new NPlaneMutable(maxima, cache, mp,
-                NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.DEFAULT_IMPLEMENTATION);
-        stats.add(new StatHolder(
-            ltbpm,
-            "N-plane(#" + ltbpm.getPlaneCount() + ", 1/" + cache + ")",
-            1
-        ));
+        for (NPlaneMutable.IMPL impl: NPlaneMutable.IMPL.values()) {
+          NPlaneMutable ltbpm =
+              new NPlaneMutable(maxima, cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, impl);
+          stats.add(new StatHolder(
+              ltbpm,
+              "N-" + impl + "(#" + ltbpm.getPlaneCount() + ", 1/" + cache + ")",
+              1
+          ));
+        }
       }
     }
     stats.add(new StatHolder(
