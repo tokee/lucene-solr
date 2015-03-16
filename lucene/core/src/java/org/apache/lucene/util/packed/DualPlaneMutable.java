@@ -37,6 +37,11 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
   private final PackedInts.Mutable tail;
   private final int tailValueMask;
 
+  public String toString() {
+    return "DualPlaneMutable(head(" + head.size() + " values, " + head.getBitsPerValue() + " bpv), "
+        + "tail(" + tail.size() + " values, " + tail.getBitsPerValue() + " bpv (incl. 1 pointer))";
+  }
+
   public static long totalCounters(long[] histogram) {
     long total = 0;
     for (long v: histogram) {
@@ -68,10 +73,10 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
     return mutable;
   }
 
-  public static PackedInts.Mutable create(long[] histogram, double maxSizeFraction) {
+  public static DualPlaneMutable create(long[] histogram, double maxSizeFraction) {
     return create((int) totalCounters(histogram), histogram, maxSizeFraction);
   }
-  public static PackedInts.Mutable create(int valueCount, long[] histogram, double maxSizeFraction) {
+  public static DualPlaneMutable create(int valueCount, long[] histogram, double maxSizeFraction) {
     if (histogram.length != 64) {
       throw new IllegalArgumentException("The histogram length must be exactly 64, but it was " + histogram.length);
     }
@@ -213,11 +218,11 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
         tail.set(index, newVal);
       } else { // Must put it in head
         head.set(headPos, newVal);
-        tail.set(index, headBit & headPos++);
+        tail.set(index, headBit | headPos++);
       }
     } else { // Already defined in head
       final int headIndex = (int) (tailVal & tailValueMask);
-      head.set(headIndex, head.get(headIndex));
+      head.set(headIndex, head.get(headIndex)+1);
     }
   }
 
@@ -237,7 +242,7 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
         tail.set(index, value);
       } else { // Must put it in head
         head.set(headPos, value);
-        tail.set(index, headBit & headPos++);
+        tail.set(index, headBit | headPos++);
       }
     } else { // Already defined in head
       head.set((int) (tailVal & tailValueMask), value);
