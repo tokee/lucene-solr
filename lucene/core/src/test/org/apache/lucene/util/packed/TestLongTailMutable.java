@@ -63,7 +63,7 @@ public class TestLongTailMutable extends LuceneTestCase {
     dumpImplementationMemUsages("Shard 1 URL", getURLShard1Histogram());
     dumpImplementationMemUsages("Links raw", getLinksHistogram());
     dumpImplementationMemUsages("Links 20150309", TestLongTailBitPlaneMutable.links20150209);
-    final long[] tegHistogram = getHistogram(LongTailIntGenerator.GenerateLongtailDistribution(300000000, 500000, 1000));
+    final long[] tegHistogram = getHistogram(LongTailIntGenerator.GenerateLongtailDistribution(640000000, 500000, 101));
     dumpImplementationMemUsages("TEG histogram generator", tegHistogram);
   }
 
