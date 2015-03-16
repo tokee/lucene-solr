@@ -30,7 +30,7 @@ import java.util.Random;
 
 @RunWith(com.carrotsearch.randomizedtesting.RandomizedRunner.class)
 @Slow
-public class TestLongTailMutable extends LuceneTestCase {
+public class TestDualPlaneMutable extends LuceneTestCase {
 
   private final static int M = 1048576;
 
@@ -48,7 +48,7 @@ public class TestLongTailMutable extends LuceneTestCase {
   }
 
   public void testViability() {
-    LongTailMutable.Estimate estimate = new LongTailMutable.Estimate(100*M, pad(
+    DualPlaneMutable.Estimate estimate = new DualPlaneMutable.Estimate(100*M, pad(
         1000,
         100,
         1,
@@ -62,7 +62,7 @@ public class TestLongTailMutable extends LuceneTestCase {
   public void testMemoryUsages() {
     dumpImplementationMemUsages("Shard 1 URL", getURLShard1Histogram());
     dumpImplementationMemUsages("Links raw", getLinksHistogram());
-    dumpImplementationMemUsages("Links 20150309", TestLongTailBitPlaneMutable.links20150209);
+    dumpImplementationMemUsages("Links 20150309", TestNPlaneMutable.links20150209);
     final long[] tegHistogram = getHistogram(LongTailIntGenerator.GenerateLongtailDistribution(640000000, 500000, 101));
     dumpImplementationMemUsages("TEG histogram generator", tegHistogram);
   }
@@ -74,9 +74,9 @@ public class TestLongTailMutable extends LuceneTestCase {
     }
     final long intC = valueCount*4;
     final long packC = valueCount * maxBit(histogram) / 8;
-    final long ltbpmC = LongTailBitPlaneMutable.estimateBytesNeeded(histogram);
-    final long ltbpmeC = LongTailBitPlaneMutable.estimateBytesNeeded(histogram, true);
-    final long ltmC = LongTailMutable.estimateBytesNeeded(histogram, (int) valueCount);
+    final long ltbpmC = NPlaneMutable.estimateBytesNeeded(histogram);
+    final long ltbpmeC = NPlaneMutable.estimateBytesNeeded(histogram, true);
+    final long ltmC = DualPlaneMutable.estimateBytesNeeded(histogram, (int) valueCount);
     long lowest = 0; // TODO: Something is wrong as this is not lowest
     for (int i = 0 ; i < histogram[i] ; i++) {
       lowest += histogram[i] * (i+1) / 8;
@@ -133,7 +133,7 @@ public class TestLongTailMutable extends LuceneTestCase {
     System.out.println(
         "Using divisor " + divisor + ", updates " + toString(UPDATES) + ", 1/cache " + toString(CACHE)
             + " and max planes " + toString(MAX_PLANES));
-    measurePerformance(reduce(TestLongTailBitPlaneMutable.links20150209, divisor), RUNS, UPDATES, CACHE, MAX_PLANES);
+    measurePerformance(reduce(TestNPlaneMutable.links20150209, divisor), RUNS, UPDATES, CACHE, MAX_PLANES);
   }
 
   private static String toString(int[] values) {
@@ -159,7 +159,7 @@ public class TestLongTailMutable extends LuceneTestCase {
     final int[] UPDATES = new int[] {M/10, M, 10*M, 100*M};
     final int[] CACHES = new int[] {1000, 500, 200, 100, 50, 20};
     final int[] MAX_PLANES = new int[] {4, 64};
-    measurePerformance(reduce(TestLongTailBitPlaneMutable.links20150209, DIVISOR), 9, UPDATES, CACHES, MAX_PLANES);
+    measurePerformance(reduce(TestNPlaneMutable.links20150209, DIVISOR), 9, UPDATES, CACHES, MAX_PLANES);
   }
 
   public static long[] reduce(long[] values, int divisor) {
@@ -172,14 +172,14 @@ public class TestLongTailMutable extends LuceneTestCase {
 
   private static void measurePerformance(long[] histogram, int runs, int[] updates, int[] caches, int[] maxPlanes) {
     System.out.println("Creating pseudo-random maxima from histogram" + heap());
-    final PackedInts.Reader maxima = TestLongTailBitPlaneMutable.getMaxima(histogram);
+    final PackedInts.Reader maxima = TestNPlaneMutable.getMaxima(histogram);
     List<StatHolder> stats = new ArrayList<>();
     System.out.println("Initializing implementations" + heap());
-//    int cache = LongTailBitPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
+//    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
     for (int cache : caches) {
       for (int mp: maxPlanes) {
-        LongTailBitPlaneMutable ltbpm =
-            new LongTailBitPlaneMutable(maxima, cache, mp, LongTailBitPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
+        NPlaneMutable ltbpm =
+            new NPlaneMutable(maxima, cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
         stats.add(new StatHolder(
             ltbpm,
             "N-plane(#" + ltbpm.getPlaneCount() + ", 1/" + cache + ")",
@@ -188,7 +188,7 @@ public class TestLongTailMutable extends LuceneTestCase {
       }
     }
     stats.add(new StatHolder(
-        LongTailMutable.create(histogram, 0.99),
+        DualPlaneMutable.create(histogram, 0.99),
         "Dual-plane",
         1
     ));
@@ -346,7 +346,7 @@ public class TestLongTailMutable extends LuceneTestCase {
   }
 
   public void testNonViability() {
-    LongTailMutable.Estimate estimate = new LongTailMutable.Estimate(100*M, pad(
+    DualPlaneMutable.Estimate estimate = new DualPlaneMutable.Estimate(100*M, pad(
         1000,
         100,
         2,
@@ -357,8 +357,8 @@ public class TestLongTailMutable extends LuceneTestCase {
   }
 
   public void testEstimate(String designation, long[] histogram, boolean table) {
-    long uniqueCount = LongTailMutable.totalCounters(histogram);
-    LongTailMutable.Estimate estimate = new LongTailMutable.Estimate(uniqueCount, histogram);
+    long uniqueCount = DualPlaneMutable.totalCounters(histogram);
+    DualPlaneMutable.Estimate estimate = new DualPlaneMutable.Estimate(uniqueCount, histogram);
     final double PACKED_MB = uniqueCount*estimate.getMaxBPV()/8 / 1024.0 / 1024;
     System.out.println(String.format(Locale.ENGLISH,
         table ?
@@ -390,7 +390,7 @@ public class TestLongTailMutable extends LuceneTestCase {
   }
 
   public void testLongTailExistingGenerator() {
-    final long[] in = reduce(TestLongTailBitPlaneMutable.links20150209, 10);
+    final long[] in = reduce(TestNPlaneMutable.links20150209, 10);
     System.out.println("*** Input histogram");
     System.out.println(toString(in, "\n"));
 

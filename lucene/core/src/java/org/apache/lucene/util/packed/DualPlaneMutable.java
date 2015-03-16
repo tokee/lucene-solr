@@ -30,7 +30,7 @@ import org.apache.lucene.util.Incrementable;
  * </p><p>
  * Warning: This representation does not support persistence yet.
  */
-public class LongTailMutable extends PackedInts.Mutable implements Incrementable {
+public class DualPlaneMutable extends PackedInts.Mutable implements Incrementable {
   private final PackedInts.Mutable head;
   private final int headBit;
   private int headPos = 0;
@@ -82,7 +82,7 @@ public class LongTailMutable extends PackedInts.Mutable implements Incrementable
       return null; // No viable candidate
     }
 
-    return new LongTailMutable((int) estimate.getHeadValueCount(tailBPV), valueCount, estimate.getMaxBPV(), tailBPV);
+    return new DualPlaneMutable((int) estimate.getHeadValueCount(tailBPV), valueCount, estimate.getMaxBPV(), tailBPV);
   }
 
   public static long estimateBytesNeeded(long[] histogram, int valueCount) {
@@ -91,7 +91,7 @@ public class LongTailMutable extends PackedInts.Mutable implements Incrementable
     return estimate.getMemEstimate(tailBPV);
   }
 
-  public LongTailMutable(int headValueCount, int tailValueCount, int headBPV, int tailBPV) {
+  public DualPlaneMutable(int headValueCount, int tailValueCount, int headBPV, int tailBPV) {
     head = PackedInts.getMutable(headValueCount, headBPV, PackedInts.FASTEST); // There should not be many values
     headBit = 1 << tailBPV;
     tail = PackedInts.getMutable(tailValueCount, tailBPV+1, PackedInts.DEFAULT);
@@ -162,7 +162,7 @@ public class LongTailMutable extends PackedInts.Mutable implements Incrementable
 
     /**
      * @param tailBPV the bpv for the tail of the structure. Valid values: 1-63.
-     * @return true if it is possible to construct a LongTailMutable with the given tailBPV.
+     * @return true if it is possible to construct a DualPlaneMutable with the given tailBPV.
      */
     public boolean isViable(int tailBPV) {
       return estimatedMem[tailBPV] != 0;
@@ -170,7 +170,7 @@ public class LongTailMutable extends PackedInts.Mutable implements Incrementable
 
     /**
      * @param tailBPV the bpv for the tail of the structure. Valid values: 1-63.
-     * @return the approximate number of bytes that will be used for a LongTailMutable with given tailBPV.
+     * @return the approximate number of bytes that will be used for a DualPlaneMutable with given tailBPV.
      */
     public long getMemEstimate(int tailBPV) {
       return estimatedMem[tailBPV];
@@ -178,14 +178,14 @@ public class LongTailMutable extends PackedInts.Mutable implements Incrementable
 
     /**
      * @param tailBPV the bpv for the tail of the structure. Valid values: 1-63.
-     * @return LongTailMutable(tailBPV) mem / Packed64 mem.
+     * @return DualPlaneMutable(tailBPV) mem / Packed64 mem.
      */
     public double getFractionEstimate(int tailBPV) {
       return getMemEstimate(tailBPV) / (valueCount * maxBPV / 8.0);
     }
 
     /**
-     * @return the tailBPV that will result in the smallest LongTailMutable structure. 0 if no viable tailBPV exists.
+     * @return the tailBPV that will result in the smallest DualPlaneMutable structure. 0 if no viable tailBPV exists.
      */
     public int getMostCompactTailBPV() {
       long bestMem = Long.MAX_VALUE;
@@ -204,6 +204,7 @@ public class LongTailMutable extends PackedInts.Mutable implements Incrementable
   }
 
   // Faster than {@code set(get(index)+1)}
+  @Override
   public void inc(int index) {
     final long tailVal = tail.get(index);
     final long newVal = tailVal+1;

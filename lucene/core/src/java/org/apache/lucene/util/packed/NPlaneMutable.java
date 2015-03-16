@@ -27,33 +27,66 @@ import java.util.List;
 
 /**
  * Highly experimental structure for holding counters with known maxima.
- * The structure works best with long tail distributed maxima. The order
- * of the maxima are assumed to be random. For sorted maxima, a structure
- * of a little less than half the size is possible.
+ * The structure works best with long tail distributed maxima.
+ * The order of the maxima are assumed to be random.
+ * For sorted maxima, a structure of a little less than half the size is possible.
  * </p><p>
- * Space saving is prioritized very high, while performance is prioritized
- * very low. Practical usage of the structure is thus limited.
+ * Space saving is prioritized very high, wit performance being secondary.
+ * Practical usage of the structure is thus limited.
  * </p><p>
  * Warning: This representation does not support persistence yet.
  */
-public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incrementable {
+public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 1000; // Should probably be a low lower (100 or so)
   public static final int DEFAULT_MAX_PLANES = 64; // No default limit
   public static final double DEFAULT_COLLAPSE_FRACTION = 0.01; // If there's <= 1% counters left, pack them in 1 plane
 
+  /**
+   * Visualizing the counters as vertical pillars of bits (marked with #):
+   * <pre>
+   * 4:   #
+   * 3:   ## #
+   * 2: # ## #
+   * 1: ######
+   *    ABCDEF
+   * </pre>
+   * The counter for term A needs 2 bits, B needs 1 bit, C needs 4, D 3, E 1 and F3.
+   * </p><p>
+   * Each plane represents a horizontal slice of bits, with an extra bit-set marking (using !) which values overflows
+   * upto the next plane. In this sample, the planes are
+   * <pre>
+   * 4: #
+   *    B
+   *
+   *    !!!!
+   * 3:  ###
+   * 2: ####
+   *    ACDF
+   *
+   *    !!!!!!
+   * 1: ######
+   *    ABCDEF
+   * </pre>
+   * Note that there is no overflow for the upper-most plane as we know it is the last plane.
+   * Also note that the second plane holds 2 bits (bit 2 and 3) as the need for the overflow bits makes it cheaper to
+   * share those 2 bits, rather than using an extra overflow bit set.
+   * </p>
+   */
   private final Plane[] planes;
 
-  public LongTailBitPlaneMutable(PackedInts.Reader maxima) {
+  /**
+   * Create a mutable of length {@code maxima.size()} capable of holding values up to the given maxima.
+   * Space/performance trade-offs uses default values. The values will be initialized to 0.
+   * @param maxima maxima for all values.
+   */
+  public NPlaneMutable(PackedInts.Reader maxima) {
     this(maxima, DEFAULT_OVERFLOW_BUCKET_SIZE);
   }
 
-  public LongTailBitPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize) {
+  public NPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize) {
     this(maxima, overflowBucketSize, DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION);
-
-
   }
-  public LongTailBitPlaneMutable(
-      PackedInts.Reader maxima, int overflowBucketSize, int maxPlanes, double collapseFraction) {
+  public NPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize, int maxPlanes, double collapseFraction) {
     final List<PseudoPlane> pseudoPlanes = getLayout(maxima, overflowBucketSize, maxPlanes, collapseFraction);
     planes = new Plane[pseudoPlanes.size()];
     for (int i = 0 ; i < pseudoPlanes.size() ; i++) {
@@ -126,16 +159,6 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
     return full;
   }
 
-  private int max(long[] histogram, int startBit) {
-    long max = histogram[startBit];
-    for (int i = startBit+1 ; i < histogram.length ; i++) {
-      if (histogram[i] > max) {
-        max = histogram[i];
-      }
-    }
-    return (int) max;
-  }
-
   private void populateStaticStructures(PackedInts.Reader maxima) {
 //    System.out.println("Populating " + planes.length + " planes with overflow data. Initial empty layout:");
 //    for (Plane plane: planes) {
@@ -194,17 +217,6 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
     return histogram;
   }
 
-  private String toString(long[] histogram) {
-    StringBuilder sb = new StringBuilder();
-    for (long valueCount : histogram) {
-      if (sb.length() > 0) {
-        sb.append(", ");
-      }
-      sb.append(Long.toString(valueCount));
-    }
-    return sb.toString();
-  }
-
   @Override
   public long get(int index) {
     long value = 0;
@@ -246,25 +258,16 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
 //    }
   }
 
-  // Inc should really be part of the PackedInts.Mutable API
   @Override
   public void inc(int index) {
 //    System.out.println("\ninc(" + index+ ")");
-    for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
-      final Plane plane = planes[planeIndex];
-      final int bpv = plane.values.getBitsPerValue();
-      long value = plane.values.get(index);
-      value++;
-      plane.values.set(index, value & ~(~1 << (bpv-1)));
-      if (planeIndex == planes.length-1 || (value >>> bpv) == 0) { // No overflow
+    for (final Plane plane : planes) {
+      if (!plane.inc(index)) { // No overflow; exit immediately. Note: There is no check for overflow beyond maxima
         break;
       }
       // We know there is actual overflow. As this is an inc, we know the overflow is 1
       index = plane.getNextPlaneIndex(index);
     }
-//    for (Plane plane: planes) {
-//      System.out.println(plane.toString());
-//    }
   }
 
   @Override
@@ -382,6 +385,19 @@ public class LongTailBitPlaneMutable extends PackedInts.Mutable implements Incre
       overflowCache = PackedInts.getMutable( // TODO: Spare the +1
           valueCount / overflowBucketSize + 1, PackedInts.bitsRequired(valueCount), PackedInts.COMPACT);
       this.maxBit = maxBit;
+    }
+
+    /**
+     * Increment the value at the given index by 1.
+     * </p><p>
+     * @param index the value to increment.
+     * @return true if the value resulted in an overflow.
+     */
+    public boolean inc(int index) {
+      long value = values.get(index);
+      value++;
+      values.set(index, value & ~(~1 << (values.getBitsPerValue()-1)));
+      return (value >>> values.getBitsPerValue()) != 0;
     }
 
     public long ramBytesUsed() {

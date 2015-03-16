@@ -17,7 +17,6 @@ package org.apache.lucene.util.packed;
  * limitations under the License.
  */
 
-import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
 import org.apache.lucene.util.RamUsageEstimator;
@@ -25,7 +24,7 @@ import org.apache.lucene.util.RamUsageEstimator;
 import java.util.Locale;
 
 @Slow
-public class TestLongTailBitPlaneMutable extends LuceneTestCase {
+public class TestNPlaneMutable extends LuceneTestCase {
 
   private final static int M = 1048576;
 
@@ -39,7 +38,7 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
     }
     System.out.println("maxima: " + toString(maxima));
 
-    PackedInts.Mutable bpm = new LongTailBitPlaneMutable(maxima);
+    PackedInts.Mutable bpm = new NPlaneMutable(maxima);
     bpm.set(1, bpm.get(1)+1);
     assertEquals("Test 1: index 1", 1, bpm.get(1));
     assertEquals("The unmodified counter 0 should be zero", 0 , bpm.get(0));
@@ -56,7 +55,7 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
   public void testSmallInc() {
     final PackedInts.Mutable maxima = toMutable(10, 1, 16, 2, 3);
     System.out.println("maxima: " + toString(maxima));
-    LongTailBitPlaneMutable bpm = new LongTailBitPlaneMutable(maxima);
+    NPlaneMutable bpm = new NPlaneMutable(maxima);
 
     bpm.inc(1);
     assertEquals("Test 1: index 1", 1, bpm.get(1));
@@ -73,7 +72,7 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
 
   public void testOverflowCache() {
     final PackedInts.Mutable maxima = toMutable(10, 1, 16, 2, 3, 2, 3, 100, 140);
-    LongTailBitPlaneMutable bpm = new LongTailBitPlaneMutable(maxima, 5);
+    NPlaneMutable bpm = new NPlaneMutable(maxima, 5);
     final int[][] TESTS = new int[][]{
         {8, 14},
         {7, 50},
@@ -115,15 +114,16 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
   public void testRandom() {
     final int COUNTERS = 100;
     final int MAX = 1000;
-    final int updates = M;
+    final int updates = M/100;
     final PackedInts.Reader maxima = getMaxima(COUNTERS, MAX);
 
     assertMonkey(maxima, updates);
   }
 
   public void testRandomSmallLongTail() {
-//    PackedInts.Reader maxima = getMaxima(TestLongTailMutable.getLinksHistogram());
-    PackedInts.Reader maxima = getMaxima(TestLongTailMutable.pad(1, 3, 2));
+//    PackedInts.Reader maxima = getMaxima(TestDualPlaneMutable.getLinksHistogram());
+    PackedInts.Reader maxima = getMaxima(TestDualPlaneMutable.pad(1, 3, 2));
+    // TODO: This hangs until LongTailIntGenerator works again (waiting for commit from Thomas Egense)
     assertMonkey(maxima, 21);
   }
 
@@ -133,14 +133,14 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
 
   public void testBytesEstimation() {
     System.out.println(String.format("ltbpm=%d/%d/%dMB",
-        LongTailBitPlaneMutable.estimateBytesNeeded(links20150209) / M,
-        640280533L*(LongTailBitPlaneMutable.getMaxBit(links20150209)+1)/8/M,
+        NPlaneMutable.estimateBytesNeeded(links20150209) / M,
+        640280533L*(NPlaneMutable.getMaxBit(links20150209)+1)/8/M,
         640280533L*4/M));
   }
 
   public void testAssignRealLargeSample() {
     PackedInts.Reader maxima = getMaxima(links20150209);
-    LongTailBitPlaneMutable bpm = new LongTailBitPlaneMutable(maxima);
+    NPlaneMutable bpm = new NPlaneMutable(maxima);
     for (int i = 0 ; i < maxima.size() ; i++) {
       bpm.set(i, maxima.get(i));
       assertEquals("The set value at index " + i + " should be correct", maxima.get(i), bpm.get(i));
@@ -151,7 +151,7 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
   }
 
   private void assertMonkey(PackedInts.Reader maxima, int updates) {
-    LongTailBitPlaneMutable bpm = new LongTailBitPlaneMutable(maxima);
+    NPlaneMutable bpm = new NPlaneMutable(maxima);
     PackedInts.Mutable expected = PackedInts.getMutable(bpm.size(), bpm.getBitsPerValue(), PackedInts.FASTEST);
     System.out.println(String.format(Locale.ENGLISH, "Memory used: %d/%dMB (%4.2f%%)",
         bpm.ramBytesUsed()/M, maxima.ramBytesUsed()/M, bpm.ramBytesUsed() * 100.0 / maxima.ramBytesUsed()));
@@ -201,7 +201,7 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
   // Index 0 = first bit
   public static PackedInts.Reader getMaxima(long[] histogram) {
     return new PackedWrapped(
-        LongTailIntGenerator.GenerateLongtailDistribution(TestLongTailMutable.toInt(histogram), 1000));
+        LongTailIntGenerator.GenerateLongtailDistribution(TestDualPlaneMutable.toInt(histogram), 1000));
 
   }
 
@@ -263,7 +263,7 @@ public class TestLongTailBitPlaneMutable extends LuceneTestCase {
     }
   }
 
-  public static final long[] links20150209 = TestLongTailMutable.pad( // Taken from a test-index with 217M docs / 906G   425799733,
+  public static final long[] links20150209 = TestDualPlaneMutable.pad( // Taken from a test-index with 217M docs / 906G   425799733,
       425799733,
       85835129,
       52695663,
