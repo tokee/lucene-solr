@@ -94,7 +94,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
     assertEquals("The value at position " + index + " should be correct", expected, maxima.get(index));
   }
 
-  private PackedInts.Mutable toMutable(int... maxValues) {
+  public static PackedInts.Mutable toMutable(int... maxValues) {
     int maxMax = 0;
     for (int maxValue: maxValues) {
       if (maxValue > maxMax) {

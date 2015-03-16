@@ -27,7 +27,7 @@ import java.util.Locale;
 @Slow
 public class TestDualPlaneMutable extends LuceneTestCase {
   final static int M = 1048576;
-  
+
   public void testLinksEstimate() { // 519*M
     testEstimate("8/9 shard links", getLinksHistogram(), false);
   }
@@ -51,6 +51,46 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     // 1+3=4 and there are 2^2=4 pointers
     assertTrue("The layout should be viable for tailBPV=2", estimate.isViable(2));
   }
+
+  public void testOverflowFail() {
+    final int[] MAXIMA = new int[]{10, 1, 16, 140};
+    DualPlaneMutable dpm = DualPlaneMutable.create(LongTailPerformance.pad(getHistogram(MAXIMA)), 1.0);
+    System.out.println(dpm);
+    dpm.set(3, 14);
+    assertEquals("The value at position 3 should be correct after set", 14, dpm.get(3));
+  }
+
+  public void testOverflowCache() {
+    final int[] MAXIMA = new int[]{10, 1, 16, 2, 3, 2, 3, 100, 140};
+    DualPlaneMutable dpm = DualPlaneMutable.create(LongTailPerformance.pad(getHistogram(MAXIMA)), 1.0);
+    final int[][] TESTS = new int[][]{
+        {8, 14},
+        {7, 50},
+        {4, 3},
+        {2, 7},
+        {5, 1}
+    };
+    for (int[] test: TESTS) {
+      assertEquals("The value at position " + test[0] + " should initially be zero", 0, dpm.get(test[0]));
+      dpm.set(test[0], test[1]);
+      assertEquals("The value at position " + test[0] + " should be correct after set", test[1], dpm.get(test[0]));
+    }
+    for (int i = 0 ; i < MAXIMA.length ; i++) {
+      dpm.set(i, MAXIMA[i]);
+      assertEquals("The value at position " + i + " should be correct after max set", MAXIMA[i], dpm.get(i));
+    }
+    for (int i = 0 ; i < MAXIMA.length ; i++) {
+      dpm.set(i, MAXIMA[i]-1);
+      assertEquals("The value at position " + i + " should be correct after max-1 set", MAXIMA[i]-1, dpm.get(i));
+    }
+    for (int i = 0 ; i < MAXIMA.length ; i++) {
+      dpm.inc(i);
+      assertEquals("The value at position " + i + " should be correct after max set + inc", MAXIMA[i], dpm.get(i));
+    }
+  }
+
+
+
 
   public void testMemoryUsages() {
     dumpImplementationMemUsages("Shard 1 URL", getURLShard1Histogram());
