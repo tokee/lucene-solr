@@ -19,13 +19,11 @@ package org.apache.lucene.util.packed;
 
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
-import org.apache.lucene.util.RamUsageEstimator;
 
 import java.util.Locale;
 
 @Slow
 public class TestNPlaneMutable extends LuceneTestCase {
-
   private final static int M = 1048576;
 
   public void testSmallAdd() {
@@ -122,24 +120,24 @@ public class TestNPlaneMutable extends LuceneTestCase {
 
   public void testRandomSmallLongTail() {
 //    PackedInts.Reader maxima = getMaxima(TestDualPlaneMutable.getLinksHistogram());
-    PackedInts.Reader maxima = getMaxima(TestDualPlaneMutable.pad(1, 3, 2));
+    PackedInts.Reader maxima = LongTailPerformance.getMaxima(LongTailPerformance.pad(1, 3, 2));
     // TODO: This hangs until LongTailIntGenerator works again (waiting for commit from Thomas Egense)
     assertMonkey(maxima, 21);
   }
 
   public void testRandomRealWorldHistogramLongTail() {
-    assertMonkey(getMaxima(TestDualPlaneMutable.reduce(links20150209, 10)), M);
+    assertMonkey(LongTailPerformance.getMaxima(LongTailPerformance.reduce(LongTailPerformance.links20150209, 10)), M);
   }
 
   public void testBytesEstimation() {
     System.out.println(String.format("ltbpm=%d/%d/%dMB",
-        NPlaneMutable.estimateBytesNeeded(links20150209) / M,
-        640280533L*(NPlaneMutable.getMaxBit(links20150209)+1)/8/M,
+        NPlaneMutable.estimateBytesNeeded(LongTailPerformance.links20150209) / M,
+        640280533L*(NPlaneMutable.getMaxBit(LongTailPerformance.links20150209)+1)/8/M,
         640280533L*4/M));
   }
 
   public void testAssignRealLargeSample() {
-    PackedInts.Reader maxima = getMaxima(links20150209);
+    PackedInts.Reader maxima = LongTailPerformance.getMaxima(LongTailPerformance.links20150209);
     NPlaneMutable bpm = new NPlaneMutable(maxima);
     for (int i = 0 ; i < maxima.size() ; i++) {
       bpm.set(i, maxima.get(i));
@@ -198,33 +196,6 @@ public class TestNPlaneMutable extends LuceneTestCase {
     return maxima;
   }
 
-  // Index 0 = first bit
-  public static PackedInts.Reader getMaxima(long[] histogram) {
-    return new PackedWrapped(
-        LongTailIntGenerator.GenerateLongtailDistribution(TestDualPlaneMutable.toInt(histogram), 1000));
-
-  }
-
-  private static final class PackedWrapped extends PackedInts.ReaderImpl {
-    private final int[] values;
-
-    public PackedWrapped(int[] values) {
-      super(values.length, 32);
-      this.values = values;
-    }
-
-    @Override
-    public long ramBytesUsed() {
-      return RamUsageEstimator.alignObjectSize(RamUsageEstimator.NUM_BYTES_OBJECT_REF) +
-          RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + 4*values.length;
-    }
-
-    @Override
-    public long get(int docID) {
-      return values[docID];
-    }
-  }
-
   public static PackedInts.Reader oldGetMaxima(long[] histogram) {
     System.out.println("Creating random maxima from histogram...");
     long valueCount = 0;
@@ -262,31 +233,5 @@ public class TestNPlaneMutable extends LuceneTestCase {
       maxima.set(i, val);
     }
   }
-
-  public static final long[] links20150209 = TestDualPlaneMutable.pad( // Taken from a test-index with 217M docs / 906G   425799733,
-      425799733,
-      85835129,
-      52695663,
-      33153759,
-      18864935,
-      10245205,
-      5691412,
-      3223077,
-      1981279,
-      1240879,
-      714595,
-      429129,
-      225416,
-      114271,
-      45521,
-      12966,
-      4005,
-      1764,
-      805,
-      789,
-      123,
-      77,
-      1
-  );
 
 }

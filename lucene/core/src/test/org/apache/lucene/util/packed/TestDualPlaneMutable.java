@@ -17,23 +17,17 @@ package org.apache.lucene.util.packed;
  * limitations under the License.
  */
 
-import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
 import org.junit.runner.RunWith;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 import java.util.Locale;
-import java.util.Random;
 
 @RunWith(com.carrotsearch.randomizedtesting.RandomizedRunner.class)
 @Slow
 public class TestDualPlaneMutable extends LuceneTestCase {
-
-  private final static int M = 1048576;
-
+  final static int M = 1048576;
+  
   public void testLinksEstimate() { // 519*M
     testEstimate("8/9 shard links", getLinksHistogram(), false);
   }
@@ -48,7 +42,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
   }
 
   public void testViability() {
-    DualPlaneMutable.Estimate estimate = new DualPlaneMutable.Estimate(100*M, pad(
+    DualPlaneMutable.Estimate estimate = new DualPlaneMutable.Estimate(100* M, LongTailPerformance.pad(
         1000,
         100,
         1,
@@ -58,11 +52,10 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     assertTrue("The layout should be viable for tailBPV=2", estimate.isViable(2));
   }
 
-
   public void testMemoryUsages() {
     dumpImplementationMemUsages("Shard 1 URL", getURLShard1Histogram());
     dumpImplementationMemUsages("Links raw", getLinksHistogram());
-    dumpImplementationMemUsages("Links 20150309", TestNPlaneMutable.links20150209);
+    dumpImplementationMemUsages("Links 20150309", LongTailPerformance.links20150209);
     final long[] tegHistogram = getHistogram(LongTailIntGenerator.GenerateLongtailDistribution(640000000, 500000, 101));
     dumpImplementationMemUsages("TEG histogram generator", tegHistogram);
   }
@@ -73,7 +66,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
       valueCount += values;
     }
     final long intC = valueCount*4;
-    final long packC = valueCount * maxBit(histogram) / 8;
+    final long packC = valueCount * LongTailPerformance.maxBit(histogram) / 8;
     final long ltbpmC = NPlaneMutable.estimateBytesNeeded(histogram);
     final long ltbpmeC = NPlaneMutable.estimateBytesNeeded(histogram, true);
     final long ltmC = DualPlaneMutable.estimateBytesNeeded(histogram, (int) valueCount);
@@ -82,273 +75,17 @@ public class TestDualPlaneMutable extends LuceneTestCase {
       lowest += histogram[i] * (i+1) / 8;
     }
 
-    System.out.println(source + ": " + valueCount + " counters, max bit " + maxBit(histogram));
-    System.out.println(String.format("Solr default int[]: %4dMB", intC/M));
-    System.out.println(String.format("Sparse PackedInts:  %4dMB", packC/M));
+    System.out.println(source + ": " + valueCount + " counters, max bit " + LongTailPerformance.maxBit(histogram));
+    System.out.println(String.format("Solr default int[]: %4dMB", intC/ M));
+    System.out.println(String.format("Sparse PackedInts:  %4dMB", packC/ M));
     System.out.println(String.format("Long Tail Dual:     %4dMB", ltmC / M));
     System.out.println(String.format("Long Tail Planes:   %4dMB", ltbpmC / M));
     System.out.println(String.format("Long Tail Planes+:  %4dMB", ltbpmeC / M));
     System.out.println(String.format("Lowest possible:    %4dMB", lowest / M));
   }
 
-  private static int maxBit(long[] histogram) {
-    int maxBit = 0;
-    for (int i = 0 ; i < histogram.length ; i++) {
-      if (histogram[i] != 0) {
-        maxBit = i+1; // Counting from 0
-      }
-    }
-    return maxBit;
-  }
-
-  // main(divisor "million updates" "N-plane 1/cache")
-  public static void main(String[] args) {
-    final int RUNS = 9;
-    int divisor = args.length == 0 ? 1 : Integer.parseInt(args[0]);
-    int[] UPDATES = new int[] {M/10, M, 10*M, 100*M};
-    if (args.length > 1) {
-      String[] tokens = args[1].split(" ");
-      UPDATES = new int[tokens.length];
-      for (int i = 0 ; i < tokens.length ; i++) {
-        UPDATES[i] = (int) (Double.parseDouble(tokens[i])*M);
-      }
-    }
-    int[] CACHE = new int[]{1000, 500, 200, 100, 50, 20};
-    if (args.length > 2) {
-      String[] tokens = args[2].split(" ");
-      CACHE = new int[tokens.length];
-      for (int i = 0 ; i < tokens.length ; i++) {
-        CACHE[i] = Integer.parseInt(tokens[i]);
-      }
-    }
-    int[] MAX_PLANES = new int[]{64};
-    if (args.length > 3) {
-      String[] tokens = args[3].split(" ");
-      MAX_PLANES = new int[tokens.length];
-      for (int i = 0 ; i < tokens.length ; i++) {
-        MAX_PLANES[i] = Integer.parseInt(tokens[i]);
-      }
-    }
-
-    System.out.println(
-        "Using divisor " + divisor + ", updates " + toString(UPDATES) + ", 1/cache " + toString(CACHE)
-            + " and max planes " + toString(MAX_PLANES));
-    measurePerformance(reduce(TestNPlaneMutable.links20150209, divisor), RUNS, UPDATES, CACHE, MAX_PLANES);
-  }
-
-  private static String toString(int[] values) {
-    StringBuilder sb = new StringBuilder();
-    for (int v: values) {
-      if (sb.length() > 0) {
-        sb.append(", ");
-      }
-      sb.append(v >= M ? v/M + "M" : v);
-    }
-    return sb.toString();
-  }
-
-  public void testSimplePerformance() {
-    final int[] UPDATES = new int[] {1000, 10000};
-    final int[] CACHES = new int[] {1000, 500, 200, 100, 50, 20};
-    final int[] MAX_PLANES = new int[] {1, 2, 3, 4, 64};
-    measurePerformance(pad(10000, 2000, 10, 3, 2, 1), 5, UPDATES, CACHES, MAX_PLANES);
-  }
-
-  public void testLargePerformance() {
-    final int DIVISOR = 50;
-    final int[] UPDATES = new int[] {M/10, M, 10*M, 100*M};
-    final int[] CACHES = new int[] {1000, 500, 200, 100, 50, 20};
-    final int[] MAX_PLANES = new int[] {4, 64};
-    measurePerformance(reduce(TestNPlaneMutable.links20150209, DIVISOR), 9, UPDATES, CACHES, MAX_PLANES);
-  }
-
-  public static long[] reduce(long[] values, int divisor) {
-    final long[] result = new long[values.length];
-    for (int i = 0 ; i < values.length ; i++) {
-      result[i] = values[i] / divisor;
-    }
-    return result;
-  }
-
-  private static void measurePerformance(long[] histogram, int runs, int[] updates, int[] caches, int[] maxPlanes) {
-    System.out.println("Creating pseudo-random maxima from histogram" + heap());
-    final PackedInts.Reader maxima = TestNPlaneMutable.getMaxima(histogram);
-    List<StatHolder> stats = new ArrayList<>();
-    System.out.println("Initializing implementations" + heap());
-//    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
-    for (int cache : caches) {
-      for (int mp: maxPlanes) {
-        for (NPlaneMutable.IMPL impl: NPlaneMutable.IMPL.values()) {
-          NPlaneMutable ltbpm =
-              new NPlaneMutable(maxima, cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, impl);
-          stats.add(new StatHolder(
-              ltbpm,
-              "N-" + impl + "(#" + ltbpm.getPlaneCount() + ", 1/" + cache + ")",
-              1
-          ));
-        }
-      }
-    }
-    stats.add(new StatHolder(
-        DualPlaneMutable.create(histogram, 0.99),
-        "Dual-plane",
-        1
-    ));
-    stats.add(new StatHolder(
-        PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.COMPACT),
-        "PackedInts.COMPACT",
-        1
-    ));
-    stats.add(new StatHolder(
-        PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.FAST),
-        "PackedInts.FAST",
-        1
-    ));
-/*    stats.add(new StatHolder(
-        PackedInts.getMutable(maxima.size(), 31, PackedInts.FASTEST),
-        "PackedInts int[]",
-        updates
-    ));*/
-
-    PackedInts.Mutable valueIncrements = null;
-    for (StatHolder stat: stats) {
-      System.out.print(stat.designation + "  ");
-    }
-    System.out.println();
-
-    for (int update: updates) {
-      System.out.println(String.format("Performing %d test runs of %dM updates in %dM counters with max bit %d%s",
-          runs, update / M, maxima.size() / 1000000, maxBit(histogram), heap()));
-
-      for (StatHolder stat : stats) {
-        stat.setUpdates(update);
-      }
-      for (int i = 0; i < runs; i++) {
-        System.out.print("[generating update");
-        final long seed = new Random().nextLong(); // Should really be random() but we want to run under main
-        // Generate the increments to run
-        valueIncrements = generateValueIncrements(maxima, update, valueIncrements, seed);
-        System.gc(); // We don't want GC in the middle of measurements
-        System.out.print("] ");
-        for (StatHolder stat : stats) {
-          stat.impl.clear();
-          long ns = measure(stat.impl, valueIncrements);
-          stat.addTiming(ns);
-          System.out.print(String.format(Locale.ENGLISH, "%7d", (long) (((double) update) / ns * 1000000)));
-        }
-        System.out.println(heap());
-      }
-      for (StatHolder stat : stats) {
-        System.out.println(stat);
-        stat.addUPS(stat.getMedianUpdatesPerMS());
-      }
-    }
-    // Overall stats
-    System.out.print(String.format(Locale.ENGLISH,
-        "<table style=\"width: 80%%\">" +
-            "<caption>Median updates/ms of %dM counters with max bit %d</caption>\n" +
-            "<tr style=\"text-align: right\"><th>Implementation</th> <th>MB</th>",
-        maxima.size() / 1000000, maxBit(histogram)));
-    for (int update: updates) {
-      System.out.print(String.format(Locale.ENGLISH, " <th>%s updates</th>", update >= M ? update/M + "M" : update));
-    }
-    System.out.println("</tr>");
-    for (StatHolder stat: stats) {
-      System.out.print(String.format(Locale.ENGLISH,
-          "<tr style=\"text-align: right;\"><th>%s</th> <td>%d</td>",
-          stat.designation, stat.impl.ramBytesUsed()/M));
-      for (int i = 0 ; i < updates.length ; i++) {
-        System.out.print(String.format(Locale.ENGLISH, " <td>%.0f</td>", stat.ups.get(i)));
-      }
-      System.out.println("</tr>");
-    }
-    System.out.println("</table>");
-  }
-
-  private static String heap() {
-    Runtime runtime = Runtime.getRuntime();
-    return " (" + (runtime.totalMemory() - runtime.freeMemory()) / M + "/" +
-        runtime.maxMemory()/M + "MB heap used)";
-  }
-
-  private static class StatHolder {
-    private final PackedInts.Mutable impl;
-    private final String designation;
-    private final List<Long> timings = new ArrayList<>();
-    private int updatesPerTiming;
-    private final List<Double> ups = new ArrayList<>();
-
-    public StatHolder(PackedInts.Mutable impl, String designation, int updatesPerTiming) {
-      this.impl = impl;
-      this.designation = designation;
-      this.updatesPerTiming = updatesPerTiming;
-      System.out.println("Created StatHolder: " + impl.getClass().getSimpleName() + ": " + designation + " ("
-      + impl.ramBytesUsed()/M + "MB)" + heap());
-    }
-
-    public void addTiming(long ns) {
-      timings.add(ns);
-    }
-
-    public void addUPS(double ups) {
-      this.ups.add(ups);
-    }
-
-    public double getMedianUpdatesPerMS() {
-      Collections.sort(timings);
-      return timings.isEmpty() ? 0 : ((double)updatesPerTiming)/timings.get(timings.size()/2)*1000000;
-    }
-
-    public String toString() {
-      return String.format("%-22s (%3dMB): %6d updates/ms median",
-          designation, impl.ramBytesUsed()/M, (long)getMedianUpdatesPerMS());
-    }
-
-    public void setUpdates(int updates) {
-      updatesPerTiming = updates;
-      timings.clear();
-    }
-  }
-
-  private static PackedInts.Mutable generateValueIncrements(
-      PackedInts.Reader maxima, int updates, PackedInts.Mutable increments, long seed) {
-    if (increments != null && increments.size() == updates) {
-      increments.clear();
-    } else {
-      increments = PackedInts.getMutable(updates, PackedInts.bitsRequired(maxima.size()), PackedInts.FAST);
-    }
-    final Random random = new Random(seed);
-    final PackedInts.Mutable tracker =
-        PackedInts.getMutable(maxima.size(), maxima.getBitsPerValue(), PackedInts.FAST);
-
-    for (int i = 0 ; i < updates ; i++) {
-      int index = random.nextInt(maxima.size());
-      while (tracker.get(index) == maxima.get(index)) {
-        if (++index == maxima.size()) {
-          index = 0;
-        }
-      }
-      tracker.set(index, tracker.get(index)+1);
-      increments.set(i, index);
-    }
-    return increments;
-  }
-
-  // Runs a performance test and reports time spend as nano seconds
-  private static long measure(PackedInts.Mutable counters, PackedInts.Reader valueIncrements) {
-    final Incrementable incCounters = counters instanceof Incrementable ?
-        (Incrementable)counters :
-        new Incrementable.IncrementableMutable(counters);
-
-    long start = System.nanoTime();
-    for (int i = 0 ; i < valueIncrements.size() ; i++) {
-      incCounters.inc((int) valueIncrements.get(i));
-    }
-    return System.nanoTime()-start;
-  }
-
   public void testNonViability() {
-    DualPlaneMutable.Estimate estimate = new DualPlaneMutable.Estimate(100*M, pad(
+    DualPlaneMutable.Estimate estimate = new DualPlaneMutable.Estimate(100* M, LongTailPerformance.pad(
         1000,
         100,
         2,
@@ -367,7 +104,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
             "<table style=\"width: 80%%\"><caption>%s: %s uniques, Packed64 size: %.0fMB</caption>\n" +
                 "<tr style=\"text-align: right\"><th>tailBPV</th> <th>mem</th> <th>saved</th> <th>headCounters</th></tr>" :
             "%s: %s uniques, Packed64 size: %.0fMB",
-        designation, uniqueCount < 10*M ? uniqueCount/1000 + "K>" : uniqueCount/M + "M", PACKED_MB));
+        designation, uniqueCount < 10* M ? uniqueCount/1000 + "K>" : uniqueCount/ M + "M", PACKED_MB));
     for (int tailBPV = 0 ; tailBPV < 64 ; tailBPV++) {
       if (estimate.isViable(tailBPV) && estimate.getFractionEstimate(tailBPV) <= 1.0) {
         double mb = estimate.getMemEstimate(tailBPV) / 1024.0 / 1024;
@@ -392,21 +129,13 @@ public class TestDualPlaneMutable extends LuceneTestCase {
   }
 
   public void testLongTailExistingGenerator() {
-    final long[] in = reduce(TestNPlaneMutable.links20150209, 10);
+    final long[] in = LongTailPerformance.reduce(LongTailPerformance.links20150209, 10);
     System.out.println("*** Input histogram");
     System.out.println(toString(in, "\n"));
 
-    final long[] histogram = getHistogram(LongTailIntGenerator.GenerateLongtailDistribution(toInt(in), 1000));
+    final long[] histogram = getHistogram(LongTailIntGenerator.generateFromBitHistogram(LongTailPerformance.toGeneratorHistogram(in), 1000));
     System.out.println("*** Output histogram");
     System.out.println(toString(histogram, "\n"));
-  }
-
-  public static int[] toInt(long[] values) {
-    final int[] ints = new int[values.length];
-    for (int i = 0 ; i < values.length ; i++) {
-      ints[i] = (int)values[i];
-    }
-    return ints;
   }
 
   public void testPrintRealWorldDistribution() {
@@ -415,7 +144,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
 
   private String toString(long[] histogram, String divider) {
     StringBuilder sb = new StringBuilder();
-    for (int i = 0; i <= maxBit(histogram); i++) {
+    for (int i = 0; i <= LongTailPerformance.maxBit(histogram); i++) {
       long maxValue = histogram[i];
       if (sb.length() > 0) {
         sb.append(divider);
@@ -445,7 +174,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
 
   private long[] getURLShard1Histogram() { // Taken from URL from shard 1 in netarchive.dk
     // 228M uniques
-    return pad(
+    return LongTailPerformance.pad(
         196552211,
         20504581,
         5626432,
@@ -462,7 +191,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     );
   }
 
-  private long[] SHARD1_HOST = pad(
+  private long[] SHARD1_HOST = LongTailPerformance.pad(
       // 1562680 uniques
       194715,
       181562,
@@ -491,7 +220,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
 
   private long[] getURLShard2Histogram() { // Taken from URL in netarchive.dk
     // 230M uniques
-    return pad(
+    return LongTailPerformance.pad(
         213596462,
         7814717,
         3496320,
@@ -509,7 +238,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
   }
   private long[] getURLShard3Histogram() { // Taken from URL in netarchive.dk
     // 214M uniques
-    return pad(
+    return LongTailPerformance.pad(
         188429984,
         17107714,
         4977514,
@@ -554,21 +283,21 @@ public class TestDualPlaneMutable extends LuceneTestCase {
    */
 
   public void testBitPlanePacking() {
-    final long VALUES = 519*M;
+    final long VALUES = 519* M;
     final long[] histogram = getLinksHistogram();
 
     double totalBits = 2*VALUES; // Base
-    System.out.println(String.format("hist=%10d, bits=%d, total=%dMB", VALUES, 0, (int)(totalBits/8/M)));
+    System.out.println(String.format("hist=%10d, bits=%d, total=%dMB", VALUES, 0, (int)(totalBits/8/ M)));
 
     for (int bits = 1 ; bits < 64 ; bits++) {
       totalBits += 2 * histogram[bits-1];
-      System.out.println(String.format("hist=%10d, bits=%d, total=%dMB", histogram[bits-1], bits, (int)(totalBits/8/M)));
+      System.out.println(String.format("hist=%10d, bits=%d, total=%dMB", histogram[bits-1], bits, (int)(totalBits/8/ M)));
       if (histogram[bits-1] == 0) {
         break; // Shouldn't this reach 0 automatically?
       }
     }
 
-    System.out.println(String.format("%dMB/%dMB: %4.2f", (long)(totalBits/8/M), VALUES*4/M, totalBits / (VALUES*32)));
+    System.out.println(String.format("%dMB/%dMB: %4.2f", (long)(totalBits/8/ M), VALUES*4/ M, totalBits / (VALUES*32)));
   }
 
   // if (histogram[bits+1] < histogram[bits]/2) collapse
@@ -582,12 +311,12 @@ public class TestDualPlaneMutable extends LuceneTestCase {
    * the raw version is extremely slow, requiring billions of bit-checks to update a single counter.
    */
   public void testMultiBitPlanePacking() {
-    final long VALUES = 519*M;
+    final long VALUES = 519* M;
     final long[] histogram = getLinksHistogram();
 
     final long[] values = new long[histogram.length+2];
     System.arraycopy(histogram, 0, values, 0, histogram.length);
-    values[0] = 519*M;
+    values[0] = 519* M;
 
     double totalBits = 0;
     int bits = 0;
@@ -606,11 +335,11 @@ public class TestDualPlaneMutable extends LuceneTestCase {
       totalBits += bitmapLength;
       bits++;
     }
-    System.out.println(String.format("%dMB/%dMB: %4.2f", (long)(totalBits/8/M), VALUES*4/M, totalBits / (VALUES*32)));
+    System.out.println(String.format("%dMB/%dMB: %4.2f", (long)(totalBits/8/ M), VALUES*4/ M, totalBits / (VALUES*32)));
   }
 
   public static long[] getLinksHistogram() {
-    return pad( // Taken from links in a 8/9 build shard from netarchive.dk
+    return LongTailPerformance.pad( // Taken from links in a 8/9 build shard from netarchive.dk
         // 519M uniques
         351962313,
         64785381,
@@ -637,9 +366,4 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     );
   }
 
-  public static long[] pad(long... maxCounts) {
-    long[] full = new long[64];
-    System.arraycopy(maxCounts, 0, full, 0, maxCounts.length);
-    return full;
-  }
 }
