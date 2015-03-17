@@ -26,11 +26,11 @@ import java.util.Locale;
 public class TestNPlaneMutable extends LuceneTestCase {
   private final static int M = 1048576;
 
-  // Triggers ArrayIndexOutOfBoundsException
-  public void testTriggerShiftError() {
-    final int DIVISOR = 500;
-    final int[] UPDATES = new int[] {M};
-    final int[] CACHES = new int[] {1000};
+  // Once triggered an ArrayIndexOutOfBoundsException, now just runs random updates
+  public void testMonkey() {
+    final int DIVISOR = 5;
+    final int[] UPDATES = new int[] {10*M};
+    final int[] CACHES = new int[] {200};
     final int[] MAX_PLANES = new int[] {4};
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
         9, UPDATES, CACHES, MAX_PLANES);

@@ -26,6 +26,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * Non-unit-test performance test for using PackedInts implementations for counters
@@ -85,34 +89,35 @@ public class LongTailPerformance {
     List<StatHolder> stats = new ArrayList<>();
     System.out.println("Initializing implementations" + heap());
 //    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
+    char id = 'a';
     for (int mp: maxPlanes) {
       for (int cache : caches) {
         for (NPlaneMutable.IMPL impl: new NPlaneMutable.IMPL[] {NPlaneMutable.IMPL.split, NPlaneMutable.IMPL.shift}) {
           NPlaneMutable nplane =
               new NPlaneMutable(maxima, cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, impl);
-          stats.add(new StatHolder(nplane,
+          stats.add(new StatHolder(nplane, id++,
               "N-" + impl + "(#" + nplane.getPlaneCount() + ", 1/" + cache + ")",
               1));
         }
       }
       NPlaneMutable nplane =
           new NPlaneMutable(maxima, 0, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.split_rank);
-      stats.add(new StatHolder(nplane,
-          "N-rank(#" + nplane.getPlaneCount() + ")",
+      stats.add(new StatHolder(nplane, id++,
+          "N-" + NPlaneMutable.IMPL.split_rank + "(#" + nplane.getPlaneCount() + ")",
           1));
     }
     stats.add(new StatHolder(
-        DualPlaneMutable.create(histogram, 0.99),
+        DualPlaneMutable.create(histogram, 0.99), id++,
         "Dual-plane",
         1
     ));
     stats.add(new StatHolder(
-        PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.COMPACT),
+        PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.COMPACT), id++,
         "PackedInts.COMPACT",
         1
     ));
     stats.add(new StatHolder(
-        PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.FAST),
+        PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.FAST), id,
         "PackedInts.FAST",
         1
     ));
@@ -122,39 +127,12 @@ public class LongTailPerformance {
         updates
     ));*/
 
-    PackedInts.Mutable valueIncrements = null;
     for (StatHolder stat: stats) {
-      System.out.print(stat.designation + "  ");
+      System.out.print(stat.id + ":" + stat.designation + "  ");
     }
     System.out.println();
 
-    for (int update: updates) {
-      System.out.println(String.format("Performing %d test runs of %dM updates in %dM counters with max bit %d%s",
-          runs, update / M, maxima.size() / 1000000, maxBit(histogram), heap()));
-
-      for (StatHolder stat : stats) {
-        stat.setUpdates(update);
-      }
-      for (int i = 0; i < runs; i++) {
-        System.out.print("[generating update");
-        final long seed = new Random().nextLong(); // Should really be random() but we want to run under main
-        // Generate the increments to run
-        valueIncrements = generateValueIncrements(maxima, update, valueIncrements, seed);
-        System.gc(); // We don't want GC in the middle of measurements
-        System.out.print("] ");
-        for (StatHolder stat : stats) {
-          stat.impl.clear();
-          long ns = measure(stat.impl, valueIncrements, maxima);
-          stat.addTiming(ns);
-          System.out.print(String.format(Locale.ENGLISH, "%7d", (long) (((double) update) / ns * 1000000)));
-        }
-        System.out.println(heap());
-      }
-      for (StatHolder stat : stats) {
-        System.out.println(stat);
-        stat.addUPS(stat.getMedianUpdatesPerMS());
-      }
-    }
+    measure(runs, updates, histogram, maxima, stats);
     // Overall stats
     System.out.print(String.format(Locale.ENGLISH,
         "<table style=\"width: 80%%\">" +
@@ -176,6 +154,49 @@ public class LongTailPerformance {
     }
     System.out.println("</table>");
   }
+
+  private static void measure(
+      int runs, int[] updates, long[] histogram, PackedInts.Reader maxima, List<StatHolder> stats) {
+    PackedInts.Mutable valueIncrements = null; // For re-use
+    final ExecutorService executor = Executors.newFixedThreadPool(stats.size());
+
+    for (int update: updates) {
+      System.out.println(String.format("Performing %d test runs of %dM updates in %dM counters with max bit %d%s",
+          runs, update / M, maxima.size() / 1000000, maxBit(histogram), heap()));
+
+      for (StatHolder stat : stats) {
+        stat.setUpdates(update);
+      }
+      for (int i = 0; i < runs; i++) {
+        System.out.print("[generating update");
+        final long seed = new Random().nextLong(); // Should really be random() but we want to run under main
+        // Generate the increments to run
+        valueIncrements = generateValueIncrements(maxima, update, valueIncrements, seed);
+        System.gc(); // We don't want GC in the middle of measurements
+        System.out.print("] ");
+        List<Future<Long>> statFutures = new ArrayList<>(stats.size());
+        for (StatHolder stat : stats) {
+          stat.impl.clear();
+          stat.setIncrements(valueIncrements, maxima);
+          statFutures.add(executor.submit(stat));
+        }
+        for (Future<Long> statFuture: statFutures) {
+          try {
+            statFuture.get();
+          } catch (Exception e) {
+            throw new RuntimeException("Unexpected exception while waiting for test to finish", e);
+          }
+        }
+        System.out.println(heap());
+      }
+      for (StatHolder stat : stats) {
+        System.out.println(stat);
+        stat.addUPS(stat.getMedianUpdatesPerMS());
+      }
+    }
+    executor.shutdownNow();
+  }
+
 
   private static PackedInts.Mutable generateValueIncrements(
       PackedInts.Reader maxima, int updates, PackedInts.Mutable increments, long seed) {
@@ -245,15 +266,20 @@ public class LongTailPerformance {
     return histogram;
   }
 
-  private static class StatHolder {
+  private static class StatHolder implements Callable<Long> {
     private final PackedInts.Mutable impl;
     private final String designation;
     private final List<Long> timings = new ArrayList<>();
     private int updatesPerTiming;
     private final List<Double> ups = new ArrayList<>();
+    private final char id;
 
-    public StatHolder(PackedInts.Mutable impl, String designation, int updatesPerTiming) {
+    private PackedInts.Reader increments;
+    private PackedInts.Reader maxima;
+
+    public StatHolder(PackedInts.Mutable impl, char id, String designation, int updatesPerTiming) {
       this.impl = impl;
+      this.id = id;
       this.designation = designation;
       this.updatesPerTiming = updatesPerTiming;
       System.out.println("Created StatHolder: " + impl.getClass().getSimpleName() + ": " + designation + " ("
@@ -281,6 +307,23 @@ public class LongTailPerformance {
     public void setUpdates(int updates) {
       updatesPerTiming = updates;
       timings.clear();
+    }
+
+    // Test code below
+
+
+    public void setIncrements(PackedInts.Reader increments, PackedInts.Reader maxima) {
+      this.increments = increments;
+      this.maxima = maxima;
+    }
+
+    @Override
+    public Long call() throws Exception {
+      long ns = measure(impl, increments, maxima);
+      addTiming(ns);
+      System.out.print(String.format(Locale.ENGLISH, "%c:%5d  ",
+          id, (long) (((double) updatesPerTiming) / ns * 1000000)));
+      return ns;
     }
   }
 
