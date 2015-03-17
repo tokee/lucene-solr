@@ -242,7 +242,7 @@ public class LongTailPerformance {
         }
         throw new RuntimeException(String.format(Locale.ENGLISH,
             "Exception calling inc(%d) #%d with maximum=%d",
-            valueIncrements.get(i), totalIncs, maxima.get((int) valueIncrements.get(i))));
+            valueIncrements.get(i), totalIncs, maxima.get((int) valueIncrements.get(i))), e);
       }
     }
     return System.nanoTime()-start;
