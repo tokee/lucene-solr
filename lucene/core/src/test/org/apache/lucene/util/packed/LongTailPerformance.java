@@ -85,20 +85,21 @@ public class LongTailPerformance {
     List<StatHolder> stats = new ArrayList<>();
     System.out.println("Initializing implementations" + heap());
 //    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
-    for (int cache : caches) {
-      for (int mp: maxPlanes) {
-        for (NPlaneMutable.IMPL impl: NPlaneMutable.IMPL.values()) {
-          NPlaneMutable ltbpm =
+    for (int mp: maxPlanes) {
+      for (int cache : caches) {
+        for (NPlaneMutable.IMPL impl: new NPlaneMutable.IMPL[] {NPlaneMutable.IMPL.split, NPlaneMutable.IMPL.shift}) {
+          NPlaneMutable nplane =
               new NPlaneMutable(maxima, cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, impl);
-          stats.add(new StatHolder(
-              ltbpm,
-              "N-" + impl + "(#" + ltbpm.getPlaneCount() +
-                  (impl == NPlaneMutable.IMPL.split_rank ? "" : ", 1/" + cache) +
-                  ")",
-              1
-          ));
+          stats.add(new StatHolder(nplane,
+              "N-" + impl + "(#" + nplane.getPlaneCount() + ", 1/" + cache + ")",
+              1));
         }
       }
+      NPlaneMutable nplane =
+          new NPlaneMutable(maxima, 0, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.split_rank);
+      stats.add(new StatHolder(nplane,
+          "N-rank(#" + nplane.getPlaneCount() + ")",
+          1));
     }
     stats.add(new StatHolder(
         DualPlaneMutable.create(histogram, 0.99),
