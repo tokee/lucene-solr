@@ -107,8 +107,10 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     }
     final long intC = valueCount*4;
     final long packC = valueCount * LongTailPerformance.maxBit(histogram) / 8;
-    final long ltbpmC = NPlaneMutable.estimateBytesNeeded(histogram);
-    final long ltbpmeC = NPlaneMutable.estimateBytesNeeded(histogram, true);
+    final long nplaneSplit = NPlaneMutable.estimateBytesNeeded(histogram);
+    final long nplaneSplitRank = NPlaneMutable.estimateBytesNeeded(
+        histogram, 0, 64, 1.0, false, NPlaneMutable.IMPL.split_rank);
+    final long nplaneExtra = NPlaneMutable.estimateBytesNeeded(histogram, true);
     final long ltmC = DualPlaneMutable.estimateBytesNeeded(histogram, (int) valueCount);
     long lowest = 0; // TODO: Something is wrong as this is not lowest
     for (int i = 0 ; i < histogram[i] ; i++) {
@@ -116,12 +118,13 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     }
 
     System.out.println(source + ": " + valueCount + " counters, max bit " + LongTailPerformance.maxBit(histogram));
-    System.out.println(String.format(Locale.ENGLISH, "Solr default int[]: %4dMB", intC/ M));
-    System.out.println(String.format(Locale.ENGLISH, "Sparse PackedInts:  %4dMB", packC/ M));
-    System.out.println(String.format(Locale.ENGLISH, "Long Tail Dual:     %4dMB", ltmC / M));
-    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes:   %4dMB", ltbpmC / M));
-    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes+:  %4dMB", ltbpmeC / M));
-    System.out.println(String.format(Locale.ENGLISH, "Lowest possible:    %4dMB", lowest / M));
+    System.out.println(String.format(Locale.ENGLISH, "Solr default int[]:    %4dMB", intC/ M));
+    System.out.println(String.format(Locale.ENGLISH, "Sparse PackedInts:     %4dMB", packC/ M));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Dual:        %4dMB", ltmC / M));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes:      %4dMB", nplaneSplit / M));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes rank: %4dMB", nplaneSplit / M));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes+:     %4dMB", nplaneExtra / M));
+    System.out.println(String.format(Locale.ENGLISH, "Lowest possible:       %4dMB", lowest / M));
   }
 
   public void testNonViability() {

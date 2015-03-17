@@ -92,7 +92,9 @@ public class LongTailPerformance {
               new NPlaneMutable(maxima, cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, impl);
           stats.add(new StatHolder(
               ltbpm,
-              "N-" + impl + "(#" + ltbpm.getPlaneCount() + ", 1/" + cache + ")",
+              "N-" + impl + "(#" + ltbpm.getPlaneCount() +
+                  (impl == NPlaneMutable.IMPL.split_rank ? "" : ", 1/" + cache) +
+                  ")",
               1
           ));
         }

@@ -21,6 +21,7 @@ package org.apache.lucene.util.packed;
 import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.OpenBitSet;
 import org.apache.lucene.util.RamUsageEstimator;
+import org.apache.lucene.util.RankBitSet;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,7 +44,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final double DEFAULT_COLLAPSE_FRACTION = 0.01; // If there's <= 1% counters left, pack them in 1 plane
   public static final IMPL DEFAULT_IMPLEMENTATION = IMPL.split;
 
-  public static enum IMPL {split, shift}
+  public static enum IMPL {split, split_rank, shift}
 
   /**
    * Visualizing the counters as vertical pillars of bits (marked with #):
@@ -249,7 +250,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
       final Plane plane = planes[planeIndex];
 
-      plane.set(index, value & ~(~1 << (plane.bpv-1)));
+      plane.set(index, value & ~(~1L << (plane.bpv-1)));
       if (planeIndex == planes.length-1 || !plane.isOverflow(index)) {
         break;
       }
@@ -346,6 +347,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     public Plane createPlane(IMPL impl) {
       switch (impl) {
         case split: return new SplitPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
+        case split_rank: return new SplitRankPlane(valueCount, bpv, hasOverflows, maxBit);
         case shift: return new ShiftPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
         default: throw new UnsupportedOperationException("No Plane implementation available for " + impl);
       }
@@ -360,8 +362,21 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
           if (!extraInstance) {
             bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER; // overflow header
             if (hasOverflows) {
-              bytes += valueCount/8 + // overflow bits
+              bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + valueCount/8 + // overflow bits
                   valueCount/overflowBucketSize*PackedInts.bitsRequired(valueCount)/8; // Cache
+            }
+          }
+          return bytes;
+        }
+        case split_rank: {
+          long bytes = RamUsageEstimator.alignObjectSize(
+              3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) + // Plane object
+              RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + valueCount*bpv/8; // Values, assuming compact
+          if (!extraInstance) {
+            bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER; // overflow header
+            if (hasOverflows) {
+              bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + valueCount/8 + // overflow bits
+                  ((long)valueCount)*8*64/2048; // Rank cache
             }
           }
           return bytes;
@@ -550,6 +565,84 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     }
   }
 
+  private static class SplitRankPlane extends Plane {
+    private final PackedInts.Mutable values;
+    private final RankBitSet overflows;
+
+    public SplitRankPlane(int valueCount, int bpv, boolean hasOverflow, int maxBit) {
+      super(valueCount, bpv, maxBit, hasOverflow);
+      values = PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
+      overflows = new RankBitSet(hasOverflow ? valueCount : 0);
+    }
+
+    @Override
+    public boolean inc(int index) {
+      long value = values.get(index);
+      value++;
+      values.set(index, value & ~(~1L << (values.getBitsPerValue()-1)));
+      return (value >>> values.getBitsPerValue()) != 0;
+    }
+
+    @Override
+    public void set(int index, long value) {
+      values.set(index, value);
+    }
+
+    @Override
+    public boolean isOverflow(int index) {
+      return overflows.get(index);
+    }
+
+    @Override
+    public void setOverflow(int index) {
+      overflows.fastSet(index);
+    }
+
+    @Override
+    public void finalizeOverflow() {
+      if (hasOverflow) {
+        overflows.buildRankCache();
+      }
+    }
+
+    @Override
+    public void clear() {
+      values.clear();
+    }
+
+    @Override
+    public long get(int index) {
+      return values.get(index);
+    }
+
+    @Override
+    public long ramBytesUsed(boolean extraInstance) {
+      long bytes =RamUsageEstimator.alignObjectSize(
+          3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) + values.ramBytesUsed();
+      if (!extraInstance) {
+        bytes += overflows.ramBytesUsed();
+      }
+      return bytes;
+    }
+
+    @Override
+    public int overflowRank(int index) {
+      return overflows.rank(index);
+    }
+
+    public String toString() {
+      StringBuilder sb = new StringBuilder();
+      for (int i = 0; i < values.getBitsPerValue(); i++) {
+        sb.append(String.format(Locale.ENGLISH, "Values(%2d): ", maxBit - values.getBitsPerValue() + i));
+        NPlaneMutable.toString(sb, values, i);
+        sb.append("\n");
+      }
+      sb.append("Overflow:   ");
+      NPlaneMutable.toString(sb, overflows);
+      return sb.toString();
+    }
+  }
+
   private static class ShiftPlane extends Plane {
     private final PackedInts.Mutable values;
     private final PackedInts.Mutable overflowCache; // [count(cacheChunkSize)]
@@ -562,7 +655,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       this.overflowBucketSize = overflowBucketSize;
       overflowCache = PackedInts.getMutable( // TODO: Spare the +1
           valueCount / overflowBucketSize + 1, PackedInts.bitsRequired(valueCount), PackedInts.COMPACT);
-      VALUE_BITS_MASK = ~(~1 << (bpv-1));
+      VALUE_BITS_MASK = ~(~1L << (bpv-1));
     }
 
     @Override
