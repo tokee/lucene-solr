@@ -313,7 +313,12 @@ public class LongTailPerformance {
 
 
     public void setIncrements(PackedInts.Reader increments, PackedInts.Reader maxima) {
-      this.increments = increments;
+      PackedInts.Mutable clone = PackedInts.getMutable(
+          increments.size(), increments.getBitsPerValue(), PackedInts.DEFAULT);
+      for (int i = 0 ; i < increments.size() ; i++) {
+        clone.set(i, increments.get(i));
+      }
+      this.increments = clone;
       this.maxima = maxima;
     }
 

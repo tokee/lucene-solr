@@ -309,5 +309,4 @@ public class TestNPlaneMutable extends LuceneTestCase {
       maxima.set(i, val);
     }
   }
-
 }
