@@ -319,7 +319,7 @@ public class LongTailPerformance {
         clone.set(i, increments.get(i));
       }
       this.increments = clone;*/
-      this.increments = maxima; // clone takes too much memory to be feasible
+      this.increments = increments; // clone takes too much memory to be feasible
       this.maxima = maxima;
     }
 
