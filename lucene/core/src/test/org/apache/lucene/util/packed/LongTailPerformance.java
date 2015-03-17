@@ -101,9 +101,9 @@ public class LongTailPerformance {
         }
       }
       NPlaneMutable nplane =
-          new NPlaneMutable(maxima, 0, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.split_rank);
+          new NPlaneMutable(maxima, 0, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.spank);
       stats.add(new StatHolder(nplane, id++,
-          "N-" + NPlaneMutable.IMPL.split_rank + "(#" + nplane.getPlaneCount() + ")",
+          "N-" + NPlaneMutable.IMPL.spank + "(#" + nplane.getPlaneCount() + ")",
           1));
     }
     stats.add(new StatHolder(
@@ -313,12 +313,13 @@ public class LongTailPerformance {
 
 
     public void setIncrements(PackedInts.Reader increments, PackedInts.Reader maxima) {
-      PackedInts.Mutable clone = PackedInts.getMutable(
+/*      PackedInts.Mutable clone = PackedInts.getMutable(
           increments.size(), increments.getBitsPerValue(), PackedInts.DEFAULT);
       for (int i = 0 ; i < increments.size() ; i++) {
         clone.set(i, increments.get(i));
       }
-      this.increments = clone;
+      this.increments = clone;*/
+      this.increments = maxima; // clone takes too much memory to be feasible
       this.maxima = maxima;
     }
 

@@ -109,7 +109,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     final long packC = valueCount * LongTailPerformance.maxBit(histogram) / 8;
     final long nplaneSplit = NPlaneMutable.estimateBytesNeeded(histogram);
     final long nplaneSplitRank = NPlaneMutable.estimateBytesNeeded(
-        histogram, 0, 64, 1.0, false, NPlaneMutable.IMPL.split_rank);
+        histogram, 0, 64, 1.0, false, NPlaneMutable.IMPL.spank);
     final long nplaneExtra = NPlaneMutable.estimateBytesNeeded(histogram, true);
     final long ltmC = DualPlaneMutable.estimateBytesNeeded(histogram, (int) valueCount);
     long lowest = 0; // TODO: Something is wrong as this is not lowest

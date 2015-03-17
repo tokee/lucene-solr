@@ -44,7 +44,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final double DEFAULT_COLLAPSE_FRACTION = 0.01; // If there's <= 1% counters left, pack them in 1 plane
   public static final IMPL DEFAULT_IMPLEMENTATION = IMPL.split;
 
-  public static enum IMPL {split, split_rank, shift}
+  public static enum IMPL {split, spank, shift}
 
   /**
    * Visualizing the counters as vertical pillars of bits (marked with #):
@@ -347,7 +347,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     public Plane createPlane(IMPL impl) {
       switch (impl) {
         case split: return new SplitPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
-        case split_rank: return new SplitRankPlane(valueCount, bpv, hasOverflows, maxBit);
+        case spank: return new SplitRankPlane(valueCount, bpv, hasOverflows, maxBit);
         case shift: return new ShiftPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
         default: throw new UnsupportedOperationException("No Plane implementation available for " + impl);
       }
@@ -368,7 +368,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
           }
           return bytes;
         }
-        case split_rank: {
+        case spank: {
           long bytes = RamUsageEstimator.alignObjectSize(
               3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) + // Plane object
               RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + valueCount*bpv/8; // Values, assuming compact
