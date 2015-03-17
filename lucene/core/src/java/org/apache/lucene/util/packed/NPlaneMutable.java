@@ -727,7 +727,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     public long ramBytesUsed(boolean extraInstance) {
       return RamUsageEstimator.alignObjectSize(
           2 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) +
-          values.ramBytesUsed();
+          values.ramBytesUsed() + overflowCache.ramBytesUsed();
     }
 
     // Using the overflow and overflowCache, calculate the index into the next plane
