@@ -116,12 +116,12 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     }
 
     System.out.println(source + ": " + valueCount + " counters, max bit " + LongTailPerformance.maxBit(histogram));
-    System.out.println(String.format("Solr default int[]: %4dMB", intC/ M));
-    System.out.println(String.format("Sparse PackedInts:  %4dMB", packC/ M));
-    System.out.println(String.format("Long Tail Dual:     %4dMB", ltmC / M));
-    System.out.println(String.format("Long Tail Planes:   %4dMB", ltbpmC / M));
-    System.out.println(String.format("Long Tail Planes+:  %4dMB", ltbpmeC / M));
-    System.out.println(String.format("Lowest possible:    %4dMB", lowest / M));
+    System.out.println(String.format(Locale.ENGLISH, "Solr default int[]: %4dMB", intC/ M));
+    System.out.println(String.format(Locale.ENGLISH, "Sparse PackedInts:  %4dMB", packC/ M));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Dual:     %4dMB", ltmC / M));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes:   %4dMB", ltbpmC / M));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes+:  %4dMB", ltbpmeC / M));
+    System.out.println(String.format(Locale.ENGLISH, "Lowest possible:    %4dMB", lowest / M));
   }
 
   public void testNonViability() {
@@ -189,7 +189,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
       if (sb.length() > 0) {
         sb.append(divider);
       }
-      sb.append(String.format("Bit %2d: %9d", i+1, maxValue));
+      sb.append(String.format(Locale.ENGLISH, "Bit %2d: %9d", i+1, maxValue));
     }
     return sb.toString();
   }
@@ -318,17 +318,20 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     final long[] histogram = getLinksHistogram();
 
     double totalBits = 2*VALUES; // Base
-    System.out.println(String.format("hist=%10d, bits=%d, total=%dMB", VALUES, 0, (int)(totalBits/8/ M)));
+    System.out.println(String.format(Locale.ENGLISH, "hist=%10d, bits=%d, total=%dMB",
+        VALUES, 0, (int)(totalBits/8/ M)));
 
     for (int bits = 1 ; bits < 64 ; bits++) {
       totalBits += 2 * histogram[bits-1];
-      System.out.println(String.format("hist=%10d, bits=%d, total=%dMB", histogram[bits-1], bits, (int)(totalBits/8/ M)));
+      System.out.println(String.format(Locale.ENGLISH, "hist=%10d, bits=%d, total=%dMB",
+          histogram[bits-1], bits, (int)(totalBits/8/ M)));
       if (histogram[bits-1] == 0) {
         break; // Shouldn't this reach 0 automatically?
       }
     }
 
-    System.out.println(String.format("%dMB/%dMB: %4.2f", (long)(totalBits/8/ M), VALUES*4/ M, totalBits / (VALUES*32)));
+    System.out.println(String.format(Locale.ENGLISH, "%dMB/%dMB: %4.2f",
+        (long)(totalBits/8/ M), VALUES*4/ M, totalBits / (VALUES*32)));
   }
 
   // if (histogram[bits+1] < histogram[bits]/2) collapse
@@ -355,18 +358,19 @@ public class TestDualPlaneMutable extends LuceneTestCase {
       long bitmapLength = values[bits];
       totalBits += bitmapLength;
       if (values[bits+1] < values[bits]/2) { // share overflow bits
-        System.out.println(String.format(
-            "Collapsing bit %d+%d (%d, %d values)", bits, bits+1, values[bits], values[bits+1]));
+        System.out.println(String.format(Locale.ENGLISH, "Collapsing bit %d+%d (%d, %d values)",
+            bits, bits+1, values[bits], values[bits+1]));
         totalBits += bitmapLength;
         bits++;
       } else if (values[bits] != 0) {
-        System.out.println(String.format(
-            "Plain storage of bit %d (%d values)", bits, values[bits]));
+        System.out.println(String.format(Locale.ENGLISH, "Plain storage of bit %d (%d values)",
+            bits, values[bits]));
       }
       totalBits += bitmapLength;
       bits++;
     }
-    System.out.println(String.format("%dMB/%dMB: %4.2f", (long)(totalBits/8/ M), VALUES*4/ M, totalBits / (VALUES*32)));
+    System.out.println(String.format(Locale.ENGLISH, "%dMB/%dMB: %4.2f",
+        (long)(totalBits/8/ M), VALUES*4/ M, totalBits / (VALUES*32)));
   }
 
   public static long[] getLinksHistogram() {

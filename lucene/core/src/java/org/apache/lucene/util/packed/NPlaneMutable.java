@@ -24,6 +24,7 @@ import org.apache.lucene.util.RamUsageEstimator;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Highly experimental structure for holding counters with known maxima.
@@ -233,7 +234,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
         break;
       }
       shift += plane.bpv;
-      index = plane.getNextPlaneIndex(index);
+      index = plane.overflowRank(index);
     }
     return value;
   }
@@ -254,7 +255,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       }
       // Overflow-bit is set. We need to go up a level, even if the value is 0, to ensure full reset of the bits
       value = value >> plane.bpv;
-      index = plane.getNextPlaneIndex(index);
+      index = plane.overflowRank(index);
     }
 //    for (Plane plane: planes) {
 //      System.out.println(plane.toString());
@@ -262,18 +263,22 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   }
 
   @Override
-  public void inc(int index) {
+  public void inc(final int index) {
 //    System.out.println("\ninc(" + index+ ")");
-    for (final Plane plane : planes) {
+    int vIndex = index;
+    for (int p = 0; p < planes.length; p++) {
+      Plane plane = planes[p];
       try {
-        if (!plane.inc(index)) { // No overflow; exit immediately. Note: There is no check for overflow beyond maxima
+        if (!plane.inc(vIndex)) { // No overflow; exit immediately. Note: There is no check for overflow beyond maxima
           break;
         }
       } catch (ArrayIndexOutOfBoundsException e) {
-        throw new ArrayIndexOutOfBoundsException("inc(" + index + ") on " + plane);
+        throw new ArrayIndexOutOfBoundsException(String.format(Locale.ENGLISH,
+            "inc(%d) on plane %d from root inc(%d): %s",
+            vIndex, p, index, plane));
       }
-        // We know there is actual overflow. As this is an inc, we know the overflow is 1
-      index = plane.getNextPlaneIndex(index);
+      // We know there is actual overflow. As this is an inc, we know the overflow is 1
+      vIndex = plane.overflowRank(vIndex);
     }
   }
 
@@ -410,13 +415,16 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     // max of 2^bpv-1 must be ensured by the caller
     public abstract void set(int index, long value);
 
-    public abstract boolean isOverflow(int index);
-
     public abstract long ramBytesUsed(boolean extraInstance);
 
-    protected abstract int getNextPlaneIndex(int index);
+    /**
+     * @param index relative to the conceptual overflow bits.
+     * @return the number of set overflow bits up to but not including the given index.
+     */
+    public abstract int overflowRank(int index);
 
     public abstract void setOverflow(int index);
+    public abstract boolean isOverflow(int index);
 
     public abstract void finalizeOverflow();
 
@@ -511,26 +519,26 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
     // Using the overflow and overflowCache, calculate the index into the next plane
     @Override
-    protected int getNextPlaneIndex(int index) {
+    public int overflowRank(int index) {
       int startIndex = 0;
-      int nextIndex = 0;
+      int rank = 0;
       if (index >= overflowBucketSize) {
-        nextIndex = (int) overflowCache.get(index / overflowBucketSize -1);
+        rank = (int) overflowCache.get(index / overflowBucketSize -1);
         startIndex = index / overflowBucketSize * overflowBucketSize;
       }
       // It would be nice to use cardinality in this situation, but that only works on the full bitset(?)
-      for (int i = startIndex; i <= index; i++) {
+      for (int i = startIndex; i < index; i++) {
         if (overflows.fastGet(i)) {
-          nextIndex++;
+          rank++;
         }
       }
-      return nextIndex-1;
+      return rank;
     }
 
     public String toString() {
       StringBuilder sb = new StringBuilder();
       for (int i = 0; i < values.getBitsPerValue(); i++) {
-        sb.append(String.format("Values(%2d): ", maxBit - values.getBitsPerValue() + i));
+        sb.append(String.format(Locale.ENGLISH, "Values(%2d): ", maxBit - values.getBitsPerValue() + i));
         NPlaneMutable.toString(sb, values, i);
         sb.append("\n");
       }
@@ -546,6 +554,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     private final PackedInts.Mutable values;
     private final PackedInts.Mutable overflowCache; // [count(cacheChunkSize)]
     private final int overflowBucketSize;
+    private final long VALUE_BITS_MASK;
 
     public ShiftPlane(int valueCount, int bpv, boolean hasOverflow, int overflowBucketSize, int maxBit) {
       super(valueCount, bpv, maxBit, hasOverflow);
@@ -553,14 +562,20 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       this.overflowBucketSize = overflowBucketSize;
       overflowCache = PackedInts.getMutable( // TODO: Spare the +1
           valueCount / overflowBucketSize + 1, PackedInts.bitsRequired(valueCount), PackedInts.COMPACT);
+      VALUE_BITS_MASK = ~(~1 << (bpv-1));
     }
 
     @Override
     public boolean inc(int index) {
-      final long rawValue = values.get(index);
-      long value = hasOverflow ? rawValue >>> 1 : rawValue;
-      value++;
-      values.set(index, ((value & ~(~1 << (values.getBitsPerValue()-1))) << 1) | (rawValue & 0x1));
+      if (hasOverflow) {
+        final long rawValue = values.get(index);
+        long value = rawValue >>> 1;
+        value++;
+        values.set(index, ((value & VALUE_BITS_MASK) << 1) | (rawValue & 0x1));
+        return (value >>> bpv) != 0;
+      }
+      long value = values.get(index)+1;
+      values.set(index, value & VALUE_BITS_MASK);
       return (value >>> bpv) != 0;
     }
 
@@ -624,20 +639,20 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
     // Using the overflow and overflowCache, calculate the index into the next plane
     @Override
-    protected int getNextPlaneIndex(int index) {
+    public int overflowRank(int index) {
       int startIndex = 0;
-      int nextIndex = 0;
+      int rank = 0;
       if (index >= overflowBucketSize) {
-        nextIndex = (int) overflowCache.get(index / overflowBucketSize -1);
+        rank = (int) overflowCache.get(index / overflowBucketSize -1);
         startIndex = index / overflowBucketSize * overflowBucketSize;
       }
       // It would be nice to use cardinality in this situation, but that only works on the full bitset(?)
-      for (int i = startIndex; i <= index; i++) {
+      for (int i = startIndex; i < index; i++) {
         if (isOverflow(i)) {
-          nextIndex++;
+          rank++;
         }
       }
-      return nextIndex-1;
+      return rank;
     }
 
     public String toString() {

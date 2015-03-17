@@ -20,8 +20,6 @@ package org.apache.lucene.util.packed;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 
 @Slow
@@ -42,29 +40,58 @@ public class TestNPlaneMutable extends LuceneTestCase {
     final int DIVISOR = 500;
     final int CACHE = 1000;
     final int MAX_PLANES = 4;
+    final int[] INCREMENTS = new int[]{999, 999};//12345, 1, 12345, 7, 1024, 999, 1000, 999, 1000};
     long[] histogram = LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR);
 
     final PackedInts.Reader maxima = LongTailPerformance.getMaxima(histogram);
     NPlaneMutable nplane =
         new NPlaneMutable(maxima, CACHE, MAX_PLANES, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.shift);
 
+    checkOverflow("Before increment", nplane);
+    for (int i = 0; i < INCREMENTS.length; i++) {
+      int inc = INCREMENTS[i];
+      while (maxima.get(inc) <= 1) {
+        inc++;
+        if (inc > maxima.size()) {
+          inc = 0;
+        }
+      }
+      nplane.inc(inc);
+      checkOverflow("After inc(" + inc + ") #" + (i+1), nplane);
+    }
+  }
+
+  private void checkOverflow(String message, NPlaneMutable nplane) {
     for (int planeIndex = 0 ; planeIndex < nplane.planes.length ; planeIndex++) {
       NPlaneMutable.Plane plane = nplane.planes[planeIndex];
       if (!plane.hasOverflow) {
         continue;
       }
+/*      for (int o = 0 ; o < 80 ; o++) {
+        System.out.print(plane.isOverflow(o) ? "*" : ".");
+      }
+      System.out.println(" Plane " + planeIndex);
+      for (int o = 0 ; o < 80 ; o++) {
+        System.out.print((char)(plane.overflowRank(o) + 'a'));
+      }
+      System.out.println();*/
       int overflows = 0;
       for (int i = 0 ; i < plane.valueCount ; i++) {
         if (plane.isOverflow(i)) {
           overflows++;
+          assertEquals(message + ". Rank should return #overflows-1 when the current overflow bit is set @ index " + i,
+              overflows-1, plane.overflowRank(i));
+        } else if (overflows > 0) {
+          assertEquals(message +". Rank should return #overflows when the current overflow bit is not set @ index " + i,
+              overflows, plane.overflowRank(i));
         }
       }
       if (planeIndex != 0) {
-        assertEquals("The number of set overflows for plane " + planeIndex + " should match plane " + planeIndex+1,
+        assertEquals(message + ". The number of set overflows for plane " + planeIndex + " should match plane "
+            + planeIndex+1,
             nplane.planes[planeIndex+1].valueCount, overflows);
       }
     }
-
   }
 
   public void testSmallAdd() {
@@ -171,7 +198,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
   }
 
   public void testBytesEstimation() {
-    System.out.println(String.format("ltbpm=%d/%d/%dMB",
+    System.out.println(String.format(Locale.ENGLISH, "ltbpm=%d/%d/%dMB",
         NPlaneMutable.estimateBytesNeeded(LongTailPerformance.links20150209) / M,
         640280533L*(NPlaneMutable.getMaxBit(LongTailPerformance.links20150209)+1)/8/M,
         640280533L*4/M));

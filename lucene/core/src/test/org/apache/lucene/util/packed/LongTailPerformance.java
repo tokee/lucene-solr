@@ -141,7 +141,7 @@ public class LongTailPerformance {
         System.out.print("] ");
         for (StatHolder stat : stats) {
           stat.impl.clear();
-          long ns = measure(stat.impl, valueIncrements);
+          long ns = measure(stat.impl, valueIncrements, maxima);
           stat.addTiming(ns);
           System.out.print(String.format(Locale.ENGLISH, "%7d", (long) (((double) update) / ns * 1000000)));
         }
@@ -199,14 +199,27 @@ public class LongTailPerformance {
   }
 
   // Runs a performance test and reports time spend as nano seconds
-  private static long measure(PackedInts.Mutable counters, PackedInts.Reader valueIncrements) {
+  private static long measure(
+      PackedInts.Mutable counters, PackedInts.Reader valueIncrements, PackedInts.Reader maxima) {
     final Incrementable incCounters = counters instanceof Incrementable ?
         (Incrementable)counters :
         new Incrementable.IncrementableMutable(counters);
 
     long start = System.nanoTime();
     for (int i = 0 ; i < valueIncrements.size() ; i++) {
-      incCounters.inc((int) valueIncrements.get(i));
+      try {
+        incCounters.inc((int) valueIncrements.get(i));
+      } catch (Exception e) {
+        int totalIncs = 0;
+        for (int l = 0 ; l <= i ; l++) {
+          if (valueIncrements.get(l) == valueIncrements.get(i)) {
+            totalIncs++;
+          }
+        }
+        throw new RuntimeException(String.format(Locale.ENGLISH,
+            "Exception calling inc(%d) #%d with maximum=%d",
+            valueIncrements.get(i), totalIncs, maxima.get((int) valueIncrements.get(i))));
+      }
     }
     return System.nanoTime()-start;
   }
