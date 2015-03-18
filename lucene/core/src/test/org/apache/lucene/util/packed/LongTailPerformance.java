@@ -64,8 +64,10 @@ public class LongTailPerformance {
 
     HISTOGRAM = reduce(pad(HISTOGRAM), 1/FACTOR);
     System.out.println(String.format(Locale.ENGLISH,
-            "LongTailPerformance: runs=%d, updates=[%s], ncaches=[%s], nmaxplanes=[%s], histogram=[%s](factor=%4.2f)",
-            RUNS, join(UPDATES), join(NCACHES), join(MAX_PLANES), join(HISTOGRAM), FACTOR));
+            "LongTailPerformance: runs=%d, threads=%s, updates=[%s], ncaches=[%s], nmaxplanes=[%s]," +
+                " histogram=[%s](factor=%4.2f)",
+            RUNS, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, join(UPDATES), join(NCACHES), join(MAX_PLANES),
+        join(HISTOGRAM), FACTOR));
     measurePerformance(reduce(HISTOGRAM, FACTOR), RUNS, UPDATES, NCACHES, MAX_PLANES, THREADS);
   }
 
