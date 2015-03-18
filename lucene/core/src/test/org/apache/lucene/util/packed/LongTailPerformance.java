@@ -57,12 +57,16 @@ public class LongTailPerformance {
     int    ENTRY =      toIntArray(getArgs(args, "-e", RUNS/2))[0];
     int    THREADS =    toIntArray(getArgs(args, "-t", Integer.MAX_VALUE))[0];
     int    INSTANCES =  toIntArray(getArgs(args, "-i", 1))[0];
-    int[]  UPDATES =    toIntArray(getArgs(args, "-u", MI/10, MI, 10*MI, 20*MI));
+    double[] UPDD =  toDoubleArray(getArgs(args, "-u", 0.1, 1, 10, 20));
     int[]  NCACHES =    toIntArray(getArgs(args, "-c", 1000, 500, 200, 100, 50, 20));
     int[]  MAX_PLANES = toIntArray(getArgs(args, "-p", 64));
     long[] HISTOGRAM = toLongArray(getArgs(args, "-m", toString(links20150209).split(", ")));
     double FACTOR =  toDoubleArray(getArgs(args, "-d", 1.0))[0];
 
+    int[] UPDATES = new int[UPDD.length];
+    for (int i = 0; i < UPDD.length; i++) {
+      UPDATES[i] = (int) (UPDD[i]*MI);
+    }
     HISTOGRAM = reduce(pad(HISTOGRAM), 1/FACTOR);
     System.out.println(String.format(Locale.ENGLISH,
             "LongTailPerformance: runs=%d, entry=%d, threads=%s, instances=%d, updates=[%s], ncaches=[%s]," +
@@ -526,7 +530,7 @@ public class LongTailPerformance {
           "-e x:  Which measurement to report, as an index in slowest to fastest run. Default: runs/2\n" +
           "-t x:  Number of Threads used per run. Default: Unlimited\n" +
           "-i x:  Duplicate all instances this number of times. Default: 1\n" +
-          "-u x*: Number of updates per run. Default: 100000 1000000 20000000\n" +
+          "-u x*: Number of million updates per run. Default: 0.1 1 10 20\n" +
           "-c x*: Cache-setups for N-plane. Default: 1000 500 200 111 50 20\n" +
           "-p x*: Max planes for N-plane. Default: 64\n" +
           "-m x*: Histogram maxima. Default: 425799733 85835129 52695663...\n" +
