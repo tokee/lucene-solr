@@ -36,14 +36,13 @@ import java.util.concurrent.Future;
  * Non-unit-test performance test for using PackedInts implementations for counters
  * with long tail distributed maxima.
  */
-// TODO: Optional duplication of all test counter implementations to check for jitter
 public class LongTailPerformance {
   final static int M = 1048576;
   public static void testSimplePerformance() {
     final int[] UPDATES = new int[] {1000, 10000};
     final int[] CACHES = new int[] {1000, 500, 200, 100, 50, 20};
     final int[] MAX_PLANES = new int[] {1, 2, 3, 4, 64};
-    measurePerformance(pad(10000, 2000, 10, 3, 2, 1), 5, 5/2, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE);
+    measurePerformance(pad(10000, 2000, 10, 3, 2, 1), 5, 5/2, 1, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE);
   }
 
   public static void main(String[] args) {
@@ -56,6 +55,7 @@ public class LongTailPerformance {
     int    RUNS =       toIntArray(getArgs(args, "-r", 9))[0];
     int    ENTRY =      toIntArray(getArgs(args, "-e", RUNS/2))[0];
     int    THREADS =    toIntArray(getArgs(args, "-t", Integer.MAX_VALUE))[0];
+    int    DUPLICATES = toIntArray(getArgs(args, "-d", 1))[0];
     int[]  UPDATES =    toIntArray(getArgs(args, "-u", M/10, M, 10*M, 20*M));
     int[]  NCACHES =    toIntArray(getArgs(args, "-c", 1000, 500, 200, 100, 50, 20));
     int[]  MAX_PLANES = toIntArray(getArgs(args, "-p", 64));
@@ -68,11 +68,12 @@ public class LongTailPerformance {
                 " histogram=[%s](factor=%4.2f)",
             RUNS, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, join(UPDATES), join(NCACHES), join(MAX_PLANES),
         join(HISTOGRAM), FACTOR));
-    measurePerformance(HISTOGRAM, RUNS, ENTRY, UPDATES, NCACHES, MAX_PLANES, THREADS);
+    measurePerformance(HISTOGRAM, RUNS, ENTRY, DUPLICATES, UPDATES, NCACHES, MAX_PLANES, THREADS);
   }
 
   static void measurePerformance(
-      long[] histogram, int runs, int entry, int[] updates, int[] caches, int[] maxPlanes, int threads) {
+      long[] histogram, int runs, int entry, int duplicates, int[] updates,
+      int[] caches, int[] maxPlanes, int threads) {
     System.out.println("Creating pseudo-random maxima from histogram" + heap());
     final PackedInts.Reader maxima = getMaxima(histogram);
     histogram = getHistogram(maxima); // Re-calc as the maxima generator rounds up to nearest prime
@@ -80,42 +81,43 @@ public class LongTailPerformance {
     System.out.println("Initializing implementations" + heap());
 //    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
     char id = 'a';
-    for (int mp: maxPlanes) {
-      NPlaneMutable.Layout layout = null;
-      for (int cache : caches) {
-        layout = NPlaneMutable.getLayout(maxima, cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
-        for (NPlaneMutable.IMPL impl: new NPlaneMutable.IMPL[] {NPlaneMutable.IMPL.split, NPlaneMutable.IMPL.shift}) {
-          NPlaneMutable nplane = new NPlaneMutable(layout, maxima, impl);
-          stats.add(new StatHolder(nplane, id++,
-              "N-" + impl + "(#" + nplane.getPlaneCount() + ", 1/" + cache + ")",
-              1));
+    for (int d = 0 ; d < duplicates ; d++) {
+      for (int mp : maxPlanes) {
+        NPlaneMutable.Layout layout = null;
+        for (int cache : caches) {
+          layout = NPlaneMutable.getLayout(maxima, cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
+          for (NPlaneMutable.IMPL impl : new NPlaneMutable.IMPL[]{NPlaneMutable.IMPL.split, NPlaneMutable.IMPL.shift}) {
+            NPlaneMutable nplane = new NPlaneMutable(layout, maxima, impl);
+            stats.add(new StatHolder(nplane, id++,
+                "N-" + impl + "(#" + nplane.getPlaneCount() + ", 1/" + cache + ")",
+                1));
+          }
         }
+        NPlaneMutable nplane = layout == null ?
+            new NPlaneMutable(maxima, 0, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.spank) :
+            new NPlaneMutable(layout, maxima, NPlaneMutable.IMPL.spank);
+        stats.add(new StatHolder(nplane, id++,
+            "N-" + NPlaneMutable.IMPL.spank + "(#" + nplane.getPlaneCount() + ")",
+            1));
       }
-      NPlaneMutable nplane = layout == null ?
-          new NPlaneMutable(maxima, 0, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.spank) :
-          new NPlaneMutable(layout, maxima, NPlaneMutable.IMPL.spank) ;
-      stats.add(new StatHolder(nplane, id++,
-          "N-" + NPlaneMutable.IMPL.spank + "(#" + nplane.getPlaneCount() + ")",
+      stats.add(new StatHolder(
+          DualPlaneMutable.create(histogram, 0.99), id++,
+          "Dual-plane",
           1));
-    }
-    stats.add(new StatHolder(
-        DualPlaneMutable.create(histogram, 0.99), id++,
-        "Dual-plane",
-        1));
-    stats.add(new StatHolder(
-        PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.COMPACT), id++,
-        "PackedInts.COMPACT",
-        1));
-    stats.add(new StatHolder(
-        PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.FAST), id,
-        "PackedInts.FAST",
-        1));
+      stats.add(new StatHolder(
+          PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.COMPACT), id++,
+          "PackedInts.COMPACT",
+          1));
+      stats.add(new StatHolder(
+          PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.FAST), id,
+          "PackedInts.FAST",
+          1));
 /*    stats.add(new StatHolder(
         PackedInts.getMutable(maxima.size(), 31, PackedInts.FASTEST),
         "PackedInts int[]",
         updates
     ));*/
-
+    }
     for (StatHolder stat: stats) {
       System.out.print(stat.id + ":" + stat.designation + "  ");
     }
@@ -522,6 +524,7 @@ public class LongTailPerformance {
           "-r x:  Number of runs per test case. Default: 9\n" +
           "-e x:  Which measurement to report, as an index in slowest to fastest run. Default: runs/2\n" +
           "-t x:  Number of Threads used per run. Default: Unlimited\n" +
+          "-d x:  Duplicate all instances this number of times. Default: 1\n" +
           "-u x*: Number of updates per run. Default: 100000 1000000 20000000\n" +
           "-c x*: Cache-setups for N-plane. Default: 1000 500 200 111 50 20\n" +
           "-p x*: Max planes for N-plane. Default: 64\n" +
