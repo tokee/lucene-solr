@@ -37,7 +37,6 @@ import java.util.concurrent.Future;
  * with long tail distributed maxima.
  */
 // TODO: Optional duplication of all test counter implementations to check for jitter
-// TODO: Order the running outputs
 // TODO: Change updates to double
 public class LongTailPerformance {
   final static int M = 1048576;
@@ -45,7 +44,7 @@ public class LongTailPerformance {
     final int[] UPDATES = new int[] {1000, 10000};
     final int[] CACHES = new int[] {1000, 500, 200, 100, 50, 20};
     final int[] MAX_PLANES = new int[] {1, 2, 3, 4, 64};
-    measurePerformance(pad(10000, 2000, 10, 3, 2, 1), 5, UPDATES, CACHES, MAX_PLANES);
+    measurePerformance(pad(10000, 2000, 10, 3, 2, 1), 5, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE);
   }
 
   public static void main(String[] args) {
@@ -56,6 +55,7 @@ public class LongTailPerformance {
       }
     }
     int    RUNS =       toIntArray(getArgs(args, "-r", 9))[0];
+    int    THREADS =    toIntArray(getArgs(args, "-t", Integer.MAX_VALUE))[0];
     int[]  UPDATES =    toIntArray(getArgs(args, "-u", M/10, M, 10*M, 20*M));
     int[]  NCACHES =    toIntArray(getArgs(args, "-c", 1000, 500, 200, 100, 50, 20));
     int[]  MAX_PLANES = toIntArray(getArgs(args, "-p", 64));
@@ -66,10 +66,11 @@ public class LongTailPerformance {
     System.out.println(String.format(Locale.ENGLISH,
             "LongTailPerformance: runs=%d, updates=[%s], ncaches=[%s], nmaxplanes=[%s], histogram=[%s](factor=%4.2f)",
             RUNS, join(UPDATES), join(NCACHES), join(MAX_PLANES), join(HISTOGRAM), FACTOR));
-    measurePerformance(reduce(HISTOGRAM, FACTOR), RUNS, UPDATES, NCACHES, MAX_PLANES);
+    measurePerformance(reduce(HISTOGRAM, FACTOR), RUNS, UPDATES, NCACHES, MAX_PLANES, THREADS);
   }
 
-  static void measurePerformance(long[] histogram, int runs, int[] updates, int[] caches, int[] maxPlanes) {
+  static void measurePerformance(
+      long[] histogram, int runs, int[] updates, int[] caches, int[] maxPlanes, int threads) {
     System.out.println("Creating pseudo-random maxima from histogram" + heap());
     final PackedInts.Reader maxima = getMaxima(histogram);
     histogram = getHistogram(maxima); // Re-calc as the maxima generator rounds up to nearest prime
@@ -121,7 +122,7 @@ public class LongTailPerformance {
     }
     System.out.println();
 
-    measure(runs, updates, histogram, maxima, stats);
+    measure(runs, threads, updates, histogram, maxima, stats);
     // Overall stats
     System.out.print(String.format(Locale.ENGLISH,
         "<table style=\"width: 80%%\">" +
@@ -146,9 +147,9 @@ public class LongTailPerformance {
   }
 
   private static void measure(
-      int runs, int[] updates, long[] histogram, PackedInts.Reader maxima, List<StatHolder> stats) {
+      int runs, int threads, int[] updates, long[] histogram, PackedInts.Reader maxima, List<StatHolder> stats) {
     PackedInts.Mutable valueIncrements = null; // For re-use
-    final ExecutorService executor = Executors.newFixedThreadPool(stats.size());
+    final ExecutorService executor = Executors.newFixedThreadPool(Math.min(threads, stats.size()));
 
     for (int update: updates) {
       System.out.println(String.format("Performing %d test runs of %dM updates in %dM counters with max bit %d%s",
@@ -519,6 +520,7 @@ public class LongTailPerformance {
       "LongTailPerformance arguments\n" +
           "-h:    Display usage\n" +
           "-r x:  Number of runs per test case. Default: 9\n" +
+          "-t x:  Number of Threads used per run. Default: Unlimited\n" +
           "-u x*: Number of updates per run. Default: 100000 1000000 20000000\n" +
           "-c x*: Cache-setups for N-plane. Default: 1000 500 200 111 50 20\n" +
           "-p x*: Max planes for N-plane. Default: 64\n" +

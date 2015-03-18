@@ -33,7 +33,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
     final int[] CACHES = new int[] {200};
     final int[] MAX_PLANES = new int[] {4};
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
-        9, UPDATES, CACHES, MAX_PLANES);
+        9, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE);
   }
 
   public void testOverflow() {
