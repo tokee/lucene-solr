@@ -60,7 +60,7 @@ public class LongTailPerformance {
     int[]  NCACHES =    toIntArray(getArgs(args, "-c", 1000, 500, 200, 100, 50, 20));
     int[]  MAX_PLANES = toIntArray(getArgs(args, "-p", 64));
     long[] HISTOGRAM = toLongArray(getArgs(args, "-m", toString(links20150209).split(", ")));
-    double FACTOR =  toDoubleArray(getArgs(args, "-d", 50))[0];
+    double FACTOR =  toDoubleArray(getArgs(args, "-d", 1.0))[0];
 
     HISTOGRAM = reduce(pad(HISTOGRAM), 1/FACTOR);
     System.out.println(String.format(Locale.ENGLISH,
@@ -68,7 +68,7 @@ public class LongTailPerformance {
                 " histogram=[%s](factor=%4.2f)",
             RUNS, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, join(UPDATES), join(NCACHES), join(MAX_PLANES),
         join(HISTOGRAM), FACTOR));
-    measurePerformance(reduce(HISTOGRAM, FACTOR), RUNS, UPDATES, NCACHES, MAX_PLANES, THREADS);
+    measurePerformance(HISTOGRAM, RUNS, UPDATES, NCACHES, MAX_PLANES, THREADS);
   }
 
   static void measurePerformance(
