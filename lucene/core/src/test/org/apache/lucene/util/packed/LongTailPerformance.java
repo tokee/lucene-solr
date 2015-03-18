@@ -38,6 +38,7 @@ import java.util.concurrent.Future;
  */
 public class LongTailPerformance {
   final static int M = 1048576;
+  final static int MI = 1000000;
   public static void testSimplePerformance() {
     final int[] UPDATES = new int[] {1000, 10000};
     final int[] CACHES = new int[] {1000, 500, 200, 100, 50, 20};
@@ -56,7 +57,7 @@ public class LongTailPerformance {
     int    ENTRY =      toIntArray(getArgs(args, "-e", RUNS/2))[0];
     int    THREADS =    toIntArray(getArgs(args, "-t", Integer.MAX_VALUE))[0];
     int    INSTANCES =  toIntArray(getArgs(args, "-i", 1))[0];
-    int[]  UPDATES =    toIntArray(getArgs(args, "-u", M/10, M, 10*M, 20*M));
+    int[]  UPDATES =    toIntArray(getArgs(args, "-u", MI/10, MI, 10*MI, 20*MI));
     int[]  NCACHES =    toIntArray(getArgs(args, "-c", 1000, 500, 200, 100, 50, 20));
     int[]  MAX_PLANES = toIntArray(getArgs(args, "-p", 64));
     long[] HISTOGRAM = toLongArray(getArgs(args, "-m", toString(links20150209).split(", ")));
@@ -132,7 +133,7 @@ public class LongTailPerformance {
         maxima.size() / 1000000, maxBit(histogram)));
 
     for (int update: updates) {
-      System.out.print(String.format(Locale.ENGLISH, " <th>%s updates</th>", update >= M ? update/M + "M" : update));
+      System.out.print(String.format(Locale.ENGLISH, " <th>%s updates</th>", update >= MI ? update/MI + "M" : update));
     }
     System.out.println("</tr>");
     for (StatHolder stat: stats) {
