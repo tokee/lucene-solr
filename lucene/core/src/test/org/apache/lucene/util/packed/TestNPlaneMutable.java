@@ -28,7 +28,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
 
   // Once triggered an ArrayIndexOutOfBoundsException, now just runs random updates
   public void testMonkey() {
-    final int DIVISOR = 5;
+    final int DIVISOR = 50;
     final int[] UPDATES = new int[] {10*M};
     final int[] CACHES = new int[] {200};
     final int[] MAX_PLANES = new int[] {4};

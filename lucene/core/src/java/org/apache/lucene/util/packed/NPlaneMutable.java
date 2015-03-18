@@ -38,6 +38,7 @@ import java.util.Locale;
  * </p><p>
  * Warning: This representation does not support persistence yet.
  */
+// TODO: Align caches to 64 bits and use Long.bitCount with IMPL.split
 public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 100; // Should probably be a low lower (100 or so)
   public static final int DEFAULT_MAX_PLANES = 64; // No default limit
@@ -93,28 +94,36 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   }
   public NPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize, int maxPlanes, double collapseFraction,
                        IMPL implementation) {
-    final List<PseudoPlane> pseudoPlanes = getLayout(maxima, overflowBucketSize, maxPlanes, collapseFraction);
-    planes = new Plane[pseudoPlanes.size()];
-    for (int i = 0 ; i < pseudoPlanes.size() ; i++) {
-      planes[i] = pseudoPlanes.get(i).createPlane(implementation);
+    this(getLayout(maxima, overflowBucketSize, maxPlanes, collapseFraction), maxima, implementation);
+  }
+  public NPlaneMutable(Layout layout, PackedInts.Reader maxima, IMPL implementation) {
+    planes = new Plane[layout.size()];
+    for (int i = 0 ; i < layout.size() ; i++) {
+      planes[i] = layout.get(i).createPlane(implementation);
     }
     populateStaticStructures(maxima);
   }
 
-  private static List<PseudoPlane> getLayout(
+  /**
+   * Generate layout intended for later creation of a finn NPlaneMutable.
+   * Layouts does a fair amount of pre-processing and can be used for
+   * instantiating multiple NPlaneMutables.
+   * @return a layout for later instantiation of NPlaneMutables.
+   */
+  public static Layout getLayout(
       PackedInts.Reader maxima, int overflowBucketSize, int maxPlanes, double collapseFraction) {
     return getLayout(getZeroBitHistogram(maxima), overflowBucketSize, maxPlanes, collapseFraction);
   }
-  private static List<PseudoPlane> getLayout(
+  private static Layout getLayout(
       long[] zeroHistogram, int overflowBucketSize, int maxPlanes, double collapseFraction) {
     int maxBit = getMaxBit(zeroHistogram);
 
-    List<PseudoPlane> pseudoPlanes = new ArrayList<>(64);
+    Layout layout = new Layout();
     int bit = 1; // All values require at least 0 bits
     while (bit <= maxBit) { // What if maxBit == 64?
       int extraBitsCount = 0;
       if (((double)zeroHistogram[bit]/zeroHistogram[0] <= collapseFraction) ||
-          pseudoPlanes.size() == maxPlanes-1) {
+          layout.size() == maxPlanes-1) {
         extraBitsCount = maxBit-bit;
       } else{
         for (int extraBit = 1; extraBit < maxBit - bit; extraBit++) {
@@ -127,11 +136,18 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 //      System.out.println(String.format("Plane bit %d + %d with size %d", bit, extraBitsCount, histogram[bit]));
 
       final int planeMaxBit = bit + extraBitsCount;
-      pseudoPlanes.add(new PseudoPlane((int) zeroHistogram[bit], 1 + extraBitsCount,
+      layout.add(new PseudoPlane((int) zeroHistogram[bit], 1 + extraBitsCount,
           planeMaxBit < maxBit, overflowBucketSize, planeMaxBit));
       bit += 1 + extraBitsCount;
     }
-    return pseudoPlanes;
+    return layout;
+  }
+
+  /**
+   * Pre-calculated setup values for plane NPlaneMutable construction.
+   */
+  public static class Layout extends ArrayList<PseudoPlane> {
+
   }
 
   // pos 0 = first bit

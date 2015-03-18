@@ -22,6 +22,7 @@ import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.RamUsageEstimator;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -35,11 +36,10 @@ import java.util.concurrent.Future;
  * Non-unit-test performance test for using PackedInts implementations for counters
  * with long tail distributed maxima.
  */
+// TODO: Optional duplication of all test counter implementations to check for jitter
+// TODO: Order the running outputs
 public class LongTailPerformance {
   final static int M = 1048576;
-
-  // The 2 tests are hard to activate, but also require manual inspection. Should they exist at all?
-
   public static void testSimplePerformance() {
     final int[] UPDATES = new int[] {1000, 10000};
     final int[] CACHES = new int[] {1000, 500, 200, 100, 50, 20};
@@ -47,39 +47,25 @@ public class LongTailPerformance {
     measurePerformance(pad(10000, 2000, 10, 3, 2, 1), 5, UPDATES, CACHES, MAX_PLANES);
   }
 
-  // main(divisor "million updates" "N-plane 1/cache" "max planes")
   public static void main(String[] args) {
-    final int RUNS = 9;
-    int divisor = args.length == 0 ? 1 : Integer.parseInt(args[0]);
-    int[] UPDATES = new int[] {M/10, M, 10*M, 100*M};
-    if (args.length > 1) {
-      String[] tokens = args[1].split(" ");
-      UPDATES = new int[tokens.length];
-      for (int i = 0 ; i < tokens.length ; i++) {
-        UPDATES[i] = (int) (Double.parseDouble(tokens[i])*M);
+    for (String arg: args) {
+      if ("-h".equals(arg)) {
+        System.out.println(USAGE);
+        return;
       }
     }
-    int[] CACHE = new int[]{1000, 500, 200, 100, 50, 20};
-    if (args.length > 2) {
-      String[] tokens = args[2].split(" ");
-      CACHE = new int[tokens.length];
-      for (int i = 0 ; i < tokens.length ; i++) {
-        CACHE[i] = Integer.parseInt(tokens[i]);
-      }
-    }
-    int[] MAX_PLANES = new int[]{64};
-    if (args.length > 3) {
-      String[] tokens = args[3].split(" ");
-      MAX_PLANES = new int[tokens.length];
-      for (int i = 0 ; i < tokens.length ; i++) {
-        MAX_PLANES[i] = Integer.parseInt(tokens[i]);
-      }
-    }
+    int    RUNS =       toIntArray(getArgs(args, "-r", 9))[0];
+    int[]  UPDATES =    toIntArray(getArgs(args, "-u", M/10, M, 10*M, 20*M));
+    int[]  NCACHES =    toIntArray(getArgs(args, "-c", 1000, 500, 200, 100, 50, 20));
+    int[]  MAX_PLANES = toIntArray(getArgs(args, "-p", 64));
+    long[] HISTOGRAM = toLongArray(getArgs(args, "-m", new Object[]{links20150209}));
+    double FACTOR =  toDoubleArray(getArgs(args, "-d", 50))[0];
 
-    System.out.println(
-        "Using divisor " + divisor + ", updates " + toString(UPDATES) + ", 1/cache " + toString(CACHE)
-            + " and max planes " + toString(MAX_PLANES));
-    measurePerformance(reduce(links20150209, divisor), RUNS, UPDATES, CACHE, MAX_PLANES);
+    HISTOGRAM = reduce(pad(HISTOGRAM), 1/FACTOR);
+    System.out.println(String.format(Locale.ENGLISH,
+            "LongTailPerformance: runs=%d, updates=[%s], ncaches=[%s], nmaxplanes=[%s], histogram=[%s](factor=%4.2f)",
+            RUNS, join(UPDATES), join(NCACHES), join(MAX_PLANES), join(HISTOGRAM), FACTOR));
+    measurePerformance(reduce(HISTOGRAM, FACTOR), RUNS, UPDATES, NCACHES, MAX_PLANES);
   }
 
   static void measurePerformance(long[] histogram, int runs, int[] updates, int[] caches, int[] maxPlanes) {
@@ -91,17 +77,19 @@ public class LongTailPerformance {
 //    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
     char id = 'a';
     for (int mp: maxPlanes) {
+      NPlaneMutable.Layout layout = null;
       for (int cache : caches) {
+        layout = NPlaneMutable.getLayout(maxima, cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
         for (NPlaneMutable.IMPL impl: new NPlaneMutable.IMPL[] {NPlaneMutable.IMPL.split, NPlaneMutable.IMPL.shift}) {
-          NPlaneMutable nplane =
-              new NPlaneMutable(maxima, cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, impl);
+          NPlaneMutable nplane = new NPlaneMutable(layout, maxima, impl);
           stats.add(new StatHolder(nplane, id++,
               "N-" + impl + "(#" + nplane.getPlaneCount() + ", 1/" + cache + ")",
               1));
         }
       }
-      NPlaneMutable nplane =
-          new NPlaneMutable(maxima, 0, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.spank);
+      NPlaneMutable nplane = layout == null ?
+          new NPlaneMutable(maxima, 0, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.spank) :
+          new NPlaneMutable(layout, maxima, NPlaneMutable.IMPL.spank) ;
       stats.add(new StatHolder(nplane, id++,
           "N-" + NPlaneMutable.IMPL.spank + "(#" + nplane.getPlaneCount() + ")",
           1));
@@ -139,13 +127,14 @@ public class LongTailPerformance {
             "<caption>Median updates/ms of %dM counters with max bit %d</caption>\n" +
             "<tr style=\"text-align: right\"><th>Implementation</th> <th>MB</th>",
         maxima.size() / 1000000, maxBit(histogram)));
+
     for (int update: updates) {
       System.out.print(String.format(Locale.ENGLISH, " <th>%s updates</th>", update >= M ? update/M + "M" : update));
     }
     System.out.println("</tr>");
     for (StatHolder stat: stats) {
       System.out.print(String.format(Locale.ENGLISH,
-          "<tr style=\"text-align: right;\"><th>%s</th> <td>%d</td>",
+          "<tr style=\"text-align: right;\"><th style=\"align: left;\">%s</th> <td>%d</td>",
           stat.designation, stat.impl.ramBytesUsed()/M));
       for (int i = 0 ; i < updates.length ; i++) {
         System.out.print(String.format(Locale.ENGLISH, " <td>%.0f</td>", stat.ups.get(i)));
@@ -174,15 +163,18 @@ public class LongTailPerformance {
         valueIncrements = generateValueIncrements(maxima, update, valueIncrements, seed);
         System.gc(); // We don't want GC in the middle of measurements
         System.out.print("] ");
-        List<Future<Long>> statFutures = new ArrayList<>(stats.size());
+        List<Future<StatHolder>> statFutures = new ArrayList<>(stats.size());
         for (StatHolder stat : stats) {
           stat.impl.clear();
           stat.setIncrements(valueIncrements, maxima);
           statFutures.add(executor.submit(stat));
         }
-        for (Future<Long> statFuture: statFutures) {
+        for (Future<StatHolder> statFuture: statFutures) {
           try {
-            statFuture.get();
+            StatHolder statHolder = statFuture.get();
+            System.out.print(String.format(Locale.ENGLISH, "%c:%5d  ",
+                statHolder.id, (long) (((double) statHolder.updatesPerTiming) / statHolder.lastNS * 1000000)));
+
           } catch (Exception e) {
             throw new RuntimeException("Unexpected exception while waiting for test to finish", e);
           }
@@ -196,7 +188,6 @@ public class LongTailPerformance {
     }
     executor.shutdownNow();
   }
-
 
   private static PackedInts.Mutable generateValueIncrements(
       PackedInts.Reader maxima, int updates, PackedInts.Mutable increments, long seed) {
@@ -221,6 +212,7 @@ public class LongTailPerformance {
     }
     return increments;
   }
+
 
   // Runs a performance test and reports time spend as nano seconds
   private static long measure(
@@ -257,6 +249,7 @@ public class LongTailPerformance {
     }
     return histogram;
   }
+
   public static long[] getHistogram(PackedInts.Reader maxima) {
     final long[] histogram = new long[64];
     for (int i = 0 ; i < maxima.size() ; i++) {
@@ -265,18 +258,18 @@ public class LongTailPerformance {
     }
     return histogram;
   }
+  private static class StatHolder implements Callable<StatHolder> {
 
-  private static class StatHolder implements Callable<Long> {
     private final PackedInts.Mutable impl;
     private final String designation;
     private final List<Long> timings = new ArrayList<>();
     private int updatesPerTiming;
     private final List<Double> ups = new ArrayList<>();
     private final char id;
-
     private PackedInts.Reader increments;
-    private PackedInts.Reader maxima;
+    private long lastNS = -1;
 
+    private PackedInts.Reader maxima;
     public StatHolder(PackedInts.Mutable impl, char id, String designation, int updatesPerTiming) {
       this.impl = impl;
       this.id = id;
@@ -301,7 +294,7 @@ public class LongTailPerformance {
 
     public String toString() {
       return String.format("%-22s (%3dMB): %6d updates/ms median",
-          designation, impl.ramBytesUsed()/M, (long)getMedianUpdatesPerMS());
+          id + ": " + designation, impl.ramBytesUsed()/M, (long)getMedianUpdatesPerMS());
     }
 
     public void setUpdates(int updates) {
@@ -310,7 +303,6 @@ public class LongTailPerformance {
     }
 
     // Test code below
-
 
     public void setIncrements(PackedInts.Reader increments, PackedInts.Reader maxima) {
 /*      PackedInts.Mutable clone = PackedInts.getMutable(
@@ -323,19 +315,21 @@ public class LongTailPerformance {
       this.maxima = maxima;
     }
 
+
     @Override
-    public Long call() throws Exception {
+    public StatHolder call() throws Exception {
       long ns = measure(impl, increments, maxima);
       addTiming(ns);
-      System.out.print(String.format(Locale.ENGLISH, "%c:%5d  ",
-          id, (long) (((double) updatesPerTiming) / ns * 1000000)));
-      return ns;
+      this.lastNS = ns;
+//      System.out.print(String.format(Locale.ENGLISH, "%c:%5d  ",
+//          id, (long) (((double) updatesPerTiming) / ns * 1000000)));
+      return this;
     }
+
   }
-
   public static final class PackedWrapped extends PackedInts.ReaderImpl {
-    private final int[] values;
 
+    private final int[] values;
     public PackedWrapped(int[] values) {
       super(values.length, 32);
       this.values = values;
@@ -351,8 +345,8 @@ public class LongTailPerformance {
     public long get(int docID) {
       return values[docID];
     }
-  }
 
+  }
   // Convert to int and cut zeroes at end
   public static int[] toGeneratorHistogram(long[] values) {
     int max = 0;
@@ -408,10 +402,10 @@ public class LongTailPerformance {
     return sb.toString();
   }
 
-  public static long[] reduce(long[] values, int divisor) {
+  public static long[] reduce(long[] values, double divisor) {
     final long[] result = new long[values.length];
     for (int i = 0 ; i < values.length ; i++) {
-      result[i] = values[i] / divisor;
+      result[i] = (long) (values[i] / divisor);
     }
     return result;
   }
@@ -441,4 +435,83 @@ public class LongTailPerformance {
       77,
       1
   );
+
+  private static String join(int[] values) {
+    StringBuilder sb = new StringBuilder(values.length*5);
+    for (int value: values) {
+      if (sb.length() != 0) {
+        sb.append(", ");
+      }
+      sb.append(Integer.toString(value));
+    }
+    return sb.toString();
+  }
+
+  private static String join(long[] values) {
+    StringBuilder sb = new StringBuilder(values.length*5);
+    for (long value: values) {
+      if (sb.length() != 0) {
+        sb.append(", ");
+      }
+      sb.append(Long.toString(value));
+    }
+    return sb.toString();
+  }
+  private static int[] toIntArray(List<String> args) {
+    int[] ints = new int[args.size()];
+    for (int i = 0 ; i < args.size() ; i++) {
+      ints[i] = Integer.parseInt(args.get(i));
+    }
+    return ints;
+  }
+  private static long[] toLongArray(List<String> args) {
+    long[] longs = new long[args.size()];
+    for (int i = 0 ; i < args.size() ; i++) {
+      longs[i] = Long.parseLong(args.get(i));
+    }
+    return longs;
+  }
+  private static double[] toDoubleArray(List<String> args) {
+    double[] doubles = new double[args.size()];
+    for (int i = 0 ; i < args.size() ; i++) {
+      doubles[i] = Double.parseDouble(args.get(i));
+    }
+    return doubles;
+  }
+  private static List<String> getArgs(String[] args, String option, Object... defaults) {
+    if (defaults.length == 1 && defaults[0] instanceof Object[]) {
+      defaults = (Object[])defaults[0]; // Expand inner array
+    }
+    List<String> values = new ArrayList<>();
+    for (int i = 0 ; i < args.length ; i++) {
+      if (args[i].equals(option)) {
+        for (int j = i+1 ; j < args.length ; j++) {
+          if (args[j].startsWith("-")) {
+            break;
+          }
+          values.addAll(Arrays.asList(args[j].split(" +")));
+        }
+        if (values.isEmpty()) {
+          throw new IllegalStateException("Must provide values for option '" + option + "'");
+        }
+        return values;
+      }
+    }
+    for (Object o: defaults) {
+      values.add(o.toString());
+    }
+    return values;
+  }
+
+  private static final String USAGE =
+      "LongTailPerformance arguments\n" +
+          "-h:    Display usage\n" +
+          "-r x:  Number of runs per test case. Default: 9\n" +
+          "-c x*: Cache-setups for N-plane. Default: 1000 500 200 111 50 20\n" +
+          "-p x*: Max planes for N-plane. Default: 64\n" +
+          "-m x*: Histogram maxima. Default: 425799733 85835129 52695663...\n" +
+          "-d x:  Histogram multiplication factor. Default: 1.0\n\n" +
+          "Note the absence of a warmup round. As the median over all runs is used, " +
+          "the initial fluctuations of the JIT and the caches should not be irrelevant.";
+
 }
