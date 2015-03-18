@@ -55,7 +55,7 @@ public class LongTailPerformance {
     int    RUNS =       toIntArray(getArgs(args, "-r", 9))[0];
     int    ENTRY =      toIntArray(getArgs(args, "-e", RUNS/2))[0];
     int    THREADS =    toIntArray(getArgs(args, "-t", Integer.MAX_VALUE))[0];
-    int    DUPLICATES = toIntArray(getArgs(args, "-i", 1))[0];
+    int    INSTANCES =  toIntArray(getArgs(args, "-i", 1))[0];
     int[]  UPDATES =    toIntArray(getArgs(args, "-u", M/10, M, 10*M, 20*M));
     int[]  NCACHES =    toIntArray(getArgs(args, "-c", 1000, 500, 200, 100, 50, 20));
     int[]  MAX_PLANES = toIntArray(getArgs(args, "-p", 64));
@@ -64,15 +64,15 @@ public class LongTailPerformance {
 
     HISTOGRAM = reduce(pad(HISTOGRAM), 1/FACTOR);
     System.out.println(String.format(Locale.ENGLISH,
-            "LongTailPerformance: runs=%d, threads=%s, updates=[%s], ncaches=[%s], nmaxplanes=[%s]," +
-                " histogram=[%s](factor=%4.2f)",
-            RUNS, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, join(UPDATES), join(NCACHES), join(MAX_PLANES),
-        join(HISTOGRAM), FACTOR));
-    measurePerformance(HISTOGRAM, RUNS, ENTRY, DUPLICATES, UPDATES, NCACHES, MAX_PLANES, THREADS);
+            "LongTailPerformance: runs=%d, entry=%d, threads=%s, instances=%d, updates=[%s], ncaches=[%s]," +
+                " nmaxplanes=[%s], histogram=[%s](factor=%4.2f)",
+            RUNS, ENTRY, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, INSTANCES, join(UPDATES),
+        join(NCACHES), join(MAX_PLANES), join(HISTOGRAM), FACTOR));
+    measurePerformance(HISTOGRAM, RUNS, ENTRY, INSTANCES, UPDATES, NCACHES, MAX_PLANES, THREADS);
   }
 
   static void measurePerformance(
-      long[] histogram, int runs, int entry, int duplicates, int[] updates,
+      long[] histogram, int runs, int entry, int instances, int[] updates,
       int[] caches, int[] maxPlanes, int threads) {
     System.out.println("Creating pseudo-random maxima from histogram" + heap());
     final PackedInts.Reader maxima = getMaxima(histogram);
@@ -81,7 +81,7 @@ public class LongTailPerformance {
     System.out.println("Initializing implementations" + heap());
 //    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
     char id = 'a';
-    for (int d = 0 ; d < duplicates ; d++) {
+    for (int d = 0 ; d < instances ; d++) {
       for (int mp : maxPlanes) {
         NPlaneMutable.Layout layout = null;
         for (int cache : caches) {
