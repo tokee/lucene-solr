@@ -38,6 +38,7 @@ import java.util.concurrent.Future;
  */
 // TODO: Optional duplication of all test counter implementations to check for jitter
 // TODO: Order the running outputs
+// TODO: Change updates to double
 public class LongTailPerformance {
   final static int M = 1048576;
   public static void testSimplePerformance() {
@@ -58,7 +59,7 @@ public class LongTailPerformance {
     int[]  UPDATES =    toIntArray(getArgs(args, "-u", M/10, M, 10*M, 20*M));
     int[]  NCACHES =    toIntArray(getArgs(args, "-c", 1000, 500, 200, 100, 50, 20));
     int[]  MAX_PLANES = toIntArray(getArgs(args, "-p", 64));
-    long[] HISTOGRAM = toLongArray(getArgs(args, "-m", new Object[]{links20150209}));
+    long[] HISTOGRAM = toLongArray(getArgs(args, "-m", Arrays.asList(links20150209)));
     double FACTOR =  toDoubleArray(getArgs(args, "-d", 50))[0];
 
     HISTOGRAM = reduce(pad(HISTOGRAM), 1/FACTOR);
@@ -479,8 +480,9 @@ public class LongTailPerformance {
     return doubles;
   }
   private static List<String> getArgs(String[] args, String option, Object... defaults) {
-    if (defaults.length == 1 && defaults[0] instanceof Object[]) {
-      defaults = (Object[])defaults[0]; // Expand inner array
+    if (defaults.length == 1 && defaults[0] instanceof List) {
+      List vals = (List)defaults[0];
+      defaults = vals.toArray();
     }
     List<String> values = new ArrayList<>();
     for (int i = 0 ; i < args.length ; i++) {
@@ -507,6 +509,7 @@ public class LongTailPerformance {
       "LongTailPerformance arguments\n" +
           "-h:    Display usage\n" +
           "-r x:  Number of runs per test case. Default: 9\n" +
+          "-u x*: Number of updates per run. Default: 100000 1000000 20000000\n" +
           "-c x*: Cache-setups for N-plane. Default: 1000 500 200 111 50 20\n" +
           "-p x*: Max planes for N-plane. Default: 64\n" +
           "-m x*: Histogram maxima. Default: 425799733 85835129 52695663...\n" +
