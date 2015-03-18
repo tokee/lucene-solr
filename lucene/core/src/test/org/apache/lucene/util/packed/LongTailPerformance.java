@@ -59,7 +59,7 @@ public class LongTailPerformance {
     int[]  UPDATES =    toIntArray(getArgs(args, "-u", M/10, M, 10*M, 20*M));
     int[]  NCACHES =    toIntArray(getArgs(args, "-c", 1000, 500, 200, 100, 50, 20));
     int[]  MAX_PLANES = toIntArray(getArgs(args, "-p", 64));
-    long[] HISTOGRAM = toLongArray(getArgs(args, "-m", Arrays.asList(links20150209)));
+    long[] HISTOGRAM = toLongArray(getArgs(args, "-m", toString(links20150209).split(", ")));
     double FACTOR =  toDoubleArray(getArgs(args, "-d", 50))[0];
 
     HISTOGRAM = reduce(pad(HISTOGRAM), 1/FACTOR);
@@ -399,6 +399,16 @@ public class LongTailPerformance {
         sb.append(", ");
       }
       sb.append(v >= M ? v/M + "M" : v);
+    }
+    return sb.toString();
+  }
+  private static String toString(long[] values) {
+    StringBuilder sb = new StringBuilder();
+    for (long v: values) {
+      if (sb.length() > 0) {
+        sb.append(", ");
+      }
+      sb.append(v);
     }
     return sb.toString();
   }
