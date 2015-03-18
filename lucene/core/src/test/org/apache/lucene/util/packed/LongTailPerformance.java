@@ -55,7 +55,7 @@ public class LongTailPerformance {
     int    RUNS =       toIntArray(getArgs(args, "-r", 9))[0];
     int    ENTRY =      toIntArray(getArgs(args, "-e", RUNS/2))[0];
     int    THREADS =    toIntArray(getArgs(args, "-t", Integer.MAX_VALUE))[0];
-    int    DUPLICATES = toIntArray(getArgs(args, "-d", 1))[0];
+    int    DUPLICATES = toIntArray(getArgs(args, "-i", 1))[0];
     int[]  UPDATES =    toIntArray(getArgs(args, "-u", M/10, M, 10*M, 20*M));
     int[]  NCACHES =    toIntArray(getArgs(args, "-c", 1000, 500, 200, 100, 50, 20));
     int[]  MAX_PLANES = toIntArray(getArgs(args, "-p", 64));
@@ -524,7 +524,7 @@ public class LongTailPerformance {
           "-r x:  Number of runs per test case. Default: 9\n" +
           "-e x:  Which measurement to report, as an index in slowest to fastest run. Default: runs/2\n" +
           "-t x:  Number of Threads used per run. Default: Unlimited\n" +
-          "-d x:  Duplicate all instances this number of times. Default: 1\n" +
+          "-i x:  Duplicate all instances this number of times. Default: 1\n" +
           "-u x*: Number of updates per run. Default: 100000 1000000 20000000\n" +
           "-c x*: Cache-setups for N-plane. Default: 1000 500 200 111 50 20\n" +
           "-p x*: Max planes for N-plane. Default: 64\n" +
