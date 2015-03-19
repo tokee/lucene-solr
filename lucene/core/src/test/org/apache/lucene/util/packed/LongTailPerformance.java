@@ -132,9 +132,9 @@ public class LongTailPerformance {
     // Overall stats
     System.out.print(String.format(Locale.ENGLISH,
         "<table style=\"width: 80%%\">" +
-            "<caption>Median updates/ms of %dM counters with max bit %d</caption>\n" +
-            "<tr style=\"text-align: right\"><th>Implementation</th> <th>MB</th>",
-        maxima.size() / 1000000, maxBit(histogram)));
+            "<caption>Entry %d/%d increasing order updates/ms of %dM counters with max bit %d, using %d threads" +
+            "</caption>\n<tr style=\"text-align: right\"><th>Implementation</th> <th>MB</th>",
+        entry, runs, maxima.size() / 1000000, maxBit(histogram), threads));
 
     for (int update: updates) {
       System.out.print(String.format(Locale.ENGLISH, " <th>%s updates</th>", update >= MI ? update/MI + "M" : update));
@@ -302,8 +302,9 @@ public class LongTailPerformance {
     }
 
     public String toString() {
-      return String.format("%-22s (%3dMB): %6d updates/ms median",
-          id + ": " + designation, impl.ramBytesUsed()/M, (long)getUpdatesPerMS(timings.size()/2));
+      return String.format("%-22s (%3dMB): %6d updates/ms median, %6d updates/ms max",
+          id + ": " + designation, impl.ramBytesUsed()/M,
+          (long)getUpdatesPerMS(timings.size()/2), (long)getUpdatesPerMS(timings.size()-1));
     }
 
     public void setUpdates(int updates) {
