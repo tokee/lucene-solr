@@ -300,6 +300,7 @@ public class LongTailPerformance {
 
     public double getUpdatesPerMS(int entry) {
       Collections.sort(timings);
+      Collections.reverse(timings);
       return timings.isEmpty() ? 0 : ((double)updatesPerTiming)/timings.get(entry)*1000000;
     }
 
