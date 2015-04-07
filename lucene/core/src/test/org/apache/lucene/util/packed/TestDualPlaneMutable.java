@@ -120,7 +120,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     System.out.println(String.format(Locale.ENGLISH, "Sparse PackedInts:     %4dMB", packC/ M));
     System.out.println(String.format(Locale.ENGLISH, "Long Tail Dual:        %4dMB", ltmC / M));
     System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes:      %4dMB", nplaneSplit / M));
-    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes rank: %4dMB", nplaneSplit / M));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes rank: %4dMB", nplaneSplitRank / M));
     System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes+:     %4dMB", nplaneExtra / M));
     System.out.println(String.format(Locale.ENGLISH, "Lowest possible:       %4dMB", lowest / M));
   }

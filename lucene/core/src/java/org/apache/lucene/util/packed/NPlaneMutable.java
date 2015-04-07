@@ -374,11 +374,11 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
         case split: {
           long bytes = RamUsageEstimator.alignObjectSize(
               3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) + // Plane object
-              RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + valueCount*bpv/8; // Values, assuming compact
+              RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + 1L*valueCount*bpv/8; // Values, assuming compact
           if (!extraInstance) {
             bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER; // overflow header
             if (hasOverflows) {
-              bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + valueCount/8 + // overflow bits
+              bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + 1L*valueCount/8 + // overflow bits
                   valueCount/overflowBucketSize*PackedInts.bitsRequired(valueCount)/8; // Cache
             }
           }
@@ -387,12 +387,12 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
         case spank: {
           long bytes = RamUsageEstimator.alignObjectSize(
               3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) + // Plane object
-              RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + valueCount*bpv/8; // Values, assuming compact
+              RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + 1L*valueCount*bpv/8; // Values, assuming compact
           if (!extraInstance) {
             bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER; // overflow header
             if (hasOverflows) {
               bytes += RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + valueCount/8 + // overflow bits
-                  ((long)valueCount)*8*64/2048; // Rank cache
+                  ((long)valueCount)*64/2048; // Rank cache uses a long for every 2048 bits
             }
           }
           return bytes;
