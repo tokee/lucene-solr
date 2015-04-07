@@ -257,6 +257,13 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
     return head.getBitsPerValue(); // Max
   }
 
+  public int getHeadBPV() {
+    return head.getBitsPerValue();
+  }
+  public int getTailBPV() {
+    return tail.getBitsPerValue();
+  }
+
   @Override
   public int size() {
     return tail.size();

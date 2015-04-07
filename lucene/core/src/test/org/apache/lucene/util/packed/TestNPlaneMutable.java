@@ -119,6 +119,28 @@ public class TestNPlaneMutable extends LuceneTestCase {
     bpm.set(2, bpm.get(2)+1);
   }
 
+  public void testNPlaneLayout() {
+    long EXPECTED = 400;
+    long[] histogram = LongTailPerformance.reduce(LongTailPerformance.links20150209, 1.0);
+
+    long[] full = NPlaneMutable.directHistogramToFullZero(histogram);
+    NPlaneMutable.Layout layout = NPlaneMutable.getLayout(full, 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
+    assertTrue("There should be more than 3 planes", layout.size() > 3);
+    long mem = 0;
+    for (NPlaneMutable.PseudoPlane plane: layout) {
+      mem += plane.estimateBytesNeeded(false, NPlaneMutable.IMPL.spank);
+    }
+    assertTrue("The size should be less than " + EXPECTED + "MB, but was " + mem/M + "MB",
+        EXPECTED * M > mem);
+
+    final long estimated = NPlaneMutable.estimateBytesNeeded(
+        histogram, 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, false, NPlaneMutable.IMPL.spank);
+    assertTrue("The estimated size should be less than " + EXPECTED + "MB, but was " + estimated/M + "MB",
+        EXPECTED * M > estimated);
+//    System.out.println(String.format("%d planes, PseudoPlane mem %dMB, estimated mem %dMB",
+//        layout.size(), mem/M, estimated/M));
+  }
+
   public void testSmallInc() {
     final PackedInts.Mutable maxima = toMutable(10, 1, 16, 2, 3);
     System.out.println("maxima: " + toString(maxima));

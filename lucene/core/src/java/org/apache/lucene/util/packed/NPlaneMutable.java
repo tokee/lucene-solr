@@ -92,8 +92,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     this(new BPVPackedWrapper(maxima, false), overflowBucketSize,
         DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, DEFAULT_IMPLEMENTATION);
   }
-  public NPlaneMutable(BPVProvider maxima, int overflowBucketSize, int maxPlanes, double collapseFraction,
-                       IMPL implementation) {
+  public NPlaneMutable(
+      BPVProvider maxima, int overflowBucketSize, int maxPlanes, double collapseFraction, IMPL implementation) {
     this(getLayout(maxima, overflowBucketSize, maxPlanes, collapseFraction), maxima, implementation);
   }
   public NPlaneMutable(Layout layout, BPVProvider maxima, IMPL implementation) {
@@ -114,7 +114,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       BPVProvider maxima, int overflowBucketSize, int maxPlanes, double collapseFraction) {
     return getLayout(getZeroBitHistogram(maxima), overflowBucketSize, maxPlanes, collapseFraction);
   }
-  private static Layout getLayout(
+  static Layout getLayout(
       long[] zeroHistogram, int overflowBucketSize, int maxPlanes, double collapseFraction) {
     int maxBit = getMaxBit(zeroHistogram);
 
@@ -170,7 +170,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     return mem;
   }
 
-  private static long[] directHistogramToFullZero(long[] histogram) {
+  static long[] directHistogramToFullZero(long[] histogram) {
     long[] full = new long[histogram.length+1];
     System.arraycopy(histogram, 0, full, 1, histogram.length);
     full[0] = 0;
@@ -345,12 +345,17 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   /**
    * A description of a plane. Used for estimations.
    */
-  private static class PseudoPlane {
+  static class PseudoPlane {
     private final int valueCount;
     private final int bpv;
     private final boolean hasOverflows;
     private final int maxBit;
     private final int overflowBucketSize;
+
+    public String toString() {
+      return String.format("PseudoPlane(#values=%9d, bpv=%2d, overflows=%5b, maxBits=%2d)",
+          valueCount, bpv, hasOverflows, maxBit);
+    }
 
     private PseudoPlane(int valueCount, int bpv, boolean hasOverflows, int overflowBucketSize, int maxBit) {
       this.valueCount = valueCount;
