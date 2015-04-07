@@ -90,8 +90,6 @@ public class TestDualPlaneMutable extends LuceneTestCase {
   }
 
 
-
-
   public void testMemoryUsages() {
     dumpImplementationMemUsages("Shard 1 URL", getURLShard1Histogram());
     dumpImplementationMemUsages("Links raw", getLinksHistogram());

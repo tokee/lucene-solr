@@ -24,7 +24,6 @@ import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.RankBitSet;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 
 /**
@@ -90,13 +89,14 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   }
 
   public NPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize) {
-    this(maxima, overflowBucketSize, DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, DEFAULT_IMPLEMENTATION);
+    this(new BPVPackedWrapper(maxima, false), overflowBucketSize,
+        DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, DEFAULT_IMPLEMENTATION);
   }
-  public NPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize, int maxPlanes, double collapseFraction,
+  public NPlaneMutable(BPVProvider maxima, int overflowBucketSize, int maxPlanes, double collapseFraction,
                        IMPL implementation) {
     this(getLayout(maxima, overflowBucketSize, maxPlanes, collapseFraction), maxima, implementation);
   }
-  public NPlaneMutable(Layout layout, PackedInts.Reader maxima, IMPL implementation) {
+  public NPlaneMutable(Layout layout, BPVProvider maxima, IMPL implementation) {
     planes = new Plane[layout.size()];
     for (int i = 0 ; i < layout.size() ; i++) {
       planes[i] = layout.get(i).createPlane(implementation);
@@ -111,7 +111,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * @return a layout for later instantiation of NPlaneMutables.
    */
   public static Layout getLayout(
-      PackedInts.Reader maxima, int overflowBucketSize, int maxPlanes, double collapseFraction) {
+      BPVProvider maxima, int overflowBucketSize, int maxPlanes, double collapseFraction) {
     return getLayout(getZeroBitHistogram(maxima), overflowBucketSize, maxPlanes, collapseFraction);
   }
   private static Layout getLayout(
@@ -119,7 +119,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     int maxBit = getMaxBit(zeroHistogram);
 
     Layout layout = new Layout();
-    int bit = 1; // All values require at least 0 bits
+    int bit = 1; // All values require at least 1 bit
     while (bit <= maxBit) { // What if maxBit == 64?
       int extraBitsCount = 0;
       if (((double)zeroHistogram[bit]/zeroHistogram[0] <= collapseFraction) ||
@@ -146,9 +146,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   /**
    * Pre-calculated setup values for plane NPlaneMutable construction.
    */
-  public static class Layout extends ArrayList<PseudoPlane> {
-
-  }
+  public static class Layout extends ArrayList<PseudoPlane> { }
 
   // pos 0 = first bit
   public static long estimateBytesNeeded(long[] histogram) {
@@ -184,7 +182,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     return full;
   }
 
-  private void populateStaticStructures(PackedInts.Reader maxima) {
+  private void populateStaticStructures(BPVProvider maxima) {
 //    System.out.println("Populating " + planes.length + " planes with overflow data. Initial empty layout:");
 //    for (Plane plane: planes) {
 //      System.out.println(plane.toString());
@@ -194,9 +192,11 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     int bit = 1;
     for (int planeIndex = 0; planeIndex < planes.length-1; planeIndex++) { // -1: Never set overflow bit on topmost
       final Plane plane = planes[planeIndex];
+      maxima.reset();
       for (int i = 0; i < maxima.size(); i++) {
-        if (bit == 1 || (maxima.get(i) >>> planes[planeIndex - 1].maxBit) != 0) {
-          if (maxima.get(i) >>> plane.maxBit != 0) {
+        final int bpv = maxima.next();
+        if (bit == 1 || (bpv - planes[planeIndex - 1].maxBit) > 0) {
+          if (bpv - plane.maxBit > 0) {
             plane.setOverflow(overflowIndex[planeIndex]);
           }
           overflowIndex[planeIndex]++;
@@ -226,11 +226,11 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
   // histogram[0] = total count
   // Special histogram where the counts are summed downwards
-  private static long[] getZeroBitHistogram(PackedInts.Reader maxima) {
+  private static long[] getZeroBitHistogram(BPVProvider maxima) {
     final long[] histogram = new long[65];
     for (int i = 0 ; i < maxima.size() ; i++) {
-      int bitsRequired = PackedInts.bitsRequired(maxima.get(i));
-      for (int br = 1; br <=bitsRequired ; br++) {
+      int bitsRequired = maxima.next();
+      for (int br = 1; br <= bitsRequired ; br++) {
         histogram[br]++;
       }
     }
@@ -786,6 +786,79 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   private static void toString(StringBuilder sb, OpenBitSet overflow) {
     for (int i = 0; i < MAX_PRINT && i < overflow.size(); i++) {
       sb.append(overflow.get(i) ? "*" : "-");
+    }
+  }
+
+  /**
+   * Describes counter layout in the form of bits required to represent each counter.
+   */
+  public static interface BPVProvider {
+    /**
+     * @return total number of counters in the field.
+     */
+    public int size();
+
+    /**
+     * @return true if there is more bitsRequired available.
+     */
+    public boolean hasNext();
+
+    /**
+     *  @return the next bitsRequired.
+     */
+    public int next();
+
+    /**
+     * Reset the structure for another iteration.
+     */
+    public void reset();
+  }
+
+  public static class BPVPackedWrapper implements BPVProvider {
+    private final PackedInts.Reader maxima;
+    private final boolean alreadyBPV;
+    private int pos = 0;
+
+    public BPVPackedWrapper(PackedInts.Reader maxima, boolean alreadyBPV) {
+      this.maxima = maxima;
+      this.alreadyBPV = alreadyBPV;
+    }
+
+    @Override
+    public int size() {
+      return maxima.size();
+    }
+
+    @Override
+    public boolean hasNext() {
+      return pos < maxima.size();
+    }
+
+    @Override
+    public int next() {
+      return alreadyBPV ? (int) maxima.get(pos++) : PackedInts.bitsRequired(maxima.get(pos++));
+    }
+
+    @Override
+    public void reset() {
+      pos = 0;
+    }
+  }
+
+  public static class BPVAbsorber {
+    private final PackedInts.Mutable bpvs;
+    private int pos = 0;
+    public BPVAbsorber(int size, int maxBPV) {
+      bpvs = PackedInts.getMutable(size, maxBPV, PackedInts.COMPACT);
+    }
+    public void addBPV(int bpv) {
+      bpvs.set(pos++, bpv);
+    }
+    public void addAbsolute(long maxValue) {
+      bpvs.set(pos++, PackedInts.bitsRequired(maxValue));
+    }
+    public BPVProvider getProvider() {
+      return new BPVPackedWrapper(bpvs, true);
     }
   }
 }

@@ -90,17 +90,19 @@ public class LongTailPerformance {
       for (int mp : maxPlanes) {
         NPlaneMutable.Layout layout = null;
         for (int cache : caches) {
-          layout = NPlaneMutable.getLayout(maxima, cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
+          layout = NPlaneMutable.getLayout(
+              new NPlaneMutable.BPVPackedWrapper(maxima, false), cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
           for (NPlaneMutable.IMPL impl : new NPlaneMutable.IMPL[]{NPlaneMutable.IMPL.split, NPlaneMutable.IMPL.shift}) {
-            NPlaneMutable nplane = new NPlaneMutable(layout, maxima, impl);
+            NPlaneMutable nplane = new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), impl);
             stats.add(new StatHolder(nplane, id++,
                 "N-" + impl + "(#" + nplane.getPlaneCount() + ", 1/" + cache + ")",
                 1));
           }
         }
         NPlaneMutable nplane = layout == null ?
-            new NPlaneMutable(maxima, 0, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.spank) :
-            new NPlaneMutable(layout, maxima, NPlaneMutable.IMPL.spank);
+            new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), 0, mp,
+                NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.spank) :
+            new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), NPlaneMutable.IMPL.spank);
         stats.add(new StatHolder(nplane, id++,
             "N-" + NPlaneMutable.IMPL.spank + "(#" + nplane.getPlaneCount() + ")",
             1));

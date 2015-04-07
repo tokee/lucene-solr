@@ -28,8 +28,8 @@ public class TestNPlaneMutable extends LuceneTestCase {
 
   // Once triggered an ArrayIndexOutOfBoundsException, now just runs random updates
   public void testMonkey() {
-    final int DIVISOR = 50;
-    final int[] UPDATES = new int[] {10*M};
+    final int DIVISOR = 500;
+    final int[] UPDATES = new int[] {M};
     final int[] CACHES = new int[] {200};
     final int[] MAX_PLANES = new int[] {4};
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
@@ -45,7 +45,8 @@ public class TestNPlaneMutable extends LuceneTestCase {
 
     final PackedInts.Reader maxima = LongTailPerformance.getMaxima(histogram);
     NPlaneMutable nplane =
-        new NPlaneMutable(maxima, CACHE, MAX_PLANES, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.shift);
+        new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), CACHE, MAX_PLANES,
+            NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.shift);
 
     checkOverflow("Before increment", nplane);
     for (int i = 0; i < INCREMENTS.length; i++) {
@@ -188,9 +189,16 @@ public class TestNPlaneMutable extends LuceneTestCase {
 
   public void testRandomSmallLongTail() {
 //    PackedInts.Reader maxima = getMaxima(TestDualPlaneMutable.getLinksHistogram());
-    PackedInts.Reader maxima = LongTailPerformance.getMaxima(LongTailPerformance.pad(1, 3, 2));
-    // TODO: This hangs until LongTailIntGenerator works again (waiting for commit from Thomas Egense)
-    assertMonkey(maxima, 21);
+    PackedInts.Reader maxima = LongTailPerformance.getMaxima(LongTailPerformance.pad(1, 3, 2)); // 1 + 3*3 + 2*7 = 24
+    assertMonkey(maxima, (int) sum(maxima));
+  }
+
+  private long sum(PackedInts.Reader values) {
+    long total = 0;
+    for (int i = 0 ; i < values.size() ; i++) {
+      total += values.get(i);
+    }
+    return total;
   }
 
   public void testRandomRealWorldHistogramLongTail() {
@@ -204,7 +212,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
         640280533L*4/M));
   }
 
-  public void testAssignRealLargeSample() {
+  public void disabledtestAssignRealLargeSample() {
     PackedInts.Reader maxima = LongTailPerformance.getMaxima(LongTailPerformance.links20150209);
     NPlaneMutable bpm = new NPlaneMutable(maxima);
     for (int i = 0 ; i < maxima.size() ; i++) {
@@ -231,10 +239,18 @@ public class TestNPlaneMutable extends LuceneTestCase {
         bpm.ramBytesUsed()/M, maxima.ramBytesUsed()/M, bpm.ramBytesUsed() * 100.0 / maxima.ramBytesUsed()));
     for (int update = 0 ; update < updates ; update++) {
       int index = random().nextInt(maxima.size());
+      int oldIndex = -1;
       while (expected.get(index) >= maxima.get(index)) {
+        if (oldIndex == -1) {
+          oldIndex = index;
+        }
         index++;
         if (index == maxima.size()) {
           index = 0;
+        }
+        if (oldIndex == index) {
+            fail("Unable to generate sample as the number of updates (" + updates + ") is higher than the " +
+                "collective counts");
         }
       }
       expected.set(index, expected.get(index)+1);
