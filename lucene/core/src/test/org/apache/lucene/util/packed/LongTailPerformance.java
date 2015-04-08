@@ -92,7 +92,9 @@ public class LongTailPerformance {
         for (int cache : caches) {
           layout = NPlaneMutable.getLayout(
               new NPlaneMutable.BPVPackedWrapper(maxima, false), cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
-          for (NPlaneMutable.IMPL impl : new NPlaneMutable.IMPL[]{NPlaneMutable.IMPL.split, NPlaneMutable.IMPL.shift}) {
+          // Disabled split as it is always worse than spank
+//          for (NPlaneMutable.IMPL impl : new NPlaneMutable.IMPL[]{NPlaneMutable.IMPL.split, NPlaneMutable.IMPL.shift}) {
+          for (NPlaneMutable.IMPL impl : new NPlaneMutable.IMPL[]{NPlaneMutable.IMPL.shift}) {
             NPlaneMutable nplane = new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), impl);
             stats.add(new StatHolder(nplane, id++,
                 "N-" + impl + "(#" + nplane.getPlaneCount() + ", 1/" + cache + ")",
