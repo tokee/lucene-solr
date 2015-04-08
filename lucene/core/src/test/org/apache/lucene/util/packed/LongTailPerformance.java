@@ -132,12 +132,19 @@ public class LongTailPerformance {
 
     measure(runs, entry, threads, updates, histogram, maxima, stats);
     // Overall stats
-    System.out.print(String.format(Locale.ENGLISH,
-        "<table style=\"width: 80%%\">" +
-            "<caption>Entry %d/%d increasing order updates/ms of %dM counters with max bit %d, using %d threads" +
-            "</caption>\n<tr style=\"text-align: right\"><th>Implementation</th> <th>MB</th>",
-        entry, runs, maxima.size() / 1000000, maxBit(histogram), threads));
+    String caption = String.format(Locale.ENGLISH,
+        "Increments/ms of %dM counters with max bit %d, using %d threads",
+        maxima.size() / 1000000, maxBit(histogram), threads);
 
+    printHTMLTable(caption, updates, stats);
+    printGnuplotData(caption, updates, stats);
+  }
+
+  private static void printHTMLTable(String caption, int[] updates, List<StatHolder> stats) {
+    System.out.print(String.format(Locale.ENGLISH,
+        "\n<table style=\"width: 80%%\">" +
+            "<caption>%s</caption>\n<tr style=\"text-align: right\"><th>Implementation</th> <th>MB</th>",
+        caption));
     for (int update: updates) {
       System.out.print(String.format(Locale.ENGLISH, " <th>%s updates</th>", update >= MI ? update/MI + "M" : update));
     }
@@ -152,6 +159,24 @@ public class LongTailPerformance {
       System.out.println("</tr>");
     }
     System.out.println("</table>");
+  }
+
+  private static void printGnuplotData(String caption, int[] updates, List<StatHolder> stats) {
+    System.out.println("\n# " + caption);
+    System.out.print("M_incs");
+    for (StatHolder stat: stats) {
+      System.out.print(String.format(Locale.ENGLISH, " %s(%d_MB)",
+          stat.designation.replace(" ", "_"), stat.impl.ramBytesUsed()/M));
+    }
+    System.out.println();
+
+    for (int i = 0 ; i < updates.length ; i++) {
+      System.out.print(String.format(Locale.ENGLISH, "%.1f", 1.0*updates[i]/M));
+      for (StatHolder stat: stats) {
+        System.out.print(String.format(Locale.ENGLISH, " %.0f", stat.ups.get(i)));
+      }
+      System.out.println("");
+    }
   }
 
   private static void measure(int runs, int entry, int threads, int[] updates, long[] histogram,
@@ -245,8 +270,8 @@ public class LongTailPerformance {
       while (nextPos > currentSum) {
         if (currentPos >= maxima.size()) {
           System.out.println(String.format(Locale.ENGLISH,
-              "generateRepresentativeValueIncrements error: currentPos=%f with maxima.size()=%d at %d/%d updates",
-              nextPos, maxima.size(), i+1, updates));
+              "generateRepresentativeValueIncrements error: currentPos=%d with maxima.size()=%d at %d/%d updates",
+              currentPos, maxima.size(), i+1, updates));
           break out; // Problem: This leaved the last counters dangling, potentially leading to overflow
         }
         currentSum += maxima.get(currentPos++);

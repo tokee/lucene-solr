@@ -37,8 +37,8 @@ public class TestNPlaneMutable extends LuceneTestCase {
   }
 
   public void testArrayIndexOutOfBoundsCase() {
-    final double DIVISOR = 1/0.01;
-    final int[] UPDATES = new int[] {M};
+    final double DIVISOR = 1/0.001;
+    final int[] UPDATES = new int[] {M, M/3};
     final int[] CACHES = new int[] {100, 20};
     final int[] MAX_PLANES = new int[] {4, 64};
 
