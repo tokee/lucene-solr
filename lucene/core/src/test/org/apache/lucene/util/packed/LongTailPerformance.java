@@ -238,13 +238,13 @@ public class LongTailPerformance {
 
     final double delta = 1.0*sum/updates;
     double nextPos = 0; // Not very random to always start with 0...
-    int currentPos = 0;
+    int currentPos = 1;
     long currentSum = maxima.get(0);
     for (int i = 0 ; i < updates ; i++) {
       while (nextPos > currentSum) {
         currentSum += maxima.get(currentPos++);
       }
-      increments.set(i, currentPos);
+      increments.set(i, currentPos-1);
       nextPos += delta;
     }
     shuffle(increments, new Random(seed));
@@ -291,8 +291,8 @@ public class LongTailPerformance {
           }
         }
         throw new RuntimeException(String.format(Locale.ENGLISH,
-            "Exception calling inc(%d) #%d with maximum=%d",
-            valueIncrements.get(i), totalIncs, maxima.get((int) valueIncrements.get(i))), e);
+            "Exception calling inc(%d) #%d with maximum=%d and #counters=%d",
+            valueIncrements.get(i), totalIncs, maxima.get((int) valueIncrements.get(i)), counters.size()), e);
       }
     }
     return System.nanoTime()-start;

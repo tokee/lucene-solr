@@ -36,6 +36,17 @@ public class TestNPlaneMutable extends LuceneTestCase {
         9, 9/2, 2, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE);
   }
 
+  public void testArrayIndexOutOfBoundsCase() {
+    final double DIVISOR = 1/0.01;
+    final int[] UPDATES = new int[] {M};
+    final int[] CACHES = new int[] {100, 20};
+    final int[] MAX_PLANES = new int[] {4, 64};
+
+    LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
+        9, 9/2, 1, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE);
+//     -u 1 5 10 50 100 -c 100 20 -p 4 64 -t 1 -i 1 -e 8
+  }
+
   public void testOverflow() {
     final int DIVISOR = 500;
     final int CACHE = 1000;
@@ -130,12 +141,12 @@ public class TestNPlaneMutable extends LuceneTestCase {
     for (NPlaneMutable.PseudoPlane plane: layout) {
       mem += plane.estimateBytesNeeded(false, NPlaneMutable.IMPL.spank);
     }
-    assertTrue("The size should be less than " + EXPECTED + "MB, but was " + mem/M + "MB",
+    assertTrue("The size should be less than " + EXPECTED + "MB, but was " + mem / M + "MB",
         EXPECTED * M > mem);
 
     final long estimated = NPlaneMutable.estimateBytesNeeded(
         histogram, 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, false, NPlaneMutable.IMPL.spank);
-    assertTrue("The estimated size should be less than " + EXPECTED + "MB, but was " + estimated/M + "MB",
+    assertTrue("The estimated size should be less than " + EXPECTED + "MB, but was " + estimated / M + "MB",
         EXPECTED * M > estimated);
 //    System.out.println(String.format("%d planes, PseudoPlane mem %dMB, estimated mem %dMB",
 //        layout.size(), mem/M, estimated/M));
