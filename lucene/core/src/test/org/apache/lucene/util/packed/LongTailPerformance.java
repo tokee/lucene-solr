@@ -246,14 +246,14 @@ public class LongTailPerformance {
       }
       increments.set(i, currentPos-1);
       nextPos += delta;
-      if (nextPos >= maxima.size()) {
+      if (currentPos >= maxima.size()) {
         System.out.println(String.format(Locale.ENGLISH,
-            "generateRepresentativeValueIncrements error: nextPos=%f with maxima.size()=%d. Rounding down",
-            nextPos, maxima.size()));
+            "generateRepresentativeValueIncrements error: currentPos=%f with maxima.size()=%d at %d/%d updates",
+            nextPos, maxima.size(), i+1, updates));
+        break; // Problem: This leaved the last counters dangling, potentially leading to overflow
       }
     }
     shuffle(increments, new Random(seed));
-    // shuffle
     return increments;
   }
 
