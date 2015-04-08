@@ -69,9 +69,9 @@ public class LongTailPerformance {
     }
     HISTOGRAM = reduce(pad(HISTOGRAM), 1/FACTOR);
     System.out.println(String.format(Locale.ENGLISH,
-            "LongTailPerformance: runs=%d, entry=%d, threads=%s, instances=%d, updates=[%s], ncaches=[%s]," +
-                " nmaxplanes=[%s], histogram=[%s](factor=%4.2f)",
-            RUNS, ENTRY, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, INSTANCES, join(UPDATES),
+        "LongTailPerformance: runs=%d, entry=%d, threads=%s, instances=%d, updates=[%s], ncaches=[%s]," +
+            " nmaxplanes=[%s], histogram=[%s](factor=%4.2f)",
+        RUNS, ENTRY, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, INSTANCES, join(UPDATES),
         join(NCACHES), join(MAX_PLANES), join(HISTOGRAM), FACTOR));
     measurePerformance(HISTOGRAM, RUNS, ENTRY, INSTANCES, UPDATES, NCACHES, MAX_PLANES, THREADS);
   }
@@ -154,10 +154,10 @@ public class LongTailPerformance {
     System.out.println("</table>");
   }
 
-  private static void measure(
-      int runs, int entry, int threads, int[] updates, long[] histogram,
-      PackedInts.Reader maxima, List<StatHolder> stats) {
+  private static void measure(int runs, int entry, int threads, int[] updates, long[] histogram,
+                              PackedInts.Reader maxima, List<StatHolder> stats) {
     PackedInts.Mutable valueIncrements = null; // For re-use
+    final long sum = sum(maxima); // For generation of increments
     final ExecutorService executor = Executors.newFixedThreadPool(Math.min(threads, stats.size()));
 
     for (int update: updates) {
@@ -171,7 +171,7 @@ public class LongTailPerformance {
         System.out.print("[generating update");
         final long seed = new Random().nextLong(); // Should really be random() but we want to run under main
         // Generate the increments to run
-        valueIncrements = generateValueIncrements(maxima, update, valueIncrements, seed);
+        valueIncrements = generateRepresentativeValueIncrements(maxima, update, valueIncrements, seed, sum);
         System.gc(); // We don't want GC in the middle of measurements
         System.out.print("] ");
         List<Future<StatHolder>> statFutures = new ArrayList<>(stats.size());
@@ -224,6 +224,53 @@ public class LongTailPerformance {
     return increments;
   }
 
+  // The higher the maxima, the more times it is to be incremented. Randomness is replaced with even distribution
+  private static PackedInts.Mutable generateRepresentativeValueIncrements(
+      PackedInts.Reader maxima, int updates, PackedInts.Mutable increments, long seed, long sum) {
+    if (increments != null && increments.size() == updates) {
+      increments.clear();
+    } else {
+      increments = PackedInts.getMutable(updates, PackedInts.bitsRequired(maxima.size()), PackedInts.FAST);
+    }
+    if (maxima.size() < 1) {
+      return increments;
+    }
+
+    final double delta = 1.0*sum/updates;
+    double nextPos = 0; // Not very random to always start with 0...
+    int currentPos = 0;
+    long currentSum = maxima.get(0);
+    for (int i = 0 ; i < updates ; i++) {
+      while (nextPos > currentSum) {
+        currentSum += maxima.get(currentPos++);
+      }
+      increments.set(i, currentPos);
+      nextPos += delta;
+    }
+    shuffle(increments, new Random(seed));
+    // shuffle
+    return increments;
+  }
+
+  // http://stackoverflow.com/questions/1519736/random-shuffling-of-an-array
+  private static void shuffle(PackedInts.Mutable values, Random random) {
+    int index;
+    long temp;
+    for (int i = values.size() - 1; i > 0; i--) {
+      index = random.nextInt(i + 1);
+      temp = values.get(index);
+      values.set(index, values.get(i));
+      values.set(i, temp);
+    }
+  }
+
+  public static long sum(PackedInts.Reader values) {
+    long sum = 0;
+    for (int i = 0 ; i < values.size() ; i++) {
+      sum += values.get(i);
+    }
+    return sum;
+  }
 
   // Runs a performance test and reports time spend as nano seconds
   private static long measure(
@@ -287,7 +334,7 @@ public class LongTailPerformance {
       this.designation = designation;
       this.updatesPerTiming = updatesPerTiming;
       System.out.println("Created StatHolder: " + impl.getClass().getSimpleName() + ": " + designation + " ("
-      + impl.ramBytesUsed()/M + "MB)" + heap());
+          + impl.ramBytesUsed()/M + "MB)" + heap());
     }
 
     public void addTiming(long ns) {
