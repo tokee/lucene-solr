@@ -240,18 +240,19 @@ public class LongTailPerformance {
     double nextPos = 0; // Not very random to always start with 0...
     int currentPos = 1;
     long currentSum = maxima.get(0);
+    out:
     for (int i = 0 ; i < updates ; i++) {
       while (nextPos > currentSum) {
+        if (currentPos >= maxima.size()) {
+          System.out.println(String.format(Locale.ENGLISH,
+              "generateRepresentativeValueIncrements error: currentPos=%f with maxima.size()=%d at %d/%d updates",
+              nextPos, maxima.size(), i+1, updates));
+          break out; // Problem: This leaved the last counters dangling, potentially leading to overflow
+        }
         currentSum += maxima.get(currentPos++);
       }
       increments.set(i, currentPos-1);
       nextPos += delta;
-      if (currentPos >= maxima.size()) {
-        System.out.println(String.format(Locale.ENGLISH,
-            "generateRepresentativeValueIncrements error: currentPos=%f with maxima.size()=%d at %d/%d updates",
-            nextPos, maxima.size(), i+1, updates));
-        break; // Problem: This leaved the last counters dangling, potentially leading to overflow
-      }
     }
     shuffle(increments, new Random(seed));
     return increments;
