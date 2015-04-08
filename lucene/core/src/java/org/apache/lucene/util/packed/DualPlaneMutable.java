@@ -40,8 +40,8 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
   public static long totalCounters(long[] histogram) {
     long total = 0;
     for (int i = 0; i < histogram.length; i++) {
-      //total += histogram[i];
-      total += histogram[i]*(i+1); // TODO: Check if we need the factor by exhaustive inc-test on a small sample
+      total += histogram[i];
+      //total += histogram[i]*(i+1); // TODO: Check if we need the factor by exhaustive inc-test on a small sample
     }
     return total;
   }

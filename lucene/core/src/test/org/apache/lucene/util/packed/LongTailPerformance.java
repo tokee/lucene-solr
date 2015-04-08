@@ -246,6 +246,11 @@ public class LongTailPerformance {
       }
       increments.set(i, currentPos-1);
       nextPos += delta;
+      if (nextPos >= maxima.size()) {
+        System.out.println(String.format(Locale.ENGLISH,
+            "generateRepresentativeValueIncrements error: nextPos=%f with maxima.size()=%d. Rounding down",
+            nextPos, maxima.size()));
+      }
     }
     shuffle(increments, new Random(seed));
     // shuffle
@@ -284,11 +289,11 @@ public class LongTailPerformance {
       try {
         incCounters.inc((int) valueIncrements.get(i));
       } catch (Exception e) {
-        int totalIncs = 0;
-        for (int l = 0 ; l <= i ; l++) {
+        int totalIncs = -1;
+        for (int l = 0 ; l <= i ; l++) { // Locate duplicate increments
           if (valueIncrements.get(l) == valueIncrements.get(i)) {
             totalIncs++;
-          }
+        }
         }
         throw new RuntimeException(String.format(Locale.ENGLISH,
             "Exception calling inc(%d) #%d with maximum=%d and #counters=%d",

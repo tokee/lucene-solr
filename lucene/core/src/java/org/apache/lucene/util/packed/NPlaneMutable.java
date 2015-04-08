@@ -38,6 +38,8 @@ import java.util.Locale;
  * Warning: This representation does not support persistence yet.
  */
 // TODO: Align caches to 64 bits and use Long.bitCount with IMPL.split
+// TODO: Deprecate split as spank is always faster & smaller
+// TODO: Implement shift with rank (shank)
 public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 100; // Should probably be a low lower (100 or so)
   public static final int DEFAULT_MAX_PLANES = 64; // No default limit
@@ -110,8 +112,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * instantiating multiple NPlaneMutables.
    * @return a layout for later instantiation of NPlaneMutables.
    */
-  public static Layout getLayout(
-      BPVProvider maxima, int overflowBucketSize, int maxPlanes, double collapseFraction) {
+  public static Layout getLayout(BPVProvider maxima, int overflowBucketSize, int maxPlanes, double collapseFraction) {
     return getLayout(getZeroBitHistogram(maxima), overflowBucketSize, maxPlanes, collapseFraction);
   }
   static Layout getLayout(

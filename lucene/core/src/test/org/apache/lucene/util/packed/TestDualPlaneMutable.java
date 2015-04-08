@@ -94,14 +94,35 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     dumpImplementationMemUsages("Shard 1 URL", getURLShard1Histogram());
     dumpImplementationMemUsages("Links raw", getLinksHistogram());
     dumpImplementationMemUsages("Links 20150309", LongTailPerformance.links20150209);
-    final long[] tegHistogram = LongTailPerformance.getHistogram(LongTailIntGenerator.GenerateLongtailDistribution(640000000, 500000, 101));
+    final long[] tegHistogram = LongTailPerformance.getHistogram(
+        LongTailIntGenerator.GenerateLongtailDistribution(640000000, 500000, 101));
     dumpImplementationMemUsages("TEG histogram generator", tegHistogram);
+  }
+
+  public void testVerifyDualPlaneMemoryEstimation() {
+    final long[] histogram = LongTailPerformance.reduce(LongTailPerformance.links20150209, 2);
+
+    long valueCount = 0;
+    for (long countersWithBPV : histogram) {
+      valueCount += countersWithBPV;
+    }
+    final long dualEstimate = DualPlaneMutable.estimateBytesNeeded(histogram, (int) valueCount);
+    DualPlaneMutable dp = DualPlaneMutable.create(histogram, 1.0);
+
+    System.out.println(String.format(Locale.ENGLISH,
+        "Estimate=%dMB, measured=%dMB, full tailBPV=%d",
+        dualEstimate/M, dp.ramBytesUsed()/M, dp.getTailBPV()));
+  }
+
+  public void testDualMemoryUsage() {
+    dumpImplementationMemUsages("Links raw", getLinksHistogram());
   }
 
   private void dumpImplementationMemUsages(String source, long[] histogram) {
     long valueCount = 0;
     for (int i = 0; i < histogram.length; i++) {
-      valueCount += histogram[i]*(i+1);
+      valueCount += histogram[i];
+      //valueCount += histogram[i]*(i+1);
     }
     final long intC = valueCount*4;
     final long packC = valueCount * LongTailPerformance.maxBit(histogram) / 8;
