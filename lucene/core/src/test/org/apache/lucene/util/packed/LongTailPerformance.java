@@ -171,7 +171,7 @@ public class LongTailPerformance {
     System.out.println();
 
     for (int i = 0 ; i < updates.length ; i++) {
-      System.out.print(String.format(Locale.ENGLISH, "%.1f", 1.0*updates[i]/M));
+      System.out.print(String.format(Locale.ENGLISH, "%.1f", 1.0*updates[i]/MI));
       for (StatHolder stat: stats) {
         System.out.print(String.format(Locale.ENGLISH, " %.0f", stat.ups.get(i)));
       }
