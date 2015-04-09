@@ -157,11 +157,12 @@ public class SparseCounterPool {
   /**
    * The field properties determine the layout of the sparse counters and is part of the sparse/non-sparse estimation.
    * This method must be called before calling {@link #acquire}.  It should only be called once.
-   * @param uniqueValues       the number of unique values in the field. This number must be specified and must be correct.
-   * @param maxCountForAny the maximum value that any individual counter can reach.  If this value is not determined, -1 should be used.
-   *                                           if -1 is specified, this number can be updated at a later time.
-   * @param maxDoc                the maxCount from the searcher.  Must be specified, should be correct.
-   * @param references            the number of references from documents to terms in the facet field.  Must be specified, should be correct.
+   * @param uniqueValues   the number of unique values in the field. This number must be specified and must be correct.
+   * @param maxCountForAny the maximum value that any individual counter can reach.  If this value is not determined,
+   *                       -1 should be used. If -1 is specified, this number can be updated at a later time.
+   * @param maxDoc         the maxCount from the searcher.  Must be specified, should be correct.
+   * @param references     the number of references from documents to terms in the facet field.  Must be specified,
+   *                       should be correct.
    */
   public synchronized void setFieldProperties(int uniqueValues, long maxCountForAny, int maxDoc, long references) {
     if (initialized) {

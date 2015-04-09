@@ -74,6 +74,7 @@ import org.apache.solr.common.util.StrUtils;
 import org.apache.solr.handler.component.ResponseBuilder;
 import org.apache.solr.request.sparse.SparseCounterPool;
 import org.apache.solr.request.sparse.SparseCounterPoolController;
+import org.apache.solr.request.sparse.SparseDocValuesFacets;
 import org.apache.solr.request.sparse.SparseKeys;
 import org.apache.solr.request.sparse.ValueCounter;
 import org.apache.solr.schema.BoolField;
@@ -414,7 +415,7 @@ public class SimpleFacets {
         SparseCounterPool pool;
         if (sf.hasDocValues()) {
           pool = poolController.acquire(field, "DocValues", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
-          counts = DocValuesFacets.getCounts(
+          counts = SparseDocValuesFacets.getCounts(
               searcher, base, field, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
         } else if (multiToken || TrieField.getMainValuePrefix(ft) != null) {
           pool = poolController.acquire(field, "No DocValues, multi token", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
