@@ -135,7 +135,8 @@ public class SparseCounterPool {
   NumStat cacheMisses = new NumStat("cacheMisses");
 
   /**
-   * The supervisor is shared between all pools under the same searcher. It normally has a single thread available for background cleaning.
+   * The supervisor is shared between all pools under the same searcher.
+   * It normally has a single thread available for background cleaning.
    */
   protected final ThreadPoolExecutor supervisor;
   private static final String NEEDS_CLEANING = "DIRTY";
@@ -184,7 +185,7 @@ public class SparseCounterPool {
       throw new IllegalStateException("The pool for field '" + field +
           "' has not been initialized (call setFieldProperties for initialization)");
     }
-    if (maxCountForAny <= 0 && sparseKeys.packed) {
+    if (maxCountForAny <= 0 && sparseKeys.counter != SparseKeys.COUNTER_IMPL.array) {
       // We have an empty facet. To avoid problems with the packed structure, we set the maxCountForAny to 1
       maxCountForAny = 1;
 //      throw new IllegalStateException("Attempted to request sparse counter with maxCountForAny=" + maxCountForAny);
@@ -239,9 +240,10 @@ public class SparseCounterPool {
   }
 
   private boolean usePacked(SparseKeys sparseKeys) {
-    return ((sparseKeys.packed && maxCountForAny != -1 &&
-        PackedInts.bitsRequired(maxCountForAny) <= sparseKeys.packedLimit)) ||
-        maxCountForAny > Integer.MAX_VALUE;
+    // TODO: Add support for the other counters
+    return sparseKeys.counter != SparseKeys.COUNTER_IMPL.array &&
+        (((maxCountForAny != -1 && PackedInts.bitsRequired(maxCountForAny) <= sparseKeys.packedLimit)) ||
+            maxCountForAny > Integer.MAX_VALUE);
   }
 
   private ValueCounter createCounter(SparseKeys sparseKeys) {

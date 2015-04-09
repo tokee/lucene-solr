@@ -385,7 +385,7 @@ public class LongTailPerformance {
     }
 
     public String toString() {
-      return String.format("%-22s (%3dMB): %6d updates/ms median, %6d updates/ms max",
+      return String.format("%-22s (%4dMB): %6d updates/ms median, %6d updates/ms max",
           id + ": " + designation, impl.ramBytesUsed()/M,
           (long)getUpdatesPerMS(timings.size()/2), (long)getUpdatesPerMS(timings.size()-1));
     }

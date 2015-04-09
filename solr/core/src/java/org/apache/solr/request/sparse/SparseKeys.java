@@ -16,6 +16,11 @@
  */
 package org.apache.solr.request.sparse;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.regex.Pattern;
+
 import org.apache.solr.common.params.SolrParams;
 
 public class SparseKeys {
@@ -24,6 +29,22 @@ public class SparseKeys {
    */
   public static final String SPARSE = "facet.sparse";
   public static boolean SPARSE_DEFAULT = true;
+
+  /**
+   * If defined, facet terms matching the regexp are not considered candidates for the facet result.
+   * </p><p>
+   * Optional. Normally only used at search-time. Regexp. Can be defined multiple times.
+   * Example: {@code myyear_198[0-9]} removes all year-terms from the eighties.
+   */
+  public static final String BLACKLIST = "facet.blacklist";
+
+  /**
+   * If defined, only facet terms matching the regexp are considered candidates for the facet result.
+   * </p><p>
+   * Optional. Normally only used at search-time. Regexp. Can be defined multiple times.
+   * Example: {@code myyear_198[0-9]} keeps only the year-terms from the eighties.
+   */
+  public static final String WHITELIST = "facet.whitelist";
 
   /**
    * If true, sparse facet term lookup is enabled (if SPARSE == true). Term lookup is used by the second phase in
@@ -54,12 +75,12 @@ public class SparseKeys {
   public static int MINTAGS_DEFAULT = 10*1000;
 
   /**
-   * Only valid with distributed sparse faceting (facet.sparse == true and multiple shards). This parameter defines the maximum value used
-   * for minCount when issuing the first phase calls to the shards.
+   * Only valid with distributed sparse faceting (facet.sparse == true and multiple shards). This parameter defines
+   * the maximum value used for minCount when issuing the first phase calls to the shards.
    * </p><p>
    * If minCount == 0, the shards spend a bit of extra time resolving facet values that might not be needed.
-   * However, returning 0-count values might avoid a second call to the shard. This is always true if all shards has the same
-   * values in the facet field and if the number of unique values is below {@code initialLimit*1.5+10}.
+   * However, returning 0-count values might avoid a second call to the shard. This is always true if all shards has
+   * the same values in the facet field and if the number of unique values is below {@code initialLimit*1.5+10}.
    * The chances of second-call avoidance falls when the number of unique values rises.
    * Consequently using minCount == 0 should be avoided for medium- to high-cardinality fields.
    * Rule of thumb: Don't use minCount == 0 with more than 100 unique values in the field.
@@ -111,15 +132,44 @@ public class SparseKeys {
   public static double CUTOFF_DEFAULT = 0.90; // 90%
 
   /**
-   * If true and the {@link #PACKED_BITLIMIT} holds, use {@link SparseCounterPacked} for counting.
-   * If false, all sparse counters will be {@link SparseCounterInt}.
+   * The implementation used for counting. This has significant performance- and memory-impact.
+   * Valid counters are:<br/>
+   * <ul>
+   *   <li>auto:      Automatically selects between array and packed, based on maximum counter size and total number
+   *                  of counters. Will never choose dualplane or nplane. Same first call penalty as packed</li>
+   *   <li>array:     {@link org.apache.lucene.util.packed.Direct32}
+   *                  fast first call, high performance, high memory</li>
+   *   <li>packed:    {@link org.apache.lucene.util.packed.Packed64}
+   *                  a bit slower first call than array, performance varying with concrete corpus and normally somewhat
+   *                  below array, lower memory usage than array</li>
+   *   <li>dualplane: {@link org.apache.lucene.util.packed.DualPlaneMutable}
+   *                  slow first call, performance on par with array for 50M+ counters,
+   *                  lower memory usage than array.
+   *                  dualplane is only effective for counters with steep long tail maxima.
+   *                  It falls back to packed if insisting on dualplane would be poorer than packed.</li>
+   *   <li>nplane:    {@link org.apache.lucene.util.packed.NPlaneMutable}
+   *                  very slow first call, 3-5 times slower than array, extremely low memory usage</li>
+   * </ul>
+   * </p><p>
+   * Optional. Default value is auto.
+   */
+  public static final String COUNTER = "facet.sparse.counter";
+  public static final String DEFAULT_COUNTER = COUNTER_IMPL.auto.toString();
+  public enum COUNTER_IMPL {auto, array, packed, dualplane, nplane}
+
+  /**
+   * If true and the {@link #PACKED_BITLIMIT} holds, use {@link SparseCounterPacked} for counting.<br/>
+   * If false, all sparse counters will be {@link SparseCounterInt}.<br/>
+   * {@link #COUNTER} takes precedence over PACKED.
+   * </p><p>
+   * @deprecated use {@link #COUNTER} instead.
    */
   public static final String PACKED = "facet.sparse.packed";
   public static boolean DEFAULT_PACKED = true;
 
   /**
-   * If {@link #PACKED} is true, counters where the maximum value of any counter is <= 2^PACKED_BITLIMIT will be
-   * represented with a {@link SparseCounterPacked}.
+   * If {@link #PACKED} is true or {@link #COUNTER} is auto, counters where the maximum value of any counter is
+   * <= 2^PACKED_BITLIMIT will be represented with a {@link SparseCounterPacked}.
    */
   public static final String PACKED_BITLIMIT = "facet.sparse.packed.bitlimit";
   public static int DEFAULT_PACKED_BITLIMIT = 24;
@@ -190,13 +240,16 @@ public class SparseKeys {
   public static final boolean CACHE_DISTRIBUTED_DEFAULT = true;
 
   /**
-   * If defined, the current request is part of distributed faceting. The cachetoken uniquely defines the bitset used for filling the counters
-   * and can be used as key when caching the counts.
+   * If defined, the current request is part of distributed faceting.
+   * The cachetoken uniquely defines the bitset used for filling the counters and
+   * can be used as key when caching the counts.
    */
   public static final String CACHE_TOKEN = "facet.sparse.cachetoken";
 
   final public String field;
-  
+  final public List<Pattern> whitelists; // Never null
+  final public List<Pattern> blacklists; // Never null
+
   final public boolean sparse;
   final public boolean termLookup;
   final public int termLookupMaxCache;
@@ -206,7 +259,7 @@ public class SparseKeys {
   final public double cutOff;
   final public long maxCountsTracked;
 
-  final public boolean packed;
+  final public COUNTER_IMPL counter;
   final public long packedLimit;
 
   final public int poolSize;
@@ -227,7 +280,10 @@ public class SparseKeys {
 
   public SparseKeys(String field, SolrParams params) {
     this.field = field;
-    
+
+    whitelists = getRegexps(params, field, WHITELIST);
+    blacklists = getRegexps(params, field, WHITELIST);
+
     sparse = params.getFieldBool(field, SPARSE, SPARSE_DEFAULT);
     termLookup = params.getFieldBool(field, TERMLOOKUP, TERMLOOKUP_DEFAULT);
     termLookupMaxCache = params.getFieldInt(field, TERMLOOKUP_MAXCACHE, TERMLOOKUP_MAXCACHE_DEFAULT);
@@ -238,7 +294,11 @@ public class SparseKeys {
 
     maxCountsTracked = Long.parseLong(params.getFieldParam(field, MAXTRACKED, Long.toString(MAXTRACKED_DEFAULT)));
 
-    packed = params.getFieldBool(field, PACKED, DEFAULT_PACKED);
+    if (params.getFieldParam(field, PACKED) != null && params.getFieldParam(field, COUNTER) == null) { // Old key
+      counter = params.getFieldBool(field, PACKED, DEFAULT_PACKED) ? COUNTER_IMPL.auto : COUNTER_IMPL.array;
+    } else {
+      counter = COUNTER_IMPL.valueOf(params.getFieldParam(field, COUNTER, DEFAULT_COUNTER));
+    }
     packedLimit = params.getFieldInt(field, PACKED_BITLIMIT, DEFAULT_PACKED_BITLIMIT);
 
     poolSize = params.getFieldInt(field, POOL_SIZE, POOL_SIZE_DEFAULT);
@@ -253,5 +313,43 @@ public class SparseKeys {
     legacyShowStats = params.getFieldBool(field, STATS, false);
     resetStats = params.getFieldBool(field, STATS_RESET, false);
   }
-  
+
+  private List<Pattern> getRegexps(SolrParams params, String field, String key) {
+    String[] regexps = params.getFieldParams(field, key);
+    if (regexps == null || regexps.length == 0) {
+      return Collections.emptyList();
+    }
+    List<Pattern> patterns = new ArrayList<>(regexps.length);
+    for (String regexp: regexps) {
+      patterns.add(Pattern.compile(regexp));
+    }
+    return patterns;
+  }
+
+  @Override
+  public String toString() {
+    return "SparseKeys{" +
+        "field='" + field + '\'' +
+        ", whitelists=" + whitelists +
+        ", blacklists=" + blacklists +
+        ", sparse=" + sparse +
+        ", termLookup=" + termLookup +
+        ", termLookupMaxCache=" + termLookupMaxCache +
+        ", fallbackToBase=" + fallbackToBase +
+        ", minTags=" + minTags +
+        ", fraction=" + fraction +
+        ", cutOff=" + cutOff +
+        ", maxCountsTracked=" + maxCountsTracked +
+        ", counter=" + counter +
+        ", packedLimit=" + packedLimit +
+        ", poolSize=" + poolSize +
+        ", poolMaxCount=" + poolMaxCount +
+        ", poolMinEmpty=" + poolMinEmpty +
+        ", skipRefinement=" + skipRefinement +
+        ", cacheToken='" + cacheToken + '\'' +
+        ", legacyShowStats=" + legacyShowStats +
+        ", resetStats=" + resetStats +
+        ", cacheDistributed=" + cacheDistributed +
+        '}';
+  }
 }
