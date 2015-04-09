@@ -21,6 +21,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import org.apache.lucene.index.AtomicReaderContext;
 import org.apache.lucene.index.DocValues;
@@ -106,7 +107,8 @@ public class SparseDocValuesFacets {
       return finalize(res, searcher, schemaField, docs, -1, missing);
     }
     if (si.getValueCount() >= Integer.MAX_VALUE) {
-      throw new UnsupportedOperationException("Currently this faceting method is limited to " + Integer.MAX_VALUE + " unique terms");
+      throw new UnsupportedOperationException(
+          "Currently this faceting method is limited to Integer.MAX_VALUE=" + Integer.MAX_VALUE + " unique terms");
     }
 
     // Providers ready. Ensure that the searcher-specific pool is correctly initialized
@@ -281,6 +283,9 @@ public class SparseDocValuesFacets {
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
   }
 
+  /*
+  Iterate the leafs and update the counters based on the DocValues ordinals, adjusted to the global ordinal structure.
+   */
   private static void collectCounts(SolrIndexSearcher searcher, DocSet docs, SchemaField schemaField,
                                     OrdinalMap ordinalMap, int startTermIndex, ValueCounter counts) throws IOException {
     String fieldName = schemaField.getName();
@@ -514,7 +519,11 @@ public class SparseDocValuesFacets {
     return max;
   }
 
-  static void accumSingle(ValueCounter counts, int startTermIndex, SortedDocValues si, DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
+  /*
+  Iterate single-value DocValues and update the counters based on delivered ordinals.
+   */
+  static void accumSingle(ValueCounter counts, int startTermIndex, SortedDocValues si, DocIdSetIterator disi,
+                          int subIndex, OrdinalMap map) throws IOException {
     int doc;
     while ((doc = disi.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
       int term = si.getOrd(doc);
@@ -527,7 +536,12 @@ public class SparseDocValuesFacets {
       }
     }
   }
-  static void accumMulti(ValueCounter counts, int startTermIndex, SortedSetDocValues si, DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
+
+  /*
+  Iterate multi-value DocValues and update the counters based on delivered ordinals.
+   */
+  static void accumMulti(ValueCounter counts, int startTermIndex, SortedSetDocValues si, DocIdSetIterator disi,
+                         int subIndex, OrdinalMap map) throws IOException {
     int doc;
     while ((doc = disi.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
       si.setDocument(doc);
@@ -550,10 +564,85 @@ public class SparseDocValuesFacets {
     }
   }
 
+  /**
+   * Slow callback with white- or blacklist of terms. This needs to resolve the String for each otherwise viable
+   * candidate.
+   */
+  private class PatternMatchingCallback implements ValueCounter.Callback {
+    private int min;
+    private final int[] maxTermCounts;
+    private final boolean doNegative;
+    private final LongPriorityQueue queue;
+    private final int queueMaxSize;
+    private final SparseKeys sparseKeys;
+    private boolean isOrdered = false;
+
+
+    /**
+      * Creates a basic callback where only the values >= min are considered.
+      * @param min      the starting min value.
+      * @param queue   the destination of the values of the counters.
+      */
+     public PatternMatchingCallback(int min, LongPriorityQueue queue, int queueMaxSize, SparseKeys sparseKeys) {
+       this.maxTermCounts = null;
+       this.min = min;
+       this.doNegative = false;
+       this.queue = queue;
+       this.queueMaxSize = queueMaxSize;
+       this.sparseKeys = sparseKeys;
+     }
+
+    @Override
+    public void setOrdered(boolean isOrdered) {
+      this.isOrdered = isOrdered;
+    }
+
+    @Override
+    public final boolean handle(final int counter, final long value) {
+      final int c = (int) (doNegative ? maxTermCounts[counter] - value : value);
+      if (isOrdered ? c > min : c>=min) {
+        // NOTE: Using > only works when the results are delivered in order.
+        // The ordered uses c>min rather than c>=min as an optimization because we are going in
+        // index order, so we already know that the keys are ordered.  This can be very
+        // important if a lot of the counts are repeated (like zero counts would be).
+
+        // smaller term numbers sort higher, so subtract the term number instead
+        final long pair = (((long)c)<<32) + (Integer.MAX_VALUE - counter);
+        //boolean displaced = queue.insert(pair);
+        if (queue.size() < queueMaxSize || pair > queue.top()) { // Add to queue
+          long patternTime = System.nanoTime();
+          try {
+            final String term = ""; // TODO: Add resolveTerm(counter);
+
+            for (Pattern whitelist: sparseKeys.whitelists) {
+              if (!whitelist.matcher(term).matches()) {
+                return false;
+              }
+            }
+            for (Pattern blacklist: sparseKeys.blacklists) {
+              if (blacklist.matcher(term).matches()) {
+                return false;
+              }
+            }
+          } finally {
+            // Update timing
+          }
+          if (queue.insert(pair)) {
+            min=(int)(queue.top() >>> 32);
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+  }
+
+
   /**************** Sparse implementation end *******************/
 
   /** finalizes result: computes missing count if applicable */
-  static NamedList<Integer> finalize(NamedList<Integer> res, SolrIndexSearcher searcher, SchemaField schemaField, DocSet docs, int missingCount, boolean missing) throws IOException {
+  static NamedList<Integer> finalize(NamedList<Integer> res, SolrIndexSearcher searcher, SchemaField schemaField,
+                                     DocSet docs, int missingCount, boolean missing) throws IOException {
     if (missing) {
       if (missingCount < 0) {
         missingCount = SimpleFacets.getFieldMissingCount(searcher,docs,schemaField.getName());

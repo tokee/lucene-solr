@@ -148,12 +148,13 @@ public interface ValueCounter {
      }
 
      /**
-       * A callback that handles "negative counts". If doNegative is true, the value of the counter is subtracted from the corresponding entry in
-      * maxTermCounts. This is used to speed up processing of large facet results,
+       * A callback that handles "negative counts". If doNegative is true, the value of the counter is subtracted from
+      * the corresponding entry in maxTermCounts. This is used to speed up processing of large facet results,
        * @param maxTermCounts 1:1 correspondence with the counter list.
-       * @param min      the starting min value.
-       * @param doNegative if true, the value of a counter is considered to be {@code maxTermCounts[index]-counter[index]}.
-       * @param queue   the destination of the values of the counters.
+       * @param min           the starting min value.
+       * @param doNegative    if true, the value of a counter is considered to be
+      *                       {@code maxTermCounts[index]-counter[index]}.
+       * @param queue         the destination of the values of the counters.
        */
     public TopCallback(int[] maxTermCounts, int min, boolean doNegative, LongPriorityQueue queue) {
       this.maxTermCounts = maxTermCounts;
