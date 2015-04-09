@@ -189,7 +189,7 @@ public class LongTailPerformance {
 
     for (int update: updates) {
       System.out.println(String.format("Performing %d test runs of %dM updates in %dM counters with max bit %d%s",
-          runs, update / M, maxima.size() / 1000000, maxBit(histogram), heap()));
+          runs, update / MI, maxima.size() / 1000000, maxBit(histogram), heap()));
 
       for (StatHolder stat : stats) {
         stat.setUpdates(update);
