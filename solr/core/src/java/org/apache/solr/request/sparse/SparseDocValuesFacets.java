@@ -206,7 +206,10 @@ public class SparseDocValuesFacets {
       final long sparseExtractTime = System.nanoTime();
       try {
         if (counts.iterate(startTermIndex==-1?1:0, nTerms, minCount, false,
-            new ValueCounter.TopCallback(minCount-1, queue))) {
+            sparseKeys.blacklists.isEmpty() && sparseKeys.whitelists.isEmpty() ?
+                new ValueCounter.TopCallback(minCount-1, queue) :
+                new PatternMatchingCallback(minCount-1, queue, maxsize, sparseKeys, pool, si, ft, charsRef)
+        )) {
           pool.incWithinCount();
         } else {
           pool.incExceededCount();
@@ -264,7 +267,7 @@ public class SparseDocValuesFacets {
         i+=off;
         off=0;
       }
-
+      // TODO: Add black- & white-list
       BytesRef br = new BytesRef(10);
       for (; i<nTerms; i++) {
         int c = (int) counts.get(i);
@@ -568,7 +571,7 @@ public class SparseDocValuesFacets {
    * Slow callback with white- or blacklist of terms. This needs to resolve the String for each otherwise viable
    * candidate.
    */
-  private class PatternMatchingCallback implements ValueCounter.Callback {
+  private static class PatternMatchingCallback implements ValueCounter.Callback {
     private int min;
     private final int[] maxTermCounts;
     private final boolean doNegative;
@@ -576,20 +579,30 @@ public class SparseDocValuesFacets {
     private final int queueMaxSize;
     private final SparseKeys sparseKeys;
     private boolean isOrdered = false;
-
+    private final SparseCounterPool pool;
+    private final SortedSetDocValues si;
+    private final FieldType ft;
+    private final CharsRef charsRef;
+    private BytesRef br = new BytesRef(""); // To avoid re-allocation
 
     /**
       * Creates a basic callback where only the values >= min are considered.
       * @param min      the starting min value.
       * @param queue   the destination of the values of the counters.
       */
-     public PatternMatchingCallback(int min, LongPriorityQueue queue, int queueMaxSize, SparseKeys sparseKeys) {
+     public PatternMatchingCallback(
+         int min, LongPriorityQueue queue, int queueMaxSize, SparseKeys sparseKeys, SparseCounterPool pool,
+         SortedSetDocValues si, FieldType ft, CharsRef charsRef) {
        this.maxTermCounts = null;
        this.min = min;
        this.doNegative = false;
        this.queue = queue;
        this.queueMaxSize = queueMaxSize;
        this.sparseKeys = sparseKeys;
+       this.pool = pool;
+       this.si = si;
+       this.ft = ft;
+       this.charsRef = charsRef;
      }
 
     @Override
@@ -609,23 +622,27 @@ public class SparseDocValuesFacets {
         // smaller term numbers sort higher, so subtract the term number instead
         final long pair = (((long)c)<<32) + (Integer.MAX_VALUE - counter);
         //boolean displaced = queue.insert(pair);
+        int regexps = 0;
         if (queue.size() < queueMaxSize || pair > queue.top()) { // Add to queue
-          long patternTime = System.nanoTime();
+          long patternStart = System.nanoTime();
           try {
-            final String term = ""; // TODO: Add resolveTerm(counter);
-
+            final String term = resolveTerm(pool, sparseKeys, si, ft, counter-1, charsRef, br);
             for (Pattern whitelist: sparseKeys.whitelists) {
+              regexps++;
               if (!whitelist.matcher(term).matches()) {
                 return false;
               }
             }
             for (Pattern blacklist: sparseKeys.blacklists) {
+              regexps++;
               if (blacklist.matcher(term).matches()) {
                 return false;
               }
             }
           } finally {
-            // Update timing
+            if (regexps > 0) {
+              pool.regexpMatches.incRel(regexps, patternStart);
+            }
           }
           if (queue.insert(pair)) {
             min=(int)(queue.top() >>> 32);

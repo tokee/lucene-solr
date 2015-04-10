@@ -282,7 +282,7 @@ public class SparseKeys {
     this.field = field;
 
     whitelists = getRegexps(params, field, WHITELIST);
-    blacklists = getRegexps(params, field, WHITELIST);
+    blacklists = getRegexps(params, field, BLACKLIST);
 
     sparse = params.getFieldBool(field, SPARSE, SPARSE_DEFAULT);
     termLookup = params.getFieldBool(field, TERMLOOKUP, TERMLOOKUP_DEFAULT);

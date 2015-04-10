@@ -114,6 +114,7 @@ public class SparseCounterPool {
   private final TimeStat termsListLookup = new TimeStat("termsListLookup");
   private final TimeStat termLookup = new TimeStat("termLookup", 1);
   private final NumStat termLookupMissing = new NumStat("termLookupMissing");
+  public final TimeStat regexpMatches = new TimeStat("regexpChecks", 1);
 
   // Pool cleaning stats
   private NumStat emptyReuses = new NumStat("emptyReuses");
@@ -485,7 +486,7 @@ public class SparseCounterPool {
             "%s, %s, " + // disables,  withinCutoff
             "exceededCutoff=%d, SCPool(cached=%d/%d, currentBackgroundClears=%d, %s, " + // emptyReuses
             "%s, %s, " + // packedAllocations, intAllocations
-
+            "%s, " +
             "%s, %s, " + // requestClears, backgroundClears
             "cache(hits=%d, misses=%d, %s, %s), " + // filledFrees, emptyFrees
             "terms(%s, last#=%d, %s, %s, last=%s, cached=%s)",  // termsListLookup, termLookup, termLookupMissing
@@ -495,7 +496,7 @@ public class SparseCounterPool {
         disables, withinCutoffCount,
         exceededCutoffCount.get() - disables.get(), poolSize, maxPoolSize, pendingClears, emptyReuses,
         packedAllocations, intAllocations,
-
+        regexpMatches,
         requestClears, backgroundClears,
         cacheHits.get(), cacheMisses.get(), filledFrees, emptyFrees,
         termsListLookup, count(lastTermsListRequest, ','), termLookup, termLookupMissing, lastTermLookup,
@@ -715,7 +716,7 @@ public class SparseCounterPool {
   /**
    * Helper class for tracking calls and time spend on a task.
    */
-  private class TimeStat {
+  public class TimeStat {
     public final String name;
     public final int fractionDigits;
     public final NumberFormat numberFormat;

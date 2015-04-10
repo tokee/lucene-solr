@@ -28,6 +28,8 @@ import org.junit.BeforeClass;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 
 @LuceneTestCase.SuppressCodecs({"Lucene3x", "Lucene40", "Lucene41", "Lucene42", "Appending"})
@@ -51,7 +53,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
 
   // committing randomly gives different looking segments each time
   static void add_doc(String... fieldsAndValues) {
-      pendingDocs.add(fieldsAndValues);
+    pendingDocs.add(fieldsAndValues);
   }
 
 
@@ -107,7 +109,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     assertQ("Match all (*:*) should work",
         req("*:*"),
         "//*[@numFound='" + DOCS + "']"
-        );
+    );
 
     assertQ("Modulo 7 search should work",
         req(MODULO_FIELD + ":mod_7"),
@@ -139,6 +141,95 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     for (int mod: MODULOS) {
       assertFacetEquality("Modulo check", MODULO_FIELD + ":mod_" + mod, MULTI_TEXT_FIELD);
     }
+  }
+
+  public void testBlackAndWhitelistFaceting() throws Exception {
+    //dumpStats();
+
+    {
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, SINGLE_DV_FIELD);
+      params.set(FacetParams.FACET_LIMIT, 5);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+      params.set(SparseKeys.FALLBACK_BASE, false);
+      params.set("indent", true);
+      req.setParams(params);
+      assertEquals("Plain sparse faceting should give the expected number of results",
+          5, getEntries(req, "int name..(single_dv_[^\"]*)").size());
+    }
+
+    {
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, SINGLE_DV_FIELD);
+      params.set(FacetParams.FACET_LIMIT, 5);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.MINTAGS, 1);
+      params.set(SparseKeys.WHITELIST, "single_dv_[37]");
+      params.set(SparseKeys.FALLBACK_BASE, false);
+      params.set("indent", true);
+      req.setParams(params);
+      List<String> entries = getEntries(req, "int name..(single_dv_[^\"]*)");
+      Collections.sort(entries);
+      assertEquals("Whitelist sparse faceting should give the expected result",
+          "[single_dv_3, single_dv_7]",
+          entries.toString());
+    }
+
+    {
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, SINGLE_DV_FIELD);
+      params.set(FacetParams.FACET_LIMIT, 5);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.MINTAGS, 1);
+      params.set(SparseKeys.BLACKLIST, "single_dv_[0-6]");
+      params.set(SparseKeys.FALLBACK_BASE, false);
+      params.set("indent", true);
+      req.setParams(params);
+      List<String> entries = getEntries(req, "int name..(single_dv_[^\"]*)");
+      Collections.sort(entries);
+      assertEquals("blacklist sparse faceting should give the expected result",
+          "[single_dv_7, single_dv_8, single_dv_9]",
+          entries.toString());
+    }
+
+    {
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, SINGLE_DV_FIELD);
+      params.set(FacetParams.FACET_LIMIT, 5);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.MINTAGS, 1);
+      params.set(SparseKeys.WHITELIST, "single_dv_[37]");
+      params.set(SparseKeys.BLACKLIST, "single_dv_[0-6]");
+      params.set(SparseKeys.FALLBACK_BASE, false);
+      params.set("indent", true);
+      req.setParams(params);
+      List<String> entries = getEntries(req, "int name..(single_dv_[^\"]*)");
+      Collections.sort(entries);
+      assertEquals("Combined white- & black-list sparse faceting should give the expected result",
+          "[single_dv_7]",
+          entries.toString());
+    }
+
+
+  }
+
+  private List<String> getEntries(SolrQueryRequest req, String regexp) throws Exception {
+    final String result = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+    List<String> matches = new ArrayList<>();
+    Matcher matcher = Pattern.compile(regexp).matcher(result);
+    while (matcher.find()) {
+      matches.add(matcher.group(1));
+    }
+    return matches;
   }
 
   private void dumpStats() throws Exception {
