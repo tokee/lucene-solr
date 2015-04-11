@@ -36,7 +36,7 @@ public class SparseKeys {
    * Optional. Normally only used at search-time. Regexp. Can be defined multiple times.
    * Example: {@code myyear_198[0-9]} removes all year-terms from the eighties.
    */
-  public static final String BLACKLIST = "facet.blacklist";
+  public static final String BLACKLIST = "facet.sparse.blacklist";
 
   /**
    * If defined, only facet terms matching the regexp are considered candidates for the facet result.
@@ -44,7 +44,7 @@ public class SparseKeys {
    * Optional. Normally only used at search-time. Regexp. Can be defined multiple times.
    * Example: {@code myyear_198[0-9]} keeps only the year-terms from the eighties.
    */
-  public static final String WHITELIST = "facet.whitelist";
+  public static final String WHITELIST = "facet.sparse.whitelist";
 
   /**
    * If true, sparse facet term lookup is enabled (if SPARSE == true). Term lookup is used by the second phase in
