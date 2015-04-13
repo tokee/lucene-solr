@@ -35,26 +35,34 @@ import java.io.IOException;
 public interface Incrementable {
   /**
    * Increment the value at the given index by 1.
+   * If the value overflows, 0 must be stored at the index,
+   * but the full (overflowed) value must be returned.
    * @param index the index for the value to increment.
+   * @return the value after incrementation;
    */
-  public void inc(int index);
+  public long inc(int index);
 
   /**
    * Extremely simple wrapper for easy construction of an Incrementable mutable.
    */
   public static class IncrementableMutable extends PackedInts.Mutable implements Incrementable {
     private final PackedInts.Mutable backend;
+    private final long incOverflow;
 
     // This implementation should be in PackedInts.MutableImpl
+    // Note the guard against overflow and that the overflowed value is returned
     @Override
-    public void inc(int index) {
-      backend.set(index, backend.get(index)+1);
+    public long inc(int index) {
+      final long value = backend.get(index)+1;
+      backend.set(index, value == incOverflow ? 0 : value);
+      return value;
     }
 
     // Direct delegates below
 
     public IncrementableMutable(PackedInts.Mutable backend) {
       this.backend = backend;
+      this.incOverflow = (long) Math.pow(2, backend.getBitsPerValue());
     }
 
     @Override

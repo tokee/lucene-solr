@@ -101,13 +101,24 @@ public class LongTailPerformance {
                 1));
           }
         }
-        NPlaneMutable nplane = layout == null ?
-            new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), 0, mp,
-                NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.spank) :
-            new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), NPlaneMutable.IMPL.spank);
-        stats.add(new StatHolder(nplane, id++,
-            "N-" + NPlaneMutable.IMPL.spank + "(#" + nplane.getPlaneCount() + ")",
-            1));
+        {
+          NPlaneMutable nplane = layout == null ?
+              new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), 0, mp,
+                  NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.spank) :
+              new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), NPlaneMutable.IMPL.spank);
+          stats.add(new StatHolder(nplane, id++,
+              "N-" + NPlaneMutable.IMPL.spank + "(#" + nplane.getPlaneCount() + ")",
+              1));
+        }
+        {
+          NPlaneMutable nplane = layout == null ?
+              new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), 0, mp,
+                  NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.tank) :
+              new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), NPlaneMutable.IMPL.tank);
+          stats.add(new StatHolder(nplane, id++,
+              "N-" + NPlaneMutable.IMPL.tank + "(#" + nplane.getPlaneCount() + ")",
+              1));
+        }
       }
       stats.add(new StatHolder(
           DualPlaneMutable.create(histogram, 0.99), id++,

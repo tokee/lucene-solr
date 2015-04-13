@@ -46,7 +46,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final double DEFAULT_COLLAPSE_FRACTION = 0.01; // If there's <= 1% counters left, pack them in 1 plane
   public static final IMPL DEFAULT_IMPLEMENTATION = IMPL.split;
 
-  public static enum IMPL {split, spank, shift}
+  public static enum IMPL {split, spank, tank, shift}
 
   /**
    * Visualizing the counters as vertical pillars of bits (marked with #):
@@ -281,7 +281,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   }
 
   @Override
-  public void inc(final int index) {
+  public long inc(final int index) {
 //    System.out.println("\ninc(" + index+ ")");
     int vIndex = index;
     for (int p = 0; p < planes.length; p++) {
@@ -298,6 +298,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       // We know there is actual overflow. As this is an inc, we know the overflow is 1
       vIndex = plane.overflowRank(vIndex);
     }
+    // TODO: Collect bits underway and return the result
+    return 0L;
   }
 
   @Override
@@ -369,7 +371,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     public Plane createPlane(IMPL impl) {
       switch (impl) {
         case split: return new SplitPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
-        case spank: return new SplitRankPlane(valueCount, bpv, hasOverflows, maxBit);
+        case spank: return new SplitRankPlane(valueCount, bpv, hasOverflows, maxBit, false);
+        case tank: return new SplitRankPlane(valueCount, bpv, hasOverflows, maxBit, true);
         case shift: return new ShiftPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
         default: throw new UnsupportedOperationException("No Plane implementation available for " + impl);
       }
@@ -390,7 +393,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
           }
           return bytes;
         }
-        case spank: {
+        case spank:
+        case tank: {
           long bytes = RamUsageEstimator.alignObjectSize(
               3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) + // Plane object
               RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + 1L*valueCount*bpv/8; // Values, assuming compact
@@ -589,20 +593,36 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
   private static class SplitRankPlane extends Plane {
     private final PackedInts.Mutable values;
+    private final Incrementable incValues;
     private final RankBitSet overflows;
 
-    public SplitRankPlane(int valueCount, int bpv, boolean hasOverflow, int maxBit) {
+    public SplitRankPlane(int valueCount, int bpv, boolean hasOverflow, int maxBit, boolean threadGuarded) {
       super(valueCount, bpv, maxBit, hasOverflow);
-      values = PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
+      values = getPacked(valueCount, bpv, threadGuarded);
+      incValues = values instanceof Incrementable ? (Incrementable)values : new IncrementableMutable(values);
       overflows = new RankBitSet(hasOverflow ? valueCount : 0);
+    }
+
+    private PackedInts.Mutable getPacked(int valueCount, int bpv, boolean threadGuarded) {
+      if (!threadGuarded) {
+        return PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
+      }
+      for (int candidateBPV = bpv; candidateBPV < 64 ; candidateBPV++) {
+        if (PackedOpportunistic.isSupported(candidateBPV)) {
+          return PackedOpportunistic.create(valueCount, candidateBPV);
+        }
+      }
+      throw new IllegalArgumentException("Unable to create PackedOpportunistic with BitsPerValue="  + bpv);
     }
 
     @Override
     public boolean inc(int index) {
-      long value = values.get(index);
+      return (incValues.inc(index) >>> values.getBitsPerValue()) != 0;
+/*      long value = values.get(index);
       value++;
       values.set(index, value & ~(~1L << (values.getBitsPerValue()-1)));
-      return (value >>> values.getBitsPerValue()) != 0;
+      return (value >>> values.getBitsPerValue()) != 0;*/
+
     }
 
     @Override

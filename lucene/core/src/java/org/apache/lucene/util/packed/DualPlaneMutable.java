@@ -205,20 +205,25 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
   }
 
   // Faster than {@code set(get(index)+1)}
+  // TODO: Make this obey the inc-contract
   @Override
-  public void inc(int index) {
+  public long inc(int index) {
     final long tailVal = tail.get(index);
     final long newVal = tailVal+1;
     if ((tailVal & headBit) == 0) { // Only defined in tail
       if (newVal < headBit) { // Fits in tail
         tail.set(index, newVal);
+        return newVal;
       } else { // Must put it in head
         head.set(headPos, newVal);
         tail.set(index, headBit | headPos++);
+        return newVal;
       }
     } else { // Already defined in head
       final int headIndex = (int) (tailVal & tailValueMask);
-      head.set(headIndex, head.get(headIndex)+1);
+      final long realNewVal = head.get(headIndex)+1;
+      head.set(headIndex, realNewVal);
+      return realNewVal;
     }
   }
 
