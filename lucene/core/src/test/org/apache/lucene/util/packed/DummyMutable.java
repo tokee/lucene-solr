@@ -40,8 +40,8 @@ public class DummyMutable extends PackedInts.Mutable implements Incrementable {
 
   @Override
   public long inc(int index) {
-    jit += index;
-    return jit;
+  //  jit += index; // No congestion at all, thanks
+    return jit+1;
   }
 
   @Override
