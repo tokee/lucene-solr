@@ -93,6 +93,12 @@ public class LongTailPerformance {
 //    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
     char id = 'a';
     for (int d = 0; d < instances; d++) {
+      for (int split : splits) { // Counters that support threaded updates (currently only tank)
+        stats.add(new StatHolder(
+            new DummyMutable(maxima.size()), id++,
+            "Dummy(" + split + ")",
+            1, split));
+      }
       for (int mp : maxPlanes) {
         NPlaneMutable.Layout layout = null;
         for (int cache : caches) {
@@ -112,10 +118,9 @@ public class LongTailPerformance {
               new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), 0, mp,
                   NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.tank) :
               new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), NPlaneMutable.IMPL.tank);
-          StatHolder statHolder = new StatHolder(
-              nplane, id++, "N-" + NPlaneMutable.IMPL.tank + "(#" + nplane.getPlaneCount() + ", s=" + split + ")", 1);
-          statHolder.setSplits(split);
-          stats.add(statHolder);
+          stats.add(new StatHolder(nplane, id++,
+              "N-" + NPlaneMutable.IMPL.tank + "(#" + nplane.getPlaneCount() + ", s=" + split + ")",
+              1, split));
         }
         {
           NPlaneMutable nplane = layout == null ?
@@ -138,12 +143,10 @@ public class LongTailPerformance {
       for (int split : splits) { // Counters that support threaded updates (currently only tank)
         for (int candidateBPV = maxBit(histogram); candidateBPV < 64 ; candidateBPV++) {
           if (PackedOpportunistic.isSupported(candidateBPV)) {
-            StatHolder statHolder = new StatHolder(
+            stats.add(new StatHolder(
                 PackedOpportunistic.create(maxima.size(), candidateBPV), id++,
                 "PackedOpport(s=" + split + ")",
-                1);
-            statHolder.setSplits(split);
-            stats.add(statHolder);
+                1, split));
             break;
           }
         }
@@ -261,6 +264,9 @@ public class LongTailPerformance {
         StatHolder base = stats.get(stats.size()-1);
         for (int shi = 0 ; shi < stats.size()-1 ; shi++) {
           StatHolder current = stats.get(shi);
+          if (current.impl instanceof DummyMutable) {
+            continue;
+          }
           for (int i = 0 ; i < base.impl.size() ; i++) {
             if (base.impl.get(i) != current.impl.get(i)) {
               if (++errors < 50) {
@@ -457,10 +463,14 @@ public class LongTailPerformance {
     private PackedInts.Reader maxima;
 
     public StatHolder(PackedInts.Mutable impl, char id, String designation, int updatesPerTiming) {
+      this(impl, id, designation, updatesPerTiming, 1);
+    }
+    public StatHolder(PackedInts.Mutable impl, char id, String designation, int updatesPerTiming, int splits) {
       this.impl = impl;
       this.id = id;
       this.designation = designation;
       this.updatesPerTiming = updatesPerTiming;
+        this.splits = splits;
       System.out.println("Created StatHolder " + id + ": " + impl.getClass().getSimpleName() + ": " + designation + " ("
           + impl.ramBytesUsed()/M + "MB)" + heap());
     }
