@@ -46,7 +46,7 @@ import org.apache.lucene.util.RamUsageEstimator;
 abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Incrementable {
 
   public static final int MAX_SUPPORTED_BITS_PER_VALUE = 32;
-  // TODO: Extend this list
+
   private static final int[] SUPPORTED_BITS_PER_VALUE = new int[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 21, 32};
 
   public static boolean isSupported(int bitsPerValue) {
@@ -72,6 +72,7 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
   @Override
   public void clear() {
     // TODO: Consider if simple re-allocation is faster than loop-based zeroing
+    // A lot of things would be easier, if we could get to the underlying long[] in AtomicLongArray
     for (int i = 0 ; i < blocks.length() ; i++) {
       blocks.set(i, 0L);
     }

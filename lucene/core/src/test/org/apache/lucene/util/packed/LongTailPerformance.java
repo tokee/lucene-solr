@@ -133,6 +133,19 @@ public class LongTailPerformance {
           PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.COMPACT), id++,
           "PackedInts.COMPACT",
           1));
+      for (int split : splits) { // Counters that support threaded updates (currently only tank)
+        for (int candidateBPV = maxBit(histogram); candidateBPV < 64 ; candidateBPV++) {
+          if (PackedOpportunistic.isSupported(candidateBPV)) {
+            StatHolder statHolder = new StatHolder(
+                PackedOpportunistic.create(maxima.size(), candidateBPV), id++,
+                "PackedOpport(s=" + split + ")",
+                1);
+            statHolder.setSplits(split);
+            stats.add(statHolder);
+            break;
+          }
+        }
+      }
       stats.add(new StatHolder(
           PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.FAST), id,
           "PackedInts.FAST",
@@ -421,14 +434,13 @@ public class LongTailPerformance {
     private int splits = 1; // Suggested number of parallel updaters when running
 
     private PackedInts.Reader maxima;
-    private int threads;
 
     public StatHolder(PackedInts.Mutable impl, char id, String designation, int updatesPerTiming) {
       this.impl = impl;
       this.id = id;
       this.designation = designation;
       this.updatesPerTiming = updatesPerTiming;
-      System.out.println("Created StatHolder: " + impl.getClass().getSimpleName() + ": " + designation + " ("
+      System.out.println("Created StatHolder " + id + ": " + impl.getClass().getSimpleName() + ": " + designation + " ("
           + impl.ramBytesUsed()/M + "MB)" + heap());
     }
 
