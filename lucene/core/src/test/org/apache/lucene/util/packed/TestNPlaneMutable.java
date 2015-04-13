@@ -17,10 +17,16 @@ package org.apache.lucene.util.packed;
  * limitations under the License.
  */
 
+import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
 
 import java.util.Locale;
+import java.util.Random;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 @Slow
 public class TestNPlaneMutable extends LuceneTestCase {
@@ -34,7 +40,66 @@ public class TestNPlaneMutable extends LuceneTestCase {
     final int[] MAX_PLANES = new int[] {4};
     final int[] SPLITS = new int[] {1};
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
-        9, 9/2, 2, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS);
+        9, 9/2, 2, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, true);
+  }
+
+  public void testThreadedStressOpportinistic() {
+    final int SIZE = 100;
+    final int UPDATES = 10*1000000;
+    final int THREADS = 8;
+
+    int seed = random().nextInt();
+    System.out.println("testStressOpportunistic size=" + SIZE + ", updates=" + UPDATES/1000000
+        + "M, threads=" + THREADS + ", seed=" + seed);
+    Random random = new Random(seed);
+    PackedInts.Mutable expected = new Direct32(SIZE);
+    Incrementable incrementable = new Incrementable.IncrementableMutable(expected);
+    PackedOpportunistic opportunistic = PackedOpportunistic.create(SIZE, 32);
+
+    // Hammer with updates
+    final ExecutorService executor = Executors.newFixedThreadPool(THREADS);
+    for (int i = 0 ; i < THREADS ; i++) {
+      executor.submit(new Updater(incrementable, opportunistic, SIZE, UPDATES, new Random(random.nextInt())));
+    }
+    executor.shutdown();
+    try {
+      executor.awaitTermination(1, TimeUnit.HOURS);
+    } catch (InterruptedException e) {
+      throw new RuntimeException("Unorderly termination while waiting for " + THREADS + " update threads", e);
+    }
+
+    // Correct result?
+    for (int i = 0 ; i < SIZE ;i++) {
+      assertEquals("The value at index " + i + " should be correct", expected.get(i), opportunistic.get(i));
+    }
+
+  }
+  private static class Updater implements Callable<Updater> {
+    private final Incrementable expected;
+    private final Incrementable actual;
+    private final int size;
+    private final int updates;
+    private final Random random;
+
+    private Updater(Incrementable expected, Incrementable actual, int size, int updates, Random random) {
+      this.expected = expected;
+      this.actual = actual;
+      this.size = size;
+      this.updates = updates;
+      this.random = random;
+    }
+
+    @Override
+    public Updater call() throws Exception {
+      for (int i = 0 ; i < updates ; i++) {
+        final int index = random.nextInt(size);
+        synchronized (expected) {
+          expected.inc(index);
+        }
+        actual.inc(index);
+      }
+      return this;
+    }
   }
 
   public void testMonkeySplits() {
@@ -44,7 +109,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
     final int[] MAX_PLANES = new int[] {4};
     final int[] SPLITS = new int[] {1, 4};
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
-        9, 9/2, 2, UPDATES, CACHES, MAX_PLANES, 1, SPLITS);
+        9, 9/2, 2, UPDATES, CACHES, MAX_PLANES, 1, SPLITS, true);
   }
 
   public void testArrayIndexOutOfBoundsCase() {
@@ -55,7 +120,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
     final int[] SPLITS = new int[] {1};
 
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
-        9, 9/2, 1, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS);
+        9, 9/2, 1, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, true);
 //     -u 1 5 10 50 100 -c 100 20 -p 4 64 -t 1 -i 1 -e 8
   }
 

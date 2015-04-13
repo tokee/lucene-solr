@@ -24,9 +24,11 @@ import org.apache.lucene.util.RamUsageEstimator;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -46,7 +48,7 @@ public class LongTailPerformance {
     final int[] MAX_PLANES = new int[] {1, 2, 3, 4, 64};
     final int[] SPLITS = new int[] {1};
     measurePerformance(
-        pad(10000, 2000, 10, 3, 2, 1), 5, 5/2, 1, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS);
+        pad(10000, 2000, 10, 3, 2, 1), 5, 5/2, 1, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, false);
   }
 
   public static void main(String[] args) {
@@ -77,12 +79,12 @@ public class LongTailPerformance {
             " nmaxplanes=[%s], histogram=[%s](factor=%4.2f)",
         RUNS, ENTRY, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, join(SPLITS), INSTANCES, join(UPDATES),
         join(NCACHES), join(MAX_PLANES), join(HISTOGRAM), FACTOR));
-    measurePerformance(HISTOGRAM, RUNS, ENTRY, INSTANCES, UPDATES, NCACHES, MAX_PLANES, THREADS, SPLITS);
+    measurePerformance(HISTOGRAM, RUNS, ENTRY, INSTANCES, UPDATES, NCACHES, MAX_PLANES, THREADS, SPLITS, false);
   }
 
   static void measurePerformance(
       long[] histogram, int runs, int entry, int instances, int[] updates,
-      int[] caches, int[] maxPlanes, int threads, int[] splits) {
+      int[] caches, int[] maxPlanes, int threads, int[] splits, boolean checkEquivalence) {
     System.out.println("Creating pseudo-random maxima from histogram" + heap());
     final PackedInts.Reader maxima = getMaxima(histogram);
     histogram = getHistogram(maxima); // Re-calc as the maxima generator rounds up to nearest prime
@@ -161,7 +163,7 @@ public class LongTailPerformance {
     }
     System.out.println();
 
-    measure(runs, entry, threads, updates, histogram, maxima, stats, splits);
+    measure(runs, entry, threads, updates, histogram, maxima, stats, checkEquivalence);
     // Overall stats
     String caption = String.format(Locale.ENGLISH,
         "Increments/ms of %dM counters with max bit %d, using %d threads",
@@ -211,7 +213,7 @@ public class LongTailPerformance {
   }
 
   private static void measure(int runs, int entry, int threads, int[] updates, long[] histogram,
-                              PackedInts.Reader maxima, List<StatHolder> stats, int[] splits) {
+                              PackedInts.Reader maxima, List<StatHolder> stats, boolean checkEquivalence) {
     PackedInts.Mutable valueIncrements = null; // For re-use
     final long sum = sum(maxima); // For generation of increments
     final ExecutorService executor = Executors.newFixedThreadPool(Math.min(threads, stats.size()));
@@ -251,6 +253,25 @@ public class LongTailPerformance {
       for (StatHolder stat : stats) {
         System.out.println(stat);
         stat.addUPS(stat.getUpdatesPerMS(entry));
+      }
+      long errors = 0;
+      Set<String> errorImpls = new HashSet<>();
+      if (checkEquivalence) {
+        System.out.println("Checking equality of all " + stats.size() + " counters. Patience is a virtue");
+        StatHolder base = stats.get(0);
+        for (int shi = 1 ; shi < stats.size() ; shi++) {
+          StatHolder current = stats.get(shi);
+          for (int i = 0 ; i < base.impl.size() ; i++) {
+            if (base.impl.get(i) != current.impl.get(i)) {
+              if (++errors < 50) {
+                System.err.println(String.format("%s.get(%d) == %d. Expected %d",
+                    current.designation, i, current.impl.get(i), base.impl.get(i)));
+              }
+              errorImpls.add(current.designation);
+            }
+          }
+        }
+        System.out.println("Finished checking equivalence. Errors: " + errors + " in " + errorImpls);
       }
     }
     executor.shutdownNow();
