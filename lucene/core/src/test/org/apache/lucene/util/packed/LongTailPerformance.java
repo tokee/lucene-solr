@@ -258,8 +258,8 @@ public class LongTailPerformance {
       Set<String> errorImpls = new HashSet<>();
       if (checkEquivalence) {
         System.out.println("Checking equality of all " + stats.size() + " counters. Patience is a virtue");
-        StatHolder base = stats.get(0);
-        for (int shi = 1 ; shi < stats.size() ; shi++) {
+        StatHolder base = stats.get(stats.size()-1);
+        for (int shi = 0 ; shi < stats.size()-1 ; shi++) {
           StatHolder current = stats.get(shi);
           for (int i = 0 ; i < base.impl.size() ; i++) {
             if (base.impl.get(i) != current.impl.get(i)) {

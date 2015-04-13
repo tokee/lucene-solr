@@ -40,6 +40,7 @@ import java.util.Locale;
 // TODO: Align caches to 64 bits and use Long.bitCount with IMPL.split
 // TODO: Deprecate split as spank is always faster & smaller
 // TODO: Implement shift with rank (shank)
+// FIXME: TestNPlaneMutable.testShiftWrongValues() shows that shift is faulty
 public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 100; // Should probably be a low lower (100 or so)
   public static final int DEFAULT_MAX_PLANES = 64; // No default limit
@@ -621,8 +622,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 /*      long value = values.get(index);
       value++;
       values.set(index, value & ~(~1L << (values.getBitsPerValue()-1)));
-      return (value >>> values.getBitsPerValue()) != 0;*/
-
+      return (value >>> values.getBitsPerValue()) != 0;
+  */
     }
 
     @Override
@@ -755,6 +756,10 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     // Quite heavy as we cannot use Arrays.fill underneath
     @Override
     public void clear() {
+      if (!hasOverflow) {
+        values.clear();
+        return;
+      }
       for (int i = 0; i < valueCount ; i++) {
         values.set(i, values.get(i) & 0x1);
       }
