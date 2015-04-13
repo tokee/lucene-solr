@@ -421,9 +421,10 @@ public class LongTailPerformance {
               totalIncs++;
             }
           }
-          throw new RuntimeException(String.format(Locale.ENGLISH,
-              "Exception calling inc(%d) #%d with maximum=%d on %s",
-              increments.get(i), totalIncs, maxima.get((int) increments.get(i)), counters), e);
+          System.err.println(String.format(Locale.ENGLISH,
+              "Exception calling %s.inc(%d) #%d with maximum=%d on %s. Aborting updates",
+              counters, increments.get(i), totalIncs, maxima.get((int) increments.get(i)), counters));
+          break;
         }
       }
       return this;
