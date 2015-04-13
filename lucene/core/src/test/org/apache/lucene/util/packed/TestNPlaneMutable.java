@@ -32,8 +32,19 @@ public class TestNPlaneMutable extends LuceneTestCase {
     final int[] UPDATES = new int[] {M};
     final int[] CACHES = new int[] {200};
     final int[] MAX_PLANES = new int[] {4};
+    final int[] SPLITS = new int[] {1};
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
-        9, 9/2, 2, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE);
+        9, 9/2, 2, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS);
+  }
+
+  public void testMonkeySplits() {
+    final int DIVISOR = 50;
+    final int[] UPDATES = new int[] {10*M};
+    final int[] CACHES = new int[] {200};
+    final int[] MAX_PLANES = new int[] {4};
+    final int[] SPLITS = new int[] {1, 4};
+    LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
+        9, 9/2, 2, UPDATES, CACHES, MAX_PLANES, 1, SPLITS);
   }
 
   public void testArrayIndexOutOfBoundsCase() {
@@ -41,9 +52,10 @@ public class TestNPlaneMutable extends LuceneTestCase {
     final int[] UPDATES = new int[] {M, M/3};
     final int[] CACHES = new int[] {100, 20};
     final int[] MAX_PLANES = new int[] {4, 64};
+    final int[] SPLITS = new int[] {1};
 
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
-        9, 9/2, 1, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE);
+        9, 9/2, 1, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS);
 //     -u 1 5 10 50 100 -c 100 20 -p 4 64 -t 1 -i 1 -e 8
   }
 

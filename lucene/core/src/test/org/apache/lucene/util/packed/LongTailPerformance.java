@@ -31,6 +31,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Non-unit-test performance test for using PackedInts implementations for counters
@@ -43,7 +44,9 @@ public class LongTailPerformance {
     final int[] UPDATES = new int[] {1000, 10000};
     final int[] CACHES = new int[] {1000, 500, 200, 100, 50, 20};
     final int[] MAX_PLANES = new int[] {1, 2, 3, 4, 64};
-    measurePerformance(pad(10000, 2000, 10, 3, 2, 1), 5, 5/2, 1, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE);
+    final int[] SPLITS = new int[] {1};
+    measurePerformance(
+        pad(10000, 2000, 10, 3, 2, 1), 5, 5/2, 1, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS);
   }
 
   public static void main(String[] args) {
@@ -56,6 +59,7 @@ public class LongTailPerformance {
     int    RUNS =       toIntArray(getArgs(args, "-r", 9))[0];
     int    ENTRY =      toIntArray(getArgs(args, "-e", RUNS/2))[0];
     int    THREADS =    toIntArray(getArgs(args, "-t", Integer.MAX_VALUE))[0];
+    int[]  SPLITS =     toIntArray(getArgs(args, "-s", 1));
     int    INSTANCES =  toIntArray(getArgs(args, "-i", 1))[0];
     double[] UPDD =  toDoubleArray(getArgs(args, "-u", 0.1, 1, 10, 20));
     int[]  NCACHES =    toIntArray(getArgs(args, "-c", 1000, 500, 200, 100, 50, 20));
@@ -69,16 +73,16 @@ public class LongTailPerformance {
     }
     HISTOGRAM = reduce(pad(HISTOGRAM), 1/FACTOR);
     System.out.println(String.format(Locale.ENGLISH,
-        "LongTailPerformance: runs=%d, entry=%d, threads=%s, instances=%d, updates=[%s], ncaches=[%s]," +
+        "LongTailPerformance: runs=%d, entry=%d, threads=%s, splits=%s, instances=%d, updates=[%s], ncaches=[%s]," +
             " nmaxplanes=[%s], histogram=[%s](factor=%4.2f)",
-        RUNS, ENTRY, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, INSTANCES, join(UPDATES),
+        RUNS, ENTRY, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, join(SPLITS), INSTANCES, join(UPDATES),
         join(NCACHES), join(MAX_PLANES), join(HISTOGRAM), FACTOR));
-    measurePerformance(HISTOGRAM, RUNS, ENTRY, INSTANCES, UPDATES, NCACHES, MAX_PLANES, THREADS);
+    measurePerformance(HISTOGRAM, RUNS, ENTRY, INSTANCES, UPDATES, NCACHES, MAX_PLANES, THREADS, SPLITS);
   }
 
   static void measurePerformance(
       long[] histogram, int runs, int entry, int instances, int[] updates,
-      int[] caches, int[] maxPlanes, int threads) {
+      int[] caches, int[] maxPlanes, int threads, int[] splits) {
     System.out.println("Creating pseudo-random maxima from histogram" + heap());
     final PackedInts.Reader maxima = getMaxima(histogram);
     histogram = getHistogram(maxima); // Re-calc as the maxima generator rounds up to nearest prime
@@ -86,7 +90,7 @@ public class LongTailPerformance {
     System.out.println("Initializing implementations" + heap());
 //    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
     char id = 'a';
-    for (int d = 0 ; d < instances ; d++) {
+    for (int d = 0; d < instances; d++) {
       for (int mp : maxPlanes) {
         NPlaneMutable.Layout layout = null;
         for (int cache : caches) {
@@ -110,14 +114,15 @@ public class LongTailPerformance {
               "N-" + NPlaneMutable.IMPL.spank + "(#" + nplane.getPlaneCount() + ")",
               1));
         }
-        {
+        for (int split : splits) { // Counters that support threaded updates (currently only tank)
           NPlaneMutable nplane = layout == null ?
               new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), 0, mp,
                   NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.tank) :
               new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), NPlaneMutable.IMPL.tank);
-          stats.add(new StatHolder(nplane, id++,
-              "N-" + NPlaneMutable.IMPL.tank + "(#" + nplane.getPlaneCount() + ")",
-              1));
+          StatHolder statHolder = new StatHolder(
+              nplane, id++, "N-" + NPlaneMutable.IMPL.tank + "(#" + nplane.getPlaneCount() + ", s=" + split + ")", 1);
+          statHolder.setSplits(split);
+          stats.add(statHolder);
         }
       }
       stats.add(new StatHolder(
@@ -138,12 +143,12 @@ public class LongTailPerformance {
         updates
     ));*/
     }
-    for (StatHolder stat: stats) {
+    for (StatHolder stat : stats) {
       System.out.print(stat.id + ":" + stat.designation + "  ");
     }
     System.out.println();
 
-    measure(runs, entry, threads, updates, histogram, maxima, stats);
+    measure(runs, entry, threads, updates, histogram, maxima, stats, splits);
     // Overall stats
     String caption = String.format(Locale.ENGLISH,
         "Increments/ms of %dM counters with max bit %d, using %d threads",
@@ -193,7 +198,7 @@ public class LongTailPerformance {
   }
 
   private static void measure(int runs, int entry, int threads, int[] updates, long[] histogram,
-                              PackedInts.Reader maxima, List<StatHolder> stats) {
+                              PackedInts.Reader maxima, List<StatHolder> stats, int[] splits) {
     PackedInts.Mutable valueIncrements = null; // For re-use
     final long sum = sum(maxima); // For generation of increments
     final ExecutorService executor = Executors.newFixedThreadPool(Math.min(threads, stats.size()));
@@ -318,28 +323,71 @@ public class LongTailPerformance {
 
   // Runs a performance test and reports time spend as nano seconds
   private static long measure(
-      PackedInts.Mutable counters, PackedInts.Reader valueIncrements, PackedInts.Reader maxima) {
+      PackedInts.Mutable counters, PackedInts.Reader valueIncrements, PackedInts.Reader maxima, int splits) {
     final Incrementable incCounters = counters instanceof Incrementable ?
         (Incrementable)counters :
         new Incrementable.IncrementableMutable(counters);
 
     long start = System.nanoTime();
-    for (int i = 0 ; i < valueIncrements.size() ; i++) {
+    if (splits == 1 || valueIncrements.size() < splits) {
+      UpdateJob uf = new UpdateJob(incCounters, valueIncrements, maxima, 0, valueIncrements.size());
       try {
-        incCounters.inc((int) valueIncrements.get(i));
+        uf.call();
       } catch (Exception e) {
-        int totalIncs = -1;
-        for (int l = 0 ; l <= i ; l++) { // Locate duplicate increments
-          if (valueIncrements.get(l) == valueIncrements.get(i)) {
-            totalIncs++;
-        }
-        }
-        throw new RuntimeException(String.format(Locale.ENGLISH,
-            "Exception calling inc(%d) #%d with maximum=%d and #counters=%d",
-            valueIncrements.get(i), totalIncs, maxima.get((int) valueIncrements.get(i)), counters.size()), e);
+        throw new RuntimeException("Exception for splits=" + splits, e);
+      }
+    } else {
+      final ExecutorService executor = Executors.newFixedThreadPool(splits);
+      int splitSize = valueIncrements.size() / splits;
+      for (int i = 0 ; i < splits ; i++) {
+        executor.submit(new UpdateJob(
+            incCounters, valueIncrements, maxima, i*splitSize,
+            i < splits-1 ? splitSize : valueIncrements.size()-i*splitSize));
+      }
+      executor.shutdown();
+      try {
+        executor.awaitTermination(1, TimeUnit.HOURS);
+      } catch (InterruptedException e) {
+        throw new RuntimeException("Unorderly termination while waiting for " + splits + " update threads", e);
       }
     }
     return System.nanoTime()-start;
+  }
+  private static class UpdateJob implements Callable<UpdateJob> {
+    private final Incrementable counters;
+    private final PackedInts.Reader increments;
+    private final PackedInts.Reader maxima;
+    private final int start;
+    private final int length;
+
+    private UpdateJob(Incrementable counters, PackedInts.Reader increments, PackedInts.Reader maxima,
+                      int start, int length) {
+      this.counters = counters;
+      this.increments = increments;
+      this.maxima = maxima;
+      this.start = start;
+      this.length = length;
+    }
+
+    @Override
+    public UpdateJob call() throws Exception {
+      for (int i = start ; i < start + length ; i++) {
+        try {
+          counters.inc((int) increments.get(i));
+        } catch (Exception e) {
+          int totalIncs = -1;
+          for (int l = 0 ; l <= i ; l++) { // Locate duplicate increments
+            if (increments.get(l) == increments.get(i)) {
+              totalIncs++;
+            }
+          }
+          throw new RuntimeException(String.format(Locale.ENGLISH,
+              "Exception calling inc(%d) #%d with maximum=%d on %s",
+              increments.get(i), totalIncs, maxima.get((int) increments.get(i)), counters), e);
+        }
+      }
+      return this;
+    }
   }
 
   // histogram[0] = first bit
@@ -370,8 +418,11 @@ public class LongTailPerformance {
     private final char id;
     private PackedInts.Reader increments;
     private long lastNS = -1;
+    private int splits = 1; // Suggested number of parallel updaters when running
 
     private PackedInts.Reader maxima;
+    private int threads;
+
     public StatHolder(PackedInts.Mutable impl, char id, String designation, int updatesPerTiming) {
       this.impl = impl;
       this.id = id;
@@ -422,7 +473,7 @@ public class LongTailPerformance {
 
     @Override
     public StatHolder call() throws Exception {
-      long ns = measure(impl, increments, maxima);
+      long ns = measure(impl, increments, maxima, splits);
       addTiming(ns);
       this.lastNS = ns;
 //      System.out.print(String.format(Locale.ENGLISH, "%c:%5d  ",
@@ -430,6 +481,9 @@ public class LongTailPerformance {
       return this;
     }
 
+    public void setSplits(int splits) {
+      this.splits = splits;
+    }
   }
   public static final class PackedWrapped extends PackedInts.ReaderImpl {
 
@@ -623,7 +677,8 @@ public class LongTailPerformance {
           "-h:    Display usage\n" +
           "-r x:  Number of runs per test case. Default: 9\n" +
           "-e x:  Which measurement to report, as an index in slowest to fastest run. Default: runs/2\n" +
-          "-t x:  Number of Threads used per run. Default: Unlimited\n" +
+          "-t x:  Number of Threads used per run for parallel tests. Default: Unlimited\n" +
+          "-s x*: Split update space into this number of parts for threaded updating. Default: 1\n" +
           "-i x:  Duplicate all instances this number of times. Default: 1\n" +
           "-u x*: Number of million updates per run. Default: 0.1 1 10 20\n" +
           "-c x*: Cache-setups for N-plane. Default: 1000 500 200 111 50 20\n" +
