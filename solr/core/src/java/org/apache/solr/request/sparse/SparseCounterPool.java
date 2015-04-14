@@ -123,8 +123,6 @@ public class SparseCounterPool {
   private NumStat emptyFrees = new NumStat("emptyFrees");
 
   // Misc. stats
-  NumStat fallbacks = new NumStat("fallbacks");
-  String lastFallbackReason = "no fallbacks";
   NumStat disables = new NumStat("disables");
   NumStat withinCutoffCount = new NumStat("withinCutoff");
   NumStat exceededCutoffCount = new NumStat("exceededCutoff");
@@ -409,7 +407,6 @@ public class SparseCounterPool {
       // TODO: Find a clean way to remove non-started tasks from the cleaner
       structureKey = "discardResultsFromBackgroundClears";
 
-      lastFallbackReason = "no fallbacks";
       lastTermsListRequest = "N/A";
       lastTermLookup = "N/A";
 
@@ -422,10 +419,6 @@ public class SparseCounterPool {
     }
   }
 
-  public void incFallbacks(String reason) {
-    fallbacks.inc();
-    lastFallbackReason = reason;
-  }
   public void incWithinCount() {
     withinCutoffCount.inc();
   }
@@ -481,17 +474,17 @@ public class SparseCounterPool {
 //    final int cleanerCoreSize = supervisor.getCorePoolSize();
     return String.format(
         "sparse statistics: field(name=%s, description='%s', uniqTerms=%d, maxDoc=%d, refs=%d, maxCountForAny=%d)," +
-            "%s, %s (last: %s), " + // simpleFacetTotal, fallbacks
+            "%s, " + // simpleFacetTotal, fallbacks
             "%s, %s, %s, " + // collect, extract, resolve
             "%s, %s, " + // disables,  withinCutoff
             "exceededCutoff=%d, SCPool(cached=%d/%d, currentBackgroundClears=%d, %s, " + // emptyReuses
             "%s, %s, " + // packedAllocations, intAllocations
-            "%s, " +
+            "%s, " + // regexpMatches
             "%s, %s, " + // requestClears, backgroundClears
             "cache(hits=%d, misses=%d, %s, %s), " + // filledFrees, emptyFrees
             "terms(%s, last#=%d, %s, %s, last=%s, cached=%s)",  // termsListLookup, termLookup, termLookupMissing
         field, description, uniqueValues, maxDoc, referenceCount, maxCountForAny,
-        simpleFacetTotal, fallbacks, lastFallbackReason,
+        simpleFacetTotal,
         collections, extractions, resolvings,
         disables, withinCutoffCount,
         exceededCutoffCount.get() - disables.get(), poolSize, maxPoolSize, pendingClears, emptyReuses,
@@ -536,7 +529,6 @@ public class SparseCounterPool {
     }
     {
       final NamedList<Object> calls = new NamedList<>();
-      calls.add("fallbacks", fallbacks.calls.get() + " (last reason: " + lastFallbackReason + ")");
       disables.debug(calls);
       withinCutoffCount.debug(calls);
       exceededCutoffCount.debug(calls);

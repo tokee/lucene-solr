@@ -112,16 +112,6 @@ public class SparseDocValuesFacets {
     // Providers ready. Ensure that the searcher-specific pool is correctly initialized
     ensurePoolMetaData(sparseKeys, searcher, si, ordinalMap, schemaField, pool);
 
-    final int hitCount = docs.size();
-    // Determine if the final result set is likely to be within the sparse constraints and
-    // potentially fall back to standard Solr faceting if not
-    final boolean probablySparse = pool.isProbablySparse(hitCount, sparseKeys);
-    if (!probablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
-      pool.incFallbacks(pool.getNotSparseReason(hitCount, sparseKeys));
-      return termList == null ?
-          DocValuesFacets.getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, pool, fieldName, termList, docs);
-    }
 
     // Locate start and end-position in the ordinals if a prefix is given
     final BytesRef prefixRef;
@@ -147,6 +137,9 @@ public class SparseDocValuesFacets {
       endTermIndex=(int) si.getValueCount();
     }
 
+    final int hitCount = docs.size();
+    // Determine if the final result set is likely to be within the sparse constraints
+
     final int nTerms=endTermIndex-startTermIndex;
     int missingCount = -1;
     final CharsRef charsRef = new CharsRef(10);
@@ -161,7 +154,7 @@ public class SparseDocValuesFacets {
     // The counter structure is always empty for single-shard searches and first phase of multi-shard searches
     // Depending on pool cache setup, it might already be full and directly usable in second phase of multi-shard searches
     if (counts.getContentKey() == null) {
-      if (!probablySparse) {
+      if (!pool.isProbablySparse(hitCount, sparseKeys)) {
         // It is guessed that the result set will be to large to be sparse so
         // the sparse tracker is disabled up front to speed up the collection phase
         counts.disableSparseTracking();

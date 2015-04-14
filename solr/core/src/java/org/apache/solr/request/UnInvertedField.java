@@ -241,12 +241,6 @@ public class UnInvertedField extends DocTermOrds {
     }
 
     final boolean isProbablySparse = pool.isProbablySparse(baseSize, sparseKeys);
-    if (!isProbablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
-      pool.incFallbacks(pool.getNotSparseReason(baseSize, sparseKeys));
-      return termList == null ?
-          getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, pool, field, termList, baseDocs);
-    }
 
     long sparseTotalTime = System.nanoTime();
     use.incrementAndGet();

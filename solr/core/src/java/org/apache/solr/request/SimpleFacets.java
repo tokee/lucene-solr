@@ -737,14 +737,6 @@ public class SimpleFacets {
 
     int hitCount = docs.size();
     final boolean isProbablySparse = pool.isProbablySparse(hitCount, sparseKeys);
-    if (!isProbablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
-      // Fallback to standard
-      pool.incFallbacks("minCount=" + mincount + ", hits=" + hitCount + "/" + searcher.maxDoc()
-          + ", terms=" + si.getValueCount());
-      return termList == null ?
-          getFieldCacheCounts(searcher, docs, fieldName, offset, limit, mincount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, pool, fieldName, termList, docs);
-    }
 
     final BytesRef prefixRef;
     if (prefix == null) {

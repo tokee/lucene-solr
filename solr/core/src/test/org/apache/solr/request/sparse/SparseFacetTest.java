@@ -154,7 +154,6 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
       params.set(FacetParams.FACET_LIMIT, 5);
       params.set(SparseKeys.SPARSE, true);
       params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
-      params.set(SparseKeys.FALLBACK_BASE, false);
       params.set("indent", true);
       req.setParams(params);
       assertEquals("Plain sparse faceting should give the expected number of results",
@@ -170,7 +169,6 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
       params.set(SparseKeys.SPARSE, true);
       params.set(SparseKeys.MINTAGS, 1);
       params.set(SparseKeys.WHITELIST, "single_dv_[37]");
-      params.set(SparseKeys.FALLBACK_BASE, false);
       params.set("indent", true);
       req.setParams(params);
       List<String> entries = getEntries(req, "int name..(single_dv_[^\"]*)");
@@ -189,7 +187,6 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
       params.set(SparseKeys.SPARSE, true);
       params.set(SparseKeys.MINTAGS, 1);
       params.set(SparseKeys.BLACKLIST, "single_dv_[0-6]");
-      params.set(SparseKeys.FALLBACK_BASE, false);
       params.set("indent", true);
       req.setParams(params);
       List<String> entries = getEntries(req, "int name..(single_dv_[^\"]*)");
@@ -209,7 +206,6 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
       params.set(SparseKeys.MINTAGS, 1);
       params.set(SparseKeys.WHITELIST, "single_dv_[37]");
       params.set(SparseKeys.BLACKLIST, "single_dv_[0-6]");
-      params.set(SparseKeys.FALLBACK_BASE, false);
       params.set("indent", true);
       req.setParams(params);
       List<String> entries = getEntries(req, "int name..(single_dv_[^\"]*)");

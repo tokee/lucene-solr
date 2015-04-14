@@ -236,16 +236,6 @@ public class SparseKeys {
   public static final int POOL_CLEANUP_THREADS_DEFAULT = 1;
 
   /**
-   * If true, queries that activates non-sparseness will be redirected to the standard Solr facet implementations.
-   * If false, non-sparseness will be handled inside the sparse framework, which includes cached counters.
-   * </p><p>
-   * Setting this to true will give better performance in a distributed setting,
-   * while false works slightly better for single-chard.
-   */
-  public static final String FALLBACK_BASE = "facet.sparse.fallbacktobase";
-  public static boolean FALLBACK_BASE_DEFAULT = false;
-
-  /**
    * If true, the facet counts from phase 1 of distributed calls are cached for re-use with phase-2.
    * If the setup is single-shard, this will have no effect.
    * </p><p>
@@ -268,7 +258,6 @@ public class SparseKeys {
   final public boolean sparse;
   final public boolean termLookup;
   final public int termLookupMaxCache;
-  final public boolean fallbackToBase;
   final public int minTags;
   final public double fraction;
   final public double cutOff;
@@ -303,7 +292,6 @@ public class SparseKeys {
     sparse = params.getFieldBool(field, SPARSE, SPARSE_DEFAULT);
     termLookup = params.getFieldBool(field, TERMLOOKUP, TERMLOOKUP_DEFAULT);
     termLookupMaxCache = params.getFieldInt(field, TERMLOOKUP_MAXCACHE, TERMLOOKUP_MAXCACHE_DEFAULT);
-    fallbackToBase = params.getFieldBool(field, FALLBACK_BASE, FALLBACK_BASE_DEFAULT);
     minTags = params.getFieldInt(field, MINTAGS, MINTAGS_DEFAULT);
     fraction = params.getFieldDouble(field, FRACTION, FRACTION_DEFAULT);
     cutOff = params.getFieldDouble(field, CUTOFF, CUTOFF_DEFAULT);
@@ -357,7 +345,6 @@ public class SparseKeys {
         ", sparse=" + sparse +
         ", termLookup=" + termLookup +
         ", termLookupMaxCache=" + termLookupMaxCache +
-        ", fallbackToBase=" + fallbackToBase +
         ", minTags=" + minTags +
         ", fraction=" + fraction +
         ", cutOff=" + cutOff +
