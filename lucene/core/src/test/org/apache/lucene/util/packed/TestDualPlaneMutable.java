@@ -84,7 +84,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
       assertEquals("The value at position " + i + " should be correct after max-1 set", MAXIMA[i]-1, dpm.get(i));
     }
     for (int i = 0 ; i < MAXIMA.length ; i++) {
-      dpm.inc(i);
+      dpm.increment(i);
       assertEquals("The value at position " + i + " should be correct after max set + inc", MAXIMA[i], dpm.get(i));
     }
   }

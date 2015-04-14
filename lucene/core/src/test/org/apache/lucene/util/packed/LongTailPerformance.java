@@ -413,7 +413,7 @@ public class LongTailPerformance {
     public UpdateJob call() throws Exception {
       for (int i = start ; i < start + length ; i++) {
         try {
-          counters.inc((int) increments.get(i));
+          counters.increment((int) increments.get(i));
         } catch (Exception e) {
           int totalIncs = -1;
           for (int l = 0 ; l <= i ; l++) { // Locate duplicate increments

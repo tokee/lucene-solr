@@ -50,6 +50,17 @@ public class DummyMutable extends PackedInts.Mutable implements Incrementable {
   }
 
   @Override
+  public boolean compareAndSet(int index, long expect, long update) {
+    jit += index + expect + update;
+    return true;
+  }
+
+  @Override
+  public boolean hasCompareAndSet() {
+    return false;
+  }
+
+  @Override
   public void set(int index, long value) {
     jit += index + value;
   }

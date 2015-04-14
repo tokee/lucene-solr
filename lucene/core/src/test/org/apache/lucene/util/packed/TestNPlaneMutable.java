@@ -98,9 +98,9 @@ public class TestNPlaneMutable extends LuceneTestCase {
       for (int i = 0 ; i < updates ; i++) {
         final int index = random.nextInt(size);
         synchronized (expected) {
-          expected.inc(index);
+          expected.increment(index);
         }
-        actual.inc(index);
+        actual.increment(index);
       }
       return this;
     }
@@ -149,7 +149,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
           inc = 0;
         }
       }
-      nplane.inc(inc);
+      nplane.increment(inc);
       checkOverflow("After inc(" + inc + ") #" + (i+1), nplane);
     }
   }
@@ -238,17 +238,17 @@ public class TestNPlaneMutable extends LuceneTestCase {
     System.out.println("maxima: " + toString(maxima));
     NPlaneMutable bpm = new NPlaneMutable(maxima);
 
-    bpm.inc(1);
+    bpm.increment(1);
     assertEquals("Test 1: index 1", 1, bpm.get(1));
     assertEquals("The unmodified counter 0 should be zero", 0, bpm.get(0));
-    bpm.inc(0);
+    bpm.increment(0);
     assertEquals("Test 2: index 0", 1, bpm.get(0));
-    bpm.inc(0);
-    bpm.inc(0);
+    bpm.increment(0);
+    bpm.increment(0);
     assertEquals("Test 3: index 0", 3, bpm.get(0));
-    bpm.inc(0);
+    bpm.increment(0);
     assertEquals("Test 4: index 0", 4, bpm.get(0));
-    bpm.inc(2);
+    bpm.increment(2);
   }
 
   public void testOverflowCache() {
@@ -341,7 +341,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
       assertEquals("The set max-1 value at index " + i + " should be correct", maxima.get(i)-1, bpm.get(i));
     }
     for (int i = 0 ; i < maxima.size() ; i++) {
-      bpm.inc(i);
+      bpm.increment(i);
       assertEquals("The set max-1 value + inc at index " + i + " should be correct", maxima.get(i), bpm.get(i));
     }
   }
@@ -369,7 +369,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
       }
       expected.set(index, expected.get(index)+1);
       try {
-        bpm.inc(index);
+        bpm.increment(index);
 //        bpm.set(index, bpm.get(index));
       } catch (Exception e) {
         fail("Unexpected exception calling bmp.inc(" + index + "): " +  e.getMessage());
