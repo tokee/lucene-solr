@@ -43,12 +43,12 @@ public class LongTailPerformance {
   final static int M = 1048576;
   final static int MI = 1000000;
   public static void testSimplePerformance() {
-    final int[] UPDATES = new int[] {1000, 10000};
+    final int UPDATES = 10000;
     final int[] CACHES = new int[] {1000, 500, 200, 100, 50, 20};
     final int[] MAX_PLANES = new int[] {1, 2, 3, 4, 64};
     final int[] SPLITS = new int[] {1};
     measurePerformance(
-        pad(10000, 2000, 10, 3, 2, 1), 5, 5/2, 1, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, false);
+        pad(10000, 2000, 10, 3, 2, 1), 5, 5/2, 1, UPDATES, 10, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, false);
   }
 
   public static void main(String[] args) {
@@ -63,27 +63,26 @@ public class LongTailPerformance {
     int    THREADS =    toIntArray(getArgs(args, "-t", Integer.MAX_VALUE))[0];
     int[]  SPLITS =     toIntArray(getArgs(args, "-s", 1));
     int    INSTANCES =  toIntArray(getArgs(args, "-i", 1))[0];
-    double[] UPDD =  toDoubleArray(getArgs(args, "-u", 0.1, 1, 10, 20));
+    double UPDD =    toDoubleArray(getArgs(args, "-u", 10))[0];
+    int MEASURE_POINTS= toIntArray(getArgs(args, "-p", 50))[0];
     int[]  NCACHES =    toIntArray(getArgs(args, "-c", 1000, 500, 200, 100, 50, 20));
     int[]  MAX_PLANES = toIntArray(getArgs(args, "-p", 64));
     long[] HISTOGRAM = toLongArray(getArgs(args, "-m", toString(links20150209).split(", ")));
     double FACTOR =  toDoubleArray(getArgs(args, "-d", 1.0))[0];
 
-    int[] UPDATES = new int[UPDD.length];
-    for (int i = 0; i < UPDD.length; i++) {
-      UPDATES[i] = (int) (UPDD[i]*MI);
-    }
+    int UPDATES = (int) (UPDD*MI);
     HISTOGRAM = reduce(pad(HISTOGRAM), 1/FACTOR);
     System.out.println(String.format(Locale.ENGLISH,
-        "LongTailPerformance: runs=%d, entry=%d, threads=%s, splits=%s, instances=%d, updates=[%s], ncaches=[%s]," +
+        "LongTailPerformance: runs=%d, entry=%d, threads=%s, splits=%s, instances=%d, updates=%d, ncaches=[%s]," +
             " nmaxplanes=[%s], histogram=[%s](factor=%4.2f)",
-        RUNS, ENTRY, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, join(SPLITS), INSTANCES, join(UPDATES),
+        RUNS, ENTRY, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, join(SPLITS), INSTANCES, UPDATES,
         join(NCACHES), join(MAX_PLANES), join(HISTOGRAM), FACTOR));
-    measurePerformance(HISTOGRAM, RUNS, ENTRY, INSTANCES, UPDATES, NCACHES, MAX_PLANES, THREADS, SPLITS, false);
+    measurePerformance(HISTOGRAM, RUNS, ENTRY, INSTANCES, UPDATES, MEASURE_POINTS, NCACHES, MAX_PLANES, THREADS,
+        SPLITS, false);
   }
 
   static void measurePerformance(
-      long[] histogram, int runs, int entry, int instances, int[] updates,
+      long[] histogram, int runs, int entry, int instances, int updates, int measurePoints,
       int[] caches, int[] maxPlanes, int threads, int[] splits, boolean checkEquivalence) {
     System.out.println("Creating pseudo-random maxima from histogram" + heap());
     final PackedInts.Reader maxima = getMaxima(histogram);
@@ -166,17 +165,19 @@ public class LongTailPerformance {
     }
     System.out.println();
 
-    measure(runs, entry, threads, updates, histogram, maxima, stats, checkEquivalence);
+    measure(runs, entry, threads, updates, measurePoints, histogram, maxima, stats, checkEquivalence);
     // Overall stats
     String caption = String.format(Locale.ENGLISH,
         "Increments/ms of %dM counters with max bit %d, using %d threads",
         maxima.size() / 1000000, maxBit(histogram), threads);
 
-    printHTMLTable(caption, updates, stats);
-    printGnuplotData(caption, updates, stats);
+    printHTMLTable(caption, updates, measurePoints, stats);
+    printGnuplotData(caption, updates, measurePoints, stats);
   }
 
-  private static void printHTMLTable(String caption, int[] updates, List<StatHolder> stats) {
+  private static void printHTMLTable(String caption, int updates, int measurePoints, List<StatHolder> stats) {
+    // TODO: Flip the table
+    /*
     System.out.print(String.format(Locale.ENGLISH,
         "\n<table style=\"width: 80%%\">" +
             "<caption>%s</caption>\n<tr style=\"text-align: right\"><th>Implementation</th> <th>MB</th>",
@@ -195,9 +196,10 @@ public class LongTailPerformance {
       System.out.println("</tr>");
     }
     System.out.println("</table>");
+    */
   }
 
-  private static void printGnuplotData(String caption, int[] updates, List<StatHolder> stats) {
+  private static void printGnuplotData(String caption, int updates, int measurePoints, List<StatHolder> stats) {
     System.out.println("\n# " + caption);
     System.out.print("M_incs");
     for (StatHolder stat: stats) {
@@ -206,33 +208,33 @@ public class LongTailPerformance {
     }
     System.out.println();
 
-    for (int i = 0 ; i < updates.length ; i++) {
-      System.out.print(String.format(Locale.ENGLISH, "%.1f", 1.0*updates[i]/MI));
+    int delta = updates/measurePoints;
+    for (int block = 0 ; block < updates ; block++) {
+      System.out.print(String.format(Locale.ENGLISH, "%.1f", 1.0*(block+1)*delta/MI));
       for (StatHolder stat: stats) {
-        System.out.print(String.format(Locale.ENGLISH, " %.0f", stat.ups.get(i)));
+        System.out.print(String.format(Locale.ENGLISH, " %.0f", stat.getUpdatesPerMS(block);
       }
       System.out.println("");
     }
   }
 
-  private static void measure(int runs, int entry, int threads, int[] updates, long[] histogram,
+  private static void measure(int runs, int entry, int threads, int updates, int measurePoints, long[] histogram,
                               PackedInts.Reader maxima, List<StatHolder> stats, boolean checkEquivalence) {
     PackedInts.Mutable valueIncrements = null; // For re-use
     final long sum = sum(maxima); // For generation of increments
     final ExecutorService executor = Executors.newFixedThreadPool(Math.min(threads, stats.size()));
 
-    for (int update: updates) {
-      System.out.println(String.format("Performing %d test runs of %dM updates in %dM counters with max bit %d%s",
-          runs, update / MI, maxima.size() / 1000000, maxBit(histogram), heap()));
+    System.out.println(String.format("Performing %d test runs of %dM updates in %dM counters with max bit %d%s",
+        runs, updates / MI, maxima.size() / 1000000, maxBit(histogram), heap()));
 
-      for (StatHolder stat : stats) {
-        stat.setUpdates(update);
-      }
+    for (StatHolder stat : stats) {
+      stat.setUpdates(updates, measurePoints, entry);
+    }
       for (int i = 0; i < runs; i++) {
         System.out.print("[generating update");
         final long seed = new Random().nextLong(); // Should really be random() but we want to run under main
         // Generate the increments to run
-        valueIncrements = generateRepresentativeValueIncrements(maxima, update, valueIncrements, seed, sum);
+        valueIncrements = generateRepresentativeValueIncrements(maxima, updates, valueIncrements, seed, sum);
         System.gc(); // We don't want GC in the middle of measurements
         System.out.print("] ");
         List<Future<StatHolder>> statFutures = new ArrayList<>(stats.size());
@@ -252,7 +254,8 @@ public class LongTailPerformance {
           }
         }
         System.out.println(heap());
-      }
+
+
       for (StatHolder stat : stats) {
         System.out.println(stat);
         stat.addUPS(stat.getUpdatesPerMS(entry));
@@ -450,14 +453,14 @@ public class LongTailPerformance {
     return histogram;
   }
   private static class StatHolder implements Callable<StatHolder> {
-
     private final PackedInts.Mutable impl;
+    private PackedInts.Reader increments;
     private final String designation;
+    private final char id;
+
     private final List<Long> timings = new ArrayList<>();
     private int updatesPerTiming;
     private final List<Double> ups = new ArrayList<>();
-    private final char id;
-    private PackedInts.Reader increments;
     private long lastNS = -1;
     private int splits = 1; // Suggested number of parallel updaters when running
 
@@ -471,7 +474,7 @@ public class LongTailPerformance {
       this.id = id;
       this.designation = designation;
       this.updatesPerTiming = updatesPerTiming;
-        this.splits = splits;
+      this.splits = splits;
       System.out.println("Created StatHolder " + id + ": " + impl.getClass().getSimpleName() + ": " + designation + " ("
           + impl.ramBytesUsed()/M + "MB)" + heap());
     }
@@ -496,7 +499,7 @@ public class LongTailPerformance {
           (long)getUpdatesPerMS(timings.size()/2), (long)getUpdatesPerMS(timings.size()-1));
     }
 
-    public void setUpdates(int updates) {
+    public void setUpdates(int updates, int measurePoints, int entry) {
       updatesPerTiming = updates;
       timings.clear();
     }
@@ -724,7 +727,8 @@ public class LongTailPerformance {
           "-t x:  Number of Threads used per run for parallel tests. Default: Unlimited\n" +
           "-s x*: Split update space into this number of parts for threaded updating. Default: 1\n" +
           "-i x:  Duplicate all instances this number of times. Default: 1\n" +
-          "-u x*: Number of million updates per run. Default: 0.1 1 10 20\n" +
+          "-u x:  Number of million updates per run. Default: 10\n" +
+          "-p x:  Measure points (rows in the output). Default: 50\n" +
           "-c x*: Cache-setups for N-plane. Default: 1000 500 200 111 50 20\n" +
           "-p x*: Max planes for N-plane. Default: 64\n" +
           "-m x*: Histogram maxima. Default: 425799733 85835129 52695663...\n" +
