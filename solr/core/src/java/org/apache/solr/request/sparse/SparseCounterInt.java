@@ -84,10 +84,15 @@ public class SparseCounterInt implements ValueCounter {
     }
   }
 
+  @Override
+  public boolean hasThreadSafeInc() {
+    return false;
+  }
+
   /*
-   * Constructs an ID which is unique for the given layout. Used for lookup of cached counters in
-   * {@link SparseCounterPool}.
-   */
+     * Constructs an ID which is unique for the given layout. Used for lookup of cached counters in
+     * {@link SparseCounterPool}.
+     */
   public static String createStructureKey(int counts, long maxCountForAny, int minCountForSparse, double fraction) {
     return "SparseCounterInt(counts" + counts + "maxCountForAny" + maxCountForAny
         + "minCountsForSparse" + minCountForSparse + "fraction" + fraction + "maxTracked=irrelevant)";
@@ -127,8 +132,7 @@ public class SparseCounterInt implements ValueCounter {
    * @param counter the index of the counter to increment.
    * @param value   the value to add to the counter.
    */
-  @Override
-  public final void inc(int counter, long value) {
+  private void inc(int counter, long value) {
     final long count = counts[counter];
     if (maxTracked == -1) {
       counts[counter] = (int) (count + value);

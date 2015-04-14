@@ -282,7 +282,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   }
 
   @Override
-  public long inc(final int index) {
+  public void increment(final int index) {
 //    System.out.println("\ninc(" + index+ ")");
     int vIndex = index;
     for (int p = 0; p < planes.length; p++) {
@@ -299,8 +299,31 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       // We know there is actual overflow. As this is an inc, we know the overflow is 1
       vIndex = plane.overflowRank(vIndex);
     }
-    // TODO: Collect bits underway and return the result
-    return 0L;
+  }
+
+  /**
+   * Increments the value and returns it.
+   * Warning: This is a synchronized method and not recommended for high performance. Use {@link #increment(int)}
+   * instead if possible.
+   * @param index the index for the value to increment.
+   * @return the incremented value.
+   */
+  @Override
+  public long incrementAndGet(int index) {
+    // FIXME: This does not guarantee the correct result. What we really need is tracking first update
+    long original = get(index);
+    increment(index);
+    return original+1;
+  }
+
+  @Override
+  public boolean compareAndSet(int index, long expect, long update) {
+    throw new UnsupportedOperationException("Cannot uphold the contract of this operation");
+  }
+
+  @Override
+  public boolean hasCompareAndSet() {
+    return false;
   }
 
   @Override
@@ -618,7 +641,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
     @Override
     public boolean inc(int index) {
-      return (incValues.inc(index) >>> values.getBitsPerValue()) != 0;
+      return (incValues.incrementAndGet(index) >>> values.getBitsPerValue()) != 0;
 /*      long value = values.get(index);
       value++;
       values.set(index, value & ~(~1L << (values.getBitsPerValue()-1)));

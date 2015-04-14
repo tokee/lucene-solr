@@ -205,9 +205,8 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
   }
 
   // Faster than {@code set(get(index)+1)}
-  // TODO: Make this obey the inc-contract
   @Override
-  public long inc(int index) {
+  public long incrementAndGet(int index) {
     final long tailVal = tail.get(index);
     final long newVal = tailVal+1;
     if ((tailVal & headBit) == 0) { // Only defined in tail
@@ -225,6 +224,21 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
       head.set(headIndex, realNewVal);
       return realNewVal;
     }
+  }
+
+  @Override
+  public void increment(int index) {
+    incrementAndGet(index);
+  }
+
+  @Override
+  public boolean compareAndSet(int index, long expect, long update) {
+    throw new UnsupportedOperationException("compareAndSet cannot be guaranteed for dual plane");
+  }
+
+  @Override
+  public boolean hasCompareAndSet() {
+    return false;
   }
 
   @Override

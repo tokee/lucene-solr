@@ -33,11 +33,9 @@ public interface ValueCounter {
   void inc(int counter);
 
   /**
-   * Increments the given counter with the given value. If the value will always be 1, use {@link #inc(int)} instead.
-   * @param counter the index of the counter to increment.
-   * @param delta   the value to add to the counter.
+   * @return true if {@link #inc(int)} is thread safe, else false.
    */
-  void inc(int counter, long delta);
+  boolean hasThreadSafeInc();
 
   /**
    * Set the counter to the specific value

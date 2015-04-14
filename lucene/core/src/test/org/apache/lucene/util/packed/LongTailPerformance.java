@@ -96,7 +96,7 @@ public class LongTailPerformance {
       for (int split : splits) { // Counters that support threaded updates (currently only tank)
         stats.add(new StatHolder(
             new DummyMutable(maxima.size()), id++,
-            "Dummy(" + split + ")",
+            "Dummy(s=" + split + ")",
             1, split));
       }
       for (int mp : maxPlanes) {

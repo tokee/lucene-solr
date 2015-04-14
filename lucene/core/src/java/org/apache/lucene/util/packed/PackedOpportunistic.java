@@ -31,11 +31,11 @@ import org.apache.lucene.util.RamUsageEstimator;
  * bits/value. Values are packed contiguously.
  * </p><p>
  * This implementation used an {@link AtomicLongArray} as backing structure.
- * It provides thread-safe {@link #inc(int)} and {@link #set(int, long)} by opportunistic
+ * It provides thread-safe {@link #incrementAndGet(int)} and {@link #set(int, long)} by opportunistic
  * updates. With low contention this is very effective; with high contention, performance
  * drops quickly.
  * </p><p>
- * Important: Only {@link #inc(int)} and {@link #set(int, long)} are thread safe.
+ * Important: Only {@link #incrementAndGet(int)} and {@link #set(int, long)} are thread safe.
  * </p><p>
  * The class {@link Packed64SingleBlock} is used as template as using Atomics
  * for collision handling requires update to the underlying structure to be
@@ -76,6 +76,16 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     for (int i = 0 ; i < blocks.length() ; i++) {
       blocks.set(i, 0L);
     }
+  }
+
+  @Override
+  public final void increment(int index) {
+    incrementAndGet(index); // The return value is practically free, so no need for special methods
+  }
+
+  @Override
+  public boolean hasCompareAndSet() {
+    return true;
   }
 
   @Override
@@ -265,7 +275,27 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index >>> 6;
+      final int shift = index & 63; // b
+//      final int shift = b << 0;
+      //blocks[o] = (blocks[o] & ~(1L << shift)) | (value << shift);
+      while (true) {
+        final long old = blocks.get(o);
+        if (((old >>> shift) & 1L)+1 != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(1L << shift)) | (value << shift))) {
+          return true;
+        }
+        // Wait a bit to increase chances of non-collision
+        // See http://java.dzone.com/articles/wanna-get-faster-wait-bit
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index >>> 6;
       final int shift = index & 63; // b
 //      final int shift = b << 0;
@@ -311,7 +341,24 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index >>> 5;
+      final int b = index & 31;
+      final int shift = b << 1;
+      while (true) {
+        final long old = blocks.get(o);
+        if (((old >>> shift) & 3L) != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(3L << shift)) | (value << shift))) {
+          return true;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index >>> 5;
       final int b = index & 31;
       final int shift = b << 1;
@@ -357,7 +404,24 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index / 21;
+      final int b = index % 21;
+      final int shift = b * 3;
+      while (true) {
+        final long old = blocks.get(o);
+        if (((old >>> shift) & 7L) != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(7L << shift)) | (value << shift))) {
+          return true;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index / 21;
       final int b = index % 21;
       final int shift = b * 3;
@@ -403,7 +467,24 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index >>> 4;
+      final int b = index & 15;
+      final int shift = b << 2;
+      while (true) {
+        final long old = blocks.get(o);
+        if (((old >>> shift) & 15L) != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(15L << shift)) | (value << shift))) {
+          return true;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index >>> 4;
       final int b = index & 15;
       final int shift = b << 2;
@@ -449,7 +530,24 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index / 12;
+      final int b = index % 12;
+      final int shift = b * 5;
+      while (true) {
+        final long old = blocks.get(o);
+        if (((old >>> shift) & 31L) != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(31L << shift)) | (value << shift))) {
+          return true;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index / 12;
       final int b = index % 12;
       final int shift = b * 5;
@@ -495,7 +593,24 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index / 10;
+      final int b = index % 10;
+      final int shift = b * 6;
+      while (true) {
+        final long old = blocks.get(o);
+        if (((old >>> shift) & 63L) != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(63L << shift)) | (value << shift))) {
+          return true;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index / 10;
       final int b = index % 10;
       final int shift = b * 6;
@@ -541,7 +656,24 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index / 9;
+      final int b = index % 9;
+      final int shift = b * 7;
+      while (true) {
+        final long old = blocks.get(o);
+        if (((old >>> shift) & 127L) != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(127L << shift)) | (value << shift))) {
+          return true;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index / 9;
       final int b = index % 9;
       final int shift = b * 7;
@@ -587,7 +719,24 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index >>> 3;
+      final int b = index & 7;
+      final int shift = b << 3;
+      while (true) {
+        final long old = blocks.get(o);
+        if (((old >>> shift) & 255L) != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(255L << shift)) | (value << shift))) {
+          return true;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index >>> 3;
       final int b = index & 7;
       final int shift = b << 3;
@@ -633,7 +782,24 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index / 7;
+      final int b = index % 7;
+      final int shift = b * 9;
+      while (true) {
+        final long old = blocks.get(o);
+        if (((old >>> shift) & 511L) != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(511L << shift)) | (value << shift))) {
+          return true;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index / 7;
       final int b = index % 7;
       final int shift = b * 9;
@@ -679,7 +845,24 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index / 6;
+      final int b = index % 6;
+      final int shift = b * 10;
+      while (true) {
+        final long old = blocks.get(o);
+        if (((blocks.get(o) >>> shift) & 1023L) != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(1023L << shift)) | (value << shift))) {
+          return true;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index / 6;
       final int b = index % 6;
       final int shift = b * 10;
@@ -725,7 +908,24 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index / 5;
+      final int b = index % 5;
+      final int shift = b * 12;
+      while (true) {
+        final long old = blocks.get(o);
+        if (((old >>> shift) & 4095L) != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(4095L << shift)) | (value << shift))) {
+          return true;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index / 5;
       final int b = index % 5;
       final int shift = b * 12;
@@ -771,7 +971,24 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index >>> 2;
+      final int b = index & 3;
+      final int shift = b << 4;
+      while (true) {
+        final long old = blocks.get(o);
+        if (((old >>> shift) & 65535L) != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(65535L << shift)) | (value << shift))) {
+          return true;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index >>> 2;
       final int b = index & 3;
       final int shift = b << 4;
@@ -817,7 +1034,24 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index / 3;
+      final int b = index % 3;
+      final int shift = b * 21;
+      while (true) {
+        final long old = blocks.get(o);
+        if (((old >>> shift) & 2097151L) != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(2097151L << shift)) | (value << shift))) {
+          return true;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index / 3;
       final int b = index % 3;
       final int shift = b * 21;
@@ -863,7 +1097,24 @@ abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Inc
     }
 
     @Override
-    public long inc(int index) {
+    public boolean compareAndSet(int index, long expect, long value) {
+      final int o = index >>> 1;
+      final int b = index & 1;
+      final int shift = b << 5;
+      while (true) {
+        final long old = blocks.get(o);
+        if (((old >>> shift) & 4294967295L) != expect) {
+          return false;
+        }
+        if (blocks.compareAndSet(o, old, (old & ~(4294967295L << shift)) | (value << shift))) {
+          return true;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
+    @Override
+    public long incrementAndGet(int index) {
       final int o = index >>> 1;
       final int b = index & 1;
       final int shift = b << 5;

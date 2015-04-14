@@ -35,12 +35,32 @@ import java.io.IOException;
 public interface Incrementable {
   /**
    * Increment the value at the given index by 1.
+   * If the value overflows, 0 must be stored at the index.
+   * @param index the index for the value to increment.
+   */
+  public void increment(int index);
+
+  /**
+   * Increment the value at the given index by 1.
    * If the value overflows, 0 must be stored at the index,
    * but the full (overflowed) value must be returned.
    * @param index the index for the value to increment.
    * @return the value after incrementation;
    */
-  public long inc(int index);
+  public long incrementAndGet(int index);
+
+  /**
+   * Atomically sets the value to the given updated value if the current value {@code ==} the expected value.
+   *This method is optional. Implementations must signal support with {@link #hasCompareAndSet()}.
+   * @param index the index for the value to set.
+   * @param expect the expected value
+   * @param update the new value
+   * @return true if successful. False return indicates that
+   * the actual value was not equal to the expected value.
+   */
+  boolean compareAndSet(int index, long expect, long update);
+  boolean hasCompareAndSet();
+
 
   /**
    * Extremely simple wrapper for easy construction of an Incrementable mutable.
@@ -50,14 +70,35 @@ public interface Incrementable {
     private final long incOverflow;
 
     // This implementation should be in PackedInts.MutableImpl
+    // Note the guard against overflow
+    @Override
+    public void increment(int index) {
+      final long value = backend.get(index)+1;
+      backend.set(index, value == incOverflow ? 0 : value);
+    }
+
+    // This implementation should be in PackedInts.MutableImpl
     // Note the guard against overflow and that the overflowed value is returned
     @Override
-    public long inc(int index) {
+    public long incrementAndGet(int index) {
       final long value = backend.get(index)+1;
       backend.set(index, value == incOverflow ? 0 : value);
       return value;
     }
 
+    @Override
+    public boolean compareAndSet(int index, long expect, long update) {
+      if (get(index) == expect) {
+        set(index, update);
+        return true;
+      }
+      return false;
+    }
+
+    @Override
+    public boolean hasCompareAndSet() {
+      return true;
+    }
     // Direct delegates below
 
     public IncrementableMutable(PackedInts.Mutable backend) {
