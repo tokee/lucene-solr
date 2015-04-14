@@ -25,6 +25,7 @@ import java.util.regex.Pattern;
 
 import org.apache.lucene.index.AtomicReaderContext;
 import org.apache.lucene.index.DocValues;
+import org.apache.lucene.index.MultiDocValues;
 import org.apache.lucene.index.MultiDocValues.MultiSortedDocValues;
 import org.apache.lucene.index.MultiDocValues.MultiSortedSetDocValues;
 import org.apache.lucene.index.MultiDocValues.OrdinalMap;
@@ -84,12 +85,9 @@ public class SparseDocValuesFacets {
     final long fullStartTime = System.nanoTime();
 
     // Resolve providers of terms and ordinal-mapping
-    SchemaField schemaField = searcher.getSchema().getField(fieldName);
-    final int hitCount = docs.size();
-    FieldType ft = schemaField.getType();
-    NamedList<Integer> res = new NamedList<Integer>();
+    final SchemaField schemaField = searcher.getSchema().getField(fieldName);
 
-    final SortedSetDocValues si; // for term lookups only
+    final SortedSetDocValues si;  // for term lookups only
     OrdinalMap ordinalMap = null; // for mapping per-segment ords to global ones
     if (schemaField.multiValued()) {
       si = searcher.getAtomicReader().getSortedSetDocValues(fieldName);
@@ -104,7 +102,7 @@ public class SparseDocValuesFacets {
       }
     }
     if (si == null) {
-      return finalize(res, searcher, schemaField, docs, -1, missing);
+      return finalize(new NamedList<Integer>(), searcher, schemaField, docs, -1, missing);
     }
     if (si.getValueCount() >= Integer.MAX_VALUE) {
       throw new UnsupportedOperationException(
@@ -112,16 +110,14 @@ public class SparseDocValuesFacets {
     }
 
     // Providers ready. Ensure that the searcher-specific pool is correctly initialized
-    if (!pool.isInitialized()) {
-      initializePool(searcher, si, ordinalMap, schemaField, pool);
-    }
+    ensurePoolMetaData(sparseKeys, searcher, si, ordinalMap, schemaField, pool);
 
+    final int hitCount = docs.size();
     // Determine if the final result set is likely to be within the sparse constraints and
     // potentially fall back to standard Solr faceting if not
     final boolean probablySparse = pool.isProbablySparse(hitCount, sparseKeys);
     if (!probablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
       pool.incFallbacks(pool.getNotSparseReason(hitCount, sparseKeys));
-
       return termList == null ?
           DocValuesFacets.getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
           SimpleFacets.fallbackGetListedTermCounts(searcher, pool, fieldName, termList, docs);
@@ -156,7 +152,7 @@ public class SparseDocValuesFacets {
     final CharsRef charsRef = new CharsRef(10);
     if (nTerms <= 0 || hitCount < minCount) {
       // Should we count this in statistics? It should be fast and is fairly independent of sparse
-      return finalize(res, searcher, schemaField, docs, missingCount, missing);
+      return finalize(new NamedList<Integer>(), searcher, schemaField, docs, missingCount, missing);
     }
 
     final ValueCounter counts = pool.acquire(sparseKeys);
@@ -196,6 +192,8 @@ public class SparseDocValuesFacets {
     int off=offset;
     int lim=limit>=0 ? limit : Integer.MAX_VALUE;
 
+    final FieldType ft = schemaField.getType();
+    final NamedList<Integer> res = new NamedList<Integer>();
     if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
       int maxsize = limit>0 ? offset+limit : Integer.MAX_VALUE-1;
       maxsize = Math.min(maxsize, nTerms);
@@ -367,10 +365,40 @@ public class SparseDocValuesFacets {
    * Note: This temporarily allocates an int[maxDoc]. Fortunately this happens before standard counter allocation
    * so this should not blow the heap.
    */
-  private static void initializePool(
-      SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap, SchemaField schemaField,
-      SparseCounterPool pool) throws IOException {
+  private static void ensurePoolMetaData(
+      SparseKeys sparseKeys, SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
+      SchemaField schemaField, SparseCounterPool pool) throws IOException {
+    if (pool.isInitialized()) {
+      return;
+    }
     final long startTime = System.nanoTime();
+    if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.array) {
+      return; // Array does not need any special processing
+    }
+
+    final int[] globOrdCount = getGlobOrdCount(searcher, si, globalMap, schemaField);
+
+    int maxCount = -1;
+    long refCount = 0;
+    for (int count: globOrdCount) {
+      refCount += count;
+      if (count > maxCount) {
+        maxCount = count;
+      }
+    }
+    log.info(String.format(
+        "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms",
+        maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime()-startTime)/1000000));
+    // +1 as everything is shifted by 1 to use index 0 as special counter
+    pool.setFieldProperties((int) (si.getValueCount()+1), maxCount, searcher.maxDoc(), refCount);
+  }
+
+  /*
+  Memory and CPU-power heavy extraction of counts for all global ordinals.
+  This should be called as few times as possible.
+   */
+  private static int[] getGlobOrdCount(SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
+                                       SchemaField schemaField) throws IOException {
     final int[] globOrdCount = new int[(int) (si.getValueCount()+1)];
     List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
     for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
@@ -435,20 +463,7 @@ public class SparseDocValuesFacets {
         }
       }
     }
-
-    int maxCount = -1;
-    long refCount = 0;
-    for (int count: globOrdCount) {
-      refCount += count;
-      if (count > maxCount) {
-        maxCount = count;
-      }
-    }
-    log.info(String.format(
-        "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms",
-        maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime()-startTime)/1000000));
-    // +1 as everything is shifted by 1 to use index 0 as special counter
-    pool.setFieldProperties((int) (si.getValueCount()+1), maxCount, searcher.maxDoc(), refCount);
+    return globOrdCount;
   }
 
   static int warnedOrdinal = 0;

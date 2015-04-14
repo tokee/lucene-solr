@@ -19,6 +19,7 @@ package org.apache.solr.request.sparse;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 import org.apache.solr.common.params.SolrParams;
@@ -135,20 +136,25 @@ public class SparseKeys {
    * The implementation used for counting. This has significant performance- and memory-impact.
    * Valid counters are:<br/>
    * <ul>
-   *   <li>auto:      Automatically selects between array and packed, based on maximum counter size and total number
-   *                  of counters. Will never choose dualplane or nplane. Same first call penalty as packed</li>
+   *   <li>auto:      Automatically selects between array and packed, based on maximum counter size, total number
+   *                  of counters and threading. Will never choose dualplane or nplane.
+   *                  Same first call penalty as packed</li>
    *   <li>array:     {@link org.apache.lucene.util.packed.Direct32}
-   *                  fast first call, high performance, high memory</li>
+   *                  fast first call, high performance, high memory.
+   *                  array does not support {@link #COUNTING_THREADS}.</li>
    *   <li>packed:    {@link org.apache.lucene.util.packed.Packed64}
    *                  a bit slower first call than array, performance varying with concrete corpus and normally somewhat
-   *                  below array, lower memory usage than array</li>
+   *                  below array, lower memory usage than array.
+   *                  if {@link #COUNTING_THREADS} is > 1, a thread-safe packed structure is used.</li>
    *   <li>dualplane: {@link org.apache.lucene.util.packed.DualPlaneMutable}
    *                  slow first call, performance on par with array for 50M+ counters,
    *                  lower memory usage than array.
    *                  dualplane is only effective for counters with steep long tail maxima.
-   *                  It falls back to packed if insisting on dualplane would be poorer than packed.</li>
+   *                  It falls back to packed if insisting on dualplane would be poorer than packed.
+   *                  dualplane does not support {@link #COUNTING_THREADS} > 1.</li>
    *   <li>nplane:    {@link org.apache.lucene.util.packed.NPlaneMutable}
-   *                  very slow first call, 3-5 times slower than array, extremely low memory usage</li>
+   *                  very slow first call, 3-5 times slower than array, extremely low memory usage.
+   *                  nplane does support {@link #COUNTING_THREADS}.</li>
    * </ul>
    * </p><p>
    * Optional. Default value is auto.
@@ -173,6 +179,15 @@ public class SparseKeys {
    */
   public static final String PACKED_BITLIMIT = "facet.sparse.packed.bitlimit";
   public static int DEFAULT_PACKED_BITLIMIT = 24;
+
+  /**
+   * If the {@link #COUNTER} supports it, the counting phase for faceting is done with the specified
+   * number of threads. This increases speed at the cost of extra CPU power.
+   * </p><p>
+   * Optional. Default is 1.
+   */
+  public static final String COUNTING_THREADS = "facet.counting.threads";
+  public static final int DEFAULT_COUNTING_THREADS = 1;
 
   /**
    * Setting this parameter to true will add a special tag with statistics. Only for patch testing!
@@ -260,6 +275,7 @@ public class SparseKeys {
   final public long maxCountsTracked;
 
   final public COUNTER_IMPL counter;
+  final public int countingThreads;
   final public long packedLimit;
 
   final public int poolSize;
@@ -294,10 +310,16 @@ public class SparseKeys {
 
     maxCountsTracked = Long.parseLong(params.getFieldParam(field, MAXTRACKED, Long.toString(MAXTRACKED_DEFAULT)));
 
+    countingThreads = params.getFieldInt(field, COUNTING_THREADS, DEFAULT_COUNTING_THREADS);
     if (params.getFieldParam(field, PACKED) != null && params.getFieldParam(field, COUNTER) == null) { // Old key
       counter = params.getFieldBool(field, PACKED, DEFAULT_PACKED) ? COUNTER_IMPL.auto : COUNTER_IMPL.array;
     } else {
       counter = COUNTER_IMPL.valueOf(params.getFieldParam(field, COUNTER, DEFAULT_COUNTER));
+    }
+    if (countingThreads > 1 && (counter == COUNTER_IMPL.dualplane || counter == COUNTER_IMPL.array)) {
+      throw new IllegalArgumentException(String.format(Locale.ENGLISH,
+          "The %s=%s only works with 1 thread, but %s=%d was requested",
+          COUNTER, counter, COUNTING_THREADS, countingThreads));
     }
     packedLimit = params.getFieldInt(field, PACKED_BITLIMIT, DEFAULT_PACKED_BITLIMIT);
 
@@ -341,6 +363,7 @@ public class SparseKeys {
         ", cutOff=" + cutOff +
         ", maxCountsTracked=" + maxCountsTracked +
         ", counter=" + counter +
+        ", countingThreads=" + countingThreads +
         ", packedLimit=" + packedLimit +
         ", poolSize=" + poolSize +
         ", poolMaxCount=" + poolMaxCount +
