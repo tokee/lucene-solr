@@ -175,6 +175,26 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
           5, getEntries(req, "int name..(single_dv_[^\"]*)").size());
     }
 
+    { // Dual fail (threading not supported)
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, SINGLE_DV_FIELD);
+      params.set(FacetParams.FACET_LIMIT, 5);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.dualplane.toString());
+      params.set(SparseKeys.COUNTING_THREADS, 2);
+      params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+      params.set("indent", true);
+      req.setParams(params);
+      try {
+        getEntries(req, "int name..(single_dv_[^\"]*)");
+        fail("Requesting threaded counting with dualplane should fail as it is not supported");
+      } catch (Exception e) {
+        // Expected
+      }
+    }
+
   }
 
   public void testBlackAndWhitelistFaceting() throws Exception {
