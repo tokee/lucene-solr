@@ -268,8 +268,6 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
           "[single_dv_7]",
           entries.toString());
     }
-
-
   }
 
   private List<String> getEntries(SolrQueryRequest req, String regexp) throws Exception {

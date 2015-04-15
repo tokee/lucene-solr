@@ -22,6 +22,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -162,7 +165,7 @@ public class SparseDocValuesFacets {
       }
 
       final long sparseCollectTime = System.nanoTime();
-      collectCounts(searcher, docs, schemaField, ordinalMap, startTermIndex, counts);
+      collectCounts(sparseKeys, searcher, docs, schemaField, ordinalMap, startTermIndex, counts);
       pool.incCollectTimeRel(sparseCollectTime);
     }
 
@@ -263,8 +266,9 @@ public class SparseDocValuesFacets {
   /*
   Iterate the leafs and update the counters based on the DocValues ordinals, adjusted to the global ordinal structure.
    */
-  private static void collectCounts(SolrIndexSearcher searcher, DocSet docs, SchemaField schemaField,
-                                    OrdinalMap ordinalMap, int startTermIndex, ValueCounter counts) throws IOException {
+  private static void collectCounts(
+      SparseKeys sparseKeys, SolrIndexSearcher searcher, DocSet docs, SchemaField schemaField, OrdinalMap ordinalMap,
+      int startTermIndex, ValueCounter counts) throws IOException {
     String fieldName = schemaField.getName();
     Filter filter = docs.getTopFilter();
     List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
@@ -284,16 +288,16 @@ public class SparseDocValuesFacets {
           final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
           if (singleton != null) {
             // some codecs may optimize SORTED_SET storage for single-valued fields
-            accumSingle(counts, startTermIndex, singleton, disi, subIndex, ordinalMap);
+            accumSingle(sparseKeys, counts, startTermIndex, singleton, disi, subIndex, ordinalMap);
           } else {
-            accumMulti(counts, startTermIndex, sub, disi, subIndex, ordinalMap);
+            accumMulti(sparseKeys, counts, startTermIndex, sub, disi, subIndex, ordinalMap);
           }
         } else {
           SortedDocValues sub = leaf.reader().getSortedDocValues(fieldName);
           if (sub == null) {
             sub = DocValues.EMPTY_SORTED;
           }
-          accumSingle(counts, startTermIndex, sub, disi, subIndex, ordinalMap);
+          accumSingle(sparseKeys, counts, startTermIndex, sub, disi, subIndex, ordinalMap);
         }
       }
     }
@@ -585,26 +589,60 @@ public class SparseDocValuesFacets {
   /*
   Iterate single-value DocValues and update the counters based on delivered ordinals.
    */
-  static void accumSingle(ValueCounter counts, int startTermIndex, SortedDocValues si, DocIdSetIterator disi,
-                          int subIndex, OrdinalMap map) throws IOException {
-    int doc;
-    while ((doc = disi.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
-      int term = si.getOrd(doc);
-      if (map != null && term >= 0) {
-        term = (int) map.getGlobalOrd(subIndex, term);
+  static void accumSingle(SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedDocValues si,
+                          DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
+//    if (sparseKeys.countingThreads <= 1) {
+    try {
+      new SingleAccumulator(counts, startTermIndex, Integer.MAX_VALUE, si, disi, subIndex, map).call();
+    } catch (Exception e) {
+      throw new IOException("Exception executing single threaded accumSingle", e);
+    }
+    // TODO: Determine total docs in the disi
+    // TODO: Sanity check for small sets?
+//    final ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, threads, stats.size()));
+  }
+  private static class SingleAccumulator implements Callable<SingleAccumulator> {
+    final private ValueCounter counts;
+    final private int startTermIndex; // Inclusive
+    final private int endTermIndex;   // Exclusive
+    final private SortedDocValues si;
+    final private  DocIdSetIterator disi;
+    final private int subIndex;
+    final private OrdinalMap map;
+
+    private SingleAccumulator(ValueCounter counts, int startTermIndex, int endTermIndex, SortedDocValues si,
+                              DocIdSetIterator disi, int subIndex, OrdinalMap map) {
+      this.counts = counts;
+      this.startTermIndex = startTermIndex;
+      this.endTermIndex = endTermIndex;
+      this.si = si;
+      this.disi = disi;
+      this.subIndex = subIndex;
+      this.map = map;
+    }
+
+    @Override
+    public SingleAccumulator call() throws Exception {
+      int doc;
+      while ((doc = disi.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS && doc < endTermIndex) {
+        int term = si.getOrd(doc);
+        if (map != null && term >= 0) {
+          term = (int) map.getGlobalOrd(subIndex, term);
+        }
+        int arrIdx = term-startTermIndex;
+        if (arrIdx>=0 && arrIdx<counts.size()) {
+          counts.inc(arrIdx);
+        }
       }
-      int arrIdx = term-startTermIndex;
-      if (arrIdx>=0 && arrIdx<counts.size()) {
-        counts.inc(arrIdx);
-      }
+      return this;
     }
   }
 
   /*
   Iterate multi-value DocValues and update the counters based on delivered ordinals.
    */
-  static void accumMulti(ValueCounter counts, int startTermIndex, SortedSetDocValues si, DocIdSetIterator disi,
-                         int subIndex, OrdinalMap map) throws IOException {
+  static void accumMulti(SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedSetDocValues si,
+                         DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
     int doc;
     while ((doc = disi.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
       si.setDocument(doc);
