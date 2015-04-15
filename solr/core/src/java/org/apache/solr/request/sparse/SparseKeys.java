@@ -193,6 +193,14 @@ public class SparseKeys {
   public static final int DEFAULT_COUNTING_THREADS = 1;
 
   /**
+   * If the number of documents in a segment gets below this number, counting threading is not performed.
+   * </p><p>
+   * Optional. Default is 100.
+   */
+  public static final String COUNTING_THREADS_MINDOCS = "facet.counting.threads.mindocs";
+  public static final int DEFAULT_COUNTING_THREADS_MINDOCS = 100;
+
+  /**
    * Setting this parameter to true will add a special tag with statistics. Only for patch testing!
    * Note: The statistics are delayed when performing distributed faceting. They show the state from the previous call.
    * </p><p>
@@ -268,6 +276,7 @@ public class SparseKeys {
 
   final public COUNTER_IMPL counter;
   final public int countingThreads;
+  final public int countingThreadsMinDocs;
   final public long packedLimit;
 
   final public int poolSize;
@@ -302,6 +311,7 @@ public class SparseKeys {
     maxCountsTracked = Long.parseLong(params.getFieldParam(field, MAXTRACKED, Long.toString(MAXTRACKED_DEFAULT)));
 
     countingThreads = params.getFieldInt(field, COUNTING_THREADS, DEFAULT_COUNTING_THREADS);
+    countingThreadsMinDocs = params.getFieldInt(field, COUNTING_THREADS_MINDOCS, DEFAULT_COUNTING_THREADS_MINDOCS);
     if (params.getFieldParam(field, PACKED) != null && params.getFieldParam(field, COUNTER) == null) { // Old key
       counter = params.getFieldBool(field, PACKED, DEFAULT_PACKED) ? COUNTER_IMPL.auto : COUNTER_IMPL.array;
     } else {
@@ -354,6 +364,7 @@ public class SparseKeys {
         ", maxCountsTracked=" + maxCountsTracked +
         ", counter=" + counter +
         ", countingThreads=" + countingThreads +
+        ", countingThreadsMinDocs=" + countingThreadsMinDocs +
         ", packedLimit=" + packedLimit +
         ", poolSize=" + poolSize +
         ", poolMaxCount=" + poolMaxCount +

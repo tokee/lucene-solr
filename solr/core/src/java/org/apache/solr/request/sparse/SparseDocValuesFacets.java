@@ -18,6 +18,7 @@ package org.apache.solr.request.sparse;
  */
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -25,6 +26,7 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -292,10 +294,10 @@ public class SparseDocValuesFacets {
           final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
           if (singleton != null) {
             // some codecs may optimize SORTED_SET storage for single-valued fields
-            accumSingle(sparseKeys, counts, startTermIndex, singleton, disi, subIndex, ordinalMap, executor,
+            accumSingle(sparseKeys, counts, startTermIndex, singleton, disi, dis, subIndex, ordinalMap, executor,
                 leaf.reader().maxDoc());
           } else {
-            accumMulti(sparseKeys, counts, startTermIndex, sub, disi, subIndex, ordinalMap, executor,
+            accumMulti(sparseKeys, counts, startTermIndex, sub, disi, dis, subIndex, ordinalMap, executor,
                             leaf.reader().maxDoc());
           }
         } else {
@@ -303,7 +305,7 @@ public class SparseDocValuesFacets {
           if (sub == null) {
             sub = DocValues.EMPTY_SORTED;
           }
-          accumSingle(sparseKeys, counts, startTermIndex, sub, disi, subIndex, ordinalMap, executor,
+          accumSingle(sparseKeys, counts, startTermIndex, sub, disi, dis, subIndex, ordinalMap, executor,
                           leaf.reader().maxDoc());
         }
       }
@@ -595,32 +597,49 @@ public class SparseDocValuesFacets {
    */
   static void accumSingle(
       SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedDocValues si,
-      DocIdSetIterator disi, int subIndex, OrdinalMap map, ExecutorService executor, int maxLeafDoc)
+      DocIdSetIterator disi, DocIdSet dis, int subIndex, OrdinalMap map, ExecutorService executor, int maxLeafDoc)
       throws IOException {
-//    if (sparseKeys.countingThreads <= 1) {
-      // TODO: Check that maxLeafDoc is valid for ordinals delivered by disi
     try {
-      new SingleAccumulator(counts, startTermIndex, Integer.MAX_VALUE, si, disi, subIndex, map).call();
+      if (sparseKeys.countingThreads <= 1 || maxLeafDoc < sparseKeys.countingThreadsMinDocs) {
+        new SingleAccumulator(counts, startTermIndex, 0, Integer.MAX_VALUE, si, disi, subIndex, map).call();
+        return;
+      }
+      final int chunkSize = maxLeafDoc / sparseKeys.countingThreads;
+      List<Future<SingleAccumulator>> accumulators = new ArrayList<>();
+      for (int i = 0 ; i < sparseKeys.countingThreads ; i++) {
+        accumulators.add(executor.submit(
+            new SingleAccumulator(counts, startTermIndex, chunkSize * i,
+                i == sparseKeys.countingThreads - 1 ? maxLeafDoc : chunkSize * (i+1),
+                si, disi, subIndex, map)));
+        if (i < sparseKeys.countingThreads-1) { // More futures will be created
+          disi = dis.iterator();
+        }
+      }
+      for (Future<SingleAccumulator> accumulator: accumulators) {
+        // TODO: Better output on Exceptions. Maybe timeout?
+        accumulator.get();
+      }
     } catch (Exception e) {
-      throw new IOException("Exception executing single threaded accumSingle", e);
+      throw new IOException("Exception executing accumSingle with " + sparseKeys.countingThreads + " threads", e);
     }
-    // TODO: Sanity check for small sets?
 //    final ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, threads, stats.size()));
   }
   private static class SingleAccumulator implements Callable<SingleAccumulator> {
     final private ValueCounter counts;
-    final private int startTermIndex; // Inclusive
-    final private int endTermIndex;   // Exclusive
+    final private int startTermIndex;
+    final private int startDocID;     // Inclusive
+    final private int endDocID;       // Exclusive
     final private SortedDocValues si;
-    final private  DocIdSetIterator disi;
+    final private DocIdSetIterator disi;
     final private int subIndex;
     final private OrdinalMap map;
 
-    private SingleAccumulator(ValueCounter counts, int startTermIndex, int endTermIndex, SortedDocValues si,
+    private SingleAccumulator(ValueCounter counts, int startTermIndex, int startDocID, int endDocID, SortedDocValues si,
                               DocIdSetIterator disi, int subIndex, OrdinalMap map) {
       this.counts = counts;
       this.startTermIndex = startTermIndex;
-      this.endTermIndex = endTermIndex;
+      this.startDocID = startDocID;
+      this.endDocID = endDocID;
       this.si = si;
       this.disi = disi;
       this.subIndex = subIndex;
@@ -630,7 +649,11 @@ public class SparseDocValuesFacets {
     @Override
     public SingleAccumulator call() throws Exception {
       int doc;
-      while ((doc = disi.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS && doc < endTermIndex) {
+      doc = disi.nextDoc();
+      if (startDocID > 0 && doc != DocIdSetIterator.NO_MORE_DOCS) {
+        doc = disi.advance(startDocID);
+      }
+      while (doc != DocIdSetIterator.NO_MORE_DOCS && doc < endDocID) {
         int term = si.getOrd(doc);
         if (map != null && term >= 0) {
           term = (int) map.getGlobalOrd(subIndex, term);
@@ -639,6 +662,7 @@ public class SparseDocValuesFacets {
         if (arrIdx>=0 && arrIdx<counts.size()) {
           counts.inc(arrIdx);
         }
+        doc = disi.nextDoc();
       }
       return this;
     }
@@ -649,7 +673,7 @@ public class SparseDocValuesFacets {
    */
   static void accumMulti(
       SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedSetDocValues si,
-      DocIdSetIterator disi, int subIndex, OrdinalMap map, ExecutorService executor, int maxLeafDoc)
+      DocIdSetIterator disi, DocIdSet dis, int subIndex, OrdinalMap map, ExecutorService executor, int maxLeafDoc)
       throws IOException {
     int doc;
     while ((doc = disi.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
