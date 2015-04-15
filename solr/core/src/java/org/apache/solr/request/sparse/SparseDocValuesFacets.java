@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.lucene.index.AtomicReaderContext;
@@ -642,6 +643,10 @@ public class SparseDocValuesFacets {
     private final SortedSetDocValues si;
     private final FieldType ft;
     private final CharsRef charsRef;
+    
+    private final Matcher[] whiteMatchers;
+    private final Matcher[] blackMatchers;
+    
     private BytesRef br = new BytesRef(""); // To avoid re-allocation
 
     /**
@@ -662,7 +667,18 @@ public class SparseDocValuesFacets {
        this.si = si;
        this.ft = ft;
        this.charsRef = charsRef;
+       // Instead of generating new matchers all the time, we create them once and re-use them
+       whiteMatchers = generateMatchers(sparseKeys.whitelists);
+       blackMatchers = generateMatchers(sparseKeys.blacklists);
      }
+
+    private Matcher[] generateMatchers(List<Pattern> patterns) {
+      Matcher[] matchers = new Matcher[patterns.size()];
+      for (int i = 0 ; i < patterns.size() ; i++) {
+        matchers[i] = patterns.get(i).matcher("dummy");
+      }
+      return matchers;
+    }
 
     @Override
     public void setOrdered(boolean isOrdered) {
@@ -686,15 +702,17 @@ public class SparseDocValuesFacets {
           long patternStart = System.nanoTime();
           try {
             final String term = resolveTerm(pool, sparseKeys, si, ft, counter-1, charsRef, br);
-            for (Pattern whitelist: sparseKeys.whitelists) {
+            for (Matcher whiteMatcher: whiteMatchers) {
               regexps++;
-              if (!whitelist.matcher(term).matches()) {
+              whiteMatcher.reset(term);
+              if (!whiteMatcher.matches()) {
                 return false;
               }
             }
-            for (Pattern blacklist: sparseKeys.blacklists) {
+            for (Matcher blackMatcher: blackMatchers) {
               regexps++;
-              if (blacklist.matcher(term).matches()) {
+              blackMatcher.reset(term);
+              if (blackMatcher.matches()) {
                 return false;
               }
             }
