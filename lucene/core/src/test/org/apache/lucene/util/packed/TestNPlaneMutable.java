@@ -31,16 +31,17 @@ import java.util.concurrent.TimeUnit;
 @Slow
 public class TestNPlaneMutable extends LuceneTestCase {
   private final static int M = 1048576;
+  private final static int MI = 1000000;
 
   // Once triggered an ArrayIndexOutOfBoundsException, now just runs random updates
   public void testMonkey() {
     final int DIVISOR = 500;
-    final int[] UPDATES = new int[] {M};
+    final int UPDATES = MI;
     final int[] CACHES = new int[] {200};
     final int[] MAX_PLANES = new int[] {4};
     final int[] SPLITS = new int[] {1};
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
-        9, 9/2, 2, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, true);
+        9, 9/2, 2, UPDATES, 10, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, true);
   }
   public void testThreadedStressOpportunistic() {
     final int SIZE = 100;
@@ -108,24 +109,24 @@ public class TestNPlaneMutable extends LuceneTestCase {
 
   public void testMonkeySplits() {
     final int DIVISOR = 50;
-    final int[] UPDATES = new int[] {10*M};
+    final int UPDATES = MI;
     final int[] CACHES = new int[] {200};
     final int[] MAX_PLANES = new int[] {4};
     final int[] SPLITS = new int[] {1, 4};
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
-        9, 9/2, 2, UPDATES, CACHES, MAX_PLANES, 1, SPLITS, true);
+        9, 9/2, 2, UPDATES, 10, CACHES, MAX_PLANES, 1, SPLITS, true);
   }
 
   // Triggers problem with shift implementation
   public void testShiftWrongValues() {
     final double DIVISOR = 1/0.0001;
-    final int[] UPDATES = new int[] {M, M/3};
+    final int UPDATES = MI;
     final int[] CACHES = new int[] {100, 20};
     final int[] MAX_PLANES = new int[] {4, 64};
     final int[] SPLITS = new int[] {1};
 
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
-        9, 9/2, 1, UPDATES, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, true);
+        9, 9/2, 1, UPDATES, 10, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, true);
   }
 
   public void testOverflow() {
