@@ -32,6 +32,7 @@ public class SparseCounterThreaded implements ValueCounter {
   private final Incrementable countsInc; // Wrapper around or same-reference as counts
   private final int[] tracker; // Tracker not PackedInts.Mutable as it should be relatively small
   private final int tracksMax; // The maximum amount of trackers (tracker.length)
+  private final SparseKeys.COUNTER_IMPL counterImpl; // Used for key generation
   private AtomicLong zeroCounter = new AtomicLong(0); // The counter at index 0 is special as it can exceed the maxValue of {@link #counts}
 
   // The current amount of tracker entries. Setting this to 0 works as a tracker clear
@@ -54,8 +55,9 @@ public class SparseCounterThreaded implements ValueCounter {
    *                          if specified, it is highly recommended to set this to 2^n-1, with 7, 255 and 65535
    *                          being the fastest.
    */
-  public SparseCounterThreaded(
-      PackedInts.Mutable counts, long maxCountForAny, int minCountsForSparse, double fraction, long maxCountTracked) {
+  public SparseCounterThreaded(SparseKeys.COUNTER_IMPL counterImpl, PackedInts.Mutable counts, long maxCountForAny,
+                               int minCountsForSparse, double fraction, long maxCountTracked) {
+    this.counterImpl = counterImpl;
     this.counts = counts;
     if (!(counts instanceof Incrementable)) {
       throw new UnsupportedOperationException("The given counter must implement Incrementable but was " + counts);
@@ -83,11 +85,12 @@ public class SparseCounterThreaded implements ValueCounter {
    * Constructs an ID which is unique for the given layout. Used for lookup of cached counters in
    * {@link SparseCounterPool}.
    */
-  // TODO: Add counts type to key
   public static String createStructureKey(
-      int counts, long maxCountForAny, int minCountForSparse, double fraction, long maxCountTracked) {
+      int counts, long maxCountForAny, int minCountForSparse, double fraction, long maxCountTracked,
+      SparseKeys.COUNTER_IMPL counter) {
     return "SparseCounterThreaded(counts" + counts + "maxCountForAny" + maxCountForAny
-        + "minCountsForSparse" + minCountForSparse + "fraction" + fraction + "maxCountTracked" + maxCountTracked + ")";
+        + "minCountsForSparse" + minCountForSparse + "fraction" + fraction + "maxCountTracked" + maxCountTracked
+        + "counter=" + counter +")";
   }
 
   /**
@@ -97,7 +100,7 @@ public class SparseCounterThreaded implements ValueCounter {
   public String getStructureKey() {
     //return SparseCounter.createStructureKey(counts.size(), maxCountForAny, minCountsForSparse, fraction);
     return SparseCounterThreaded.createStructureKey(counts.size(), maxCountForAny,
-        minCountsForSparse, fraction, maxCountTracked);
+        minCountsForSparse, fraction, maxCountTracked, counterImpl);
   }
 
   /**

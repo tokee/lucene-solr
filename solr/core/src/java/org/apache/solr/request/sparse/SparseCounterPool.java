@@ -142,6 +142,8 @@ public class SparseCounterPool {
 
   // Cached terms for fast ordinal lookup
   private BytesRefArray externalTerms = null;
+  // Optionally defined histogram of the number of counters with the given maxBits
+  private long[] histogram = null;
 
   public SparseCounterPool(ThreadPoolExecutor janitorSupervisor, String field, String description,
                            int maxPoolSize, int minEmptyCounters) {
@@ -177,20 +179,22 @@ public class SparseCounterPool {
   /**
    * Delivers a counter ready for updates. The type of counter will be chosen based on uniqueTerms, maxCountForAny and
    * the general Sparse setup from sparseKeys. This is the recommended way to get sparse counters.
+   *
    * @param sparseKeys setup for the Sparse system as well as the specific call.
+   * @param implementation the counter implementation to acquire.
    * @return a counter ready for updates.
    */
-  public ValueCounter acquire(SparseKeys sparseKeys) {
-    if (!initialized) {
-      throw new IllegalStateException("The pool for field '" + field +
-          "' has not been initialized (call setFieldProperties for initialization)");
-    }
+  public ValueCounter acquire(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
+//    if (!initialized) {
+//      throw new IllegalStateException("The pool for field '" + field +
+//          "' has not been initialized (call setFieldProperties for initialization)");
+//    }
     if (maxCountForAny <= 0 && sparseKeys.counter != SparseKeys.COUNTER_IMPL.array) {
       // We have an empty facet. To avoid problems with the packed structure, we set the maxCountForAny to 1
       maxCountForAny = 1;
 //      throw new IllegalStateException("Attempted to request sparse counter with maxCountForAny=" + maxCountForAny);
     }
-    String structureKey = createStructureKey(sparseKeys);
+    String structureKey = createStructureKey(sparseKeys, implementation);
     synchronized (pool) {
       // Did the structure change since last acquire (index updated)?
       if (!structureKey.equals(this.structureKey) && !pool.isEmpty()) {
@@ -201,7 +205,7 @@ public class SparseCounterPool {
 
     ValueCounter vc = getCounter(sparseKeys.cacheToken);
     if (vc == null) { // Got nothing, so we allocate a new one
-      return createCounter(sparseKeys);
+      return createCounter(sparseKeys, implementation);
     }
 
     if (sparseKeys.cacheToken == null) {
@@ -232,32 +236,62 @@ public class SparseCounterPool {
     return vc;
   }
 
-  private String createStructureKey(SparseKeys sparseKeys) {
-    return usePacked(sparseKeys) ?
-        SparseCounterPacked.createStructureKey(
-            uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked) :
-        SparseCounterInt.createStructureKey(uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction);
+  private String createStructureKey(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
+    switch (implementation) {
+      case array:
+        return SparseCounterInt.createStructureKey(
+            uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction);
+      case packed:
+        return sparseKeys.countingThreads == 1 ?
+            SparseCounterPacked.createStructureKey(
+                uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked) :
+            SparseCounterThreaded.createStructureKey(
+                uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked,
+                sparseKeys.counter);
+      case dualplane:
+      case nplane: // TODO: Add split/spank/max etc
+        return SparseCounterThreaded.createStructureKey(
+            uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked,
+            sparseKeys.counter);
+      default: throw new UnsupportedOperationException(
+          "Counter implementation '" + implementation + "' is not supported");
+    }
   }
 
-  private boolean usePacked(SparseKeys sparseKeys) {
+  public boolean usePacked(SparseKeys sparseKeys) {
     // TODO: Add support for the other counters
     return sparseKeys.counter != SparseKeys.COUNTER_IMPL.array &&
         (((maxCountForAny != -1 && PackedInts.bitsRequired(maxCountForAny) <= sparseKeys.packedLimit)) ||
             maxCountForAny > Integer.MAX_VALUE);
   }
 
-  private ValueCounter createCounter(SparseKeys sparseKeys) {
+  private ValueCounter createCounter(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
     final long allocateTime = System.nanoTime();
     ValueCounter vc;
-    if (usePacked(sparseKeys)) {
-      vc = new SparseCounterPacked(
-          uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
-      packedAllocations.incRel(allocateTime);
-    } else {
-      vc = new SparseCounterInt(
-          uniqueValues, maxCountForAny == -1 ? Integer.MAX_VALUE : maxCountForAny, sparseKeys.minTags,
-          sparseKeys.fraction, sparseKeys.maxCountsTracked);
-      intAllocations.incRel(allocateTime);
+    switch (implementation) {
+      case array: {
+        vc = new SparseCounterInt(
+            uniqueValues, maxCountForAny == -1 ? Integer.MAX_VALUE : maxCountForAny, sparseKeys.minTags,
+            sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        intAllocations.incRel(allocateTime);
+        break;
+      }
+      case packed: {
+        if (sparseKeys.countingThreads == 1) {
+          vc = new SparseCounterPacked(
+              uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        } else {
+            throw new UnsupportedOperationException("Threaded sparse counter not supported yet");
+        }
+        packedAllocations.incRel(allocateTime);
+        break;
+      }
+      case dualplane: {
+        throw new UnsupportedOperationException("Dual plane counter not supported yet");
+      }
+      case nplane: throw new UnsupportedOperationException("NPlane counter not supported yet");
+      default: throw new UnsupportedOperationException(
+          "Counter implementation '" + implementation + "' is not supported");
     }
     return vc;
   }
@@ -672,6 +706,14 @@ public class SparseCounterPool {
       }
     }
     return null;
+  }
+
+  public long[] getHistogram() {
+    return histogram;
+  }
+
+  public void setHistogram(long[] histogram) {
+    this.histogram = histogram;
   }
 
   /**

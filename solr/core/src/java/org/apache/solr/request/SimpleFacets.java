@@ -770,7 +770,11 @@ public class SimpleFacets {
       // going to collect counts for.
       //final int[] counts = new int[nTerms];
       // TODO: Figure out maxCountForAny
-      ValueCounter counts = pool.acquire(sparseKeys);
+      // TODO: Add support for threading and other counters
+      ValueCounter counts = pool.acquire(sparseKeys,
+          sparseKeys.counter == SparseKeys.COUNTER_IMPL.array ||
+          (sparseKeys.counter == SparseKeys.COUNTER_IMPL.auto && !pool.usePacked(sparseKeys)) ?
+              SparseKeys.COUNTER_IMPL.array : SparseKeys.COUNTER_IMPL.packed);
       if (!isProbablySparse) {
         counts.disableSparseTracking();
       }

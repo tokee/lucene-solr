@@ -20,6 +20,7 @@ package org.apache.solr.request.sparse;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -42,6 +43,7 @@ import org.apache.lucene.util.BytesRefArray;
 import org.apache.lucene.util.CharsRef;
 import org.apache.lucene.util.Counter;
 import org.apache.lucene.util.UnicodeUtil;
+import org.apache.lucene.util.packed.PackedInts;
 import org.apache.solr.common.params.FacetParams;
 import org.apache.solr.common.util.NamedList;
 import org.apache.solr.common.util.StrUtils;
@@ -146,8 +148,7 @@ public class SparseDocValuesFacets {
     }
 
     // Providers ready. Ensure that the searcher-specific pool is correctly initialized
-    ensurePoolMetaData(sparseKeys, searcher, si, ordinalMap, schemaField, pool);
-    final ValueCounter counts = pool.acquire(sparseKeys);
+    final ValueCounter counts = acquireCounter(sparseKeys, searcher, si, ordinalMap, schemaField, pool);
 
     // Calculate counts for all relevant terms if the counter structure is empty
     // The counter structure is always empty for single-shard searches and first phase of multi-shard searches
@@ -340,24 +341,92 @@ public class SparseDocValuesFacets {
    * Note: This temporarily allocates an int[maxDoc]. Fortunately this happens before standard counter allocation
    * so this should not blow the heap.
    */
-  private static void ensurePoolMetaData(
+  private static ValueCounter acquireCounter(
       SparseKeys sparseKeys, SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
+      SchemaField schemaField, SparseCounterPool pool) throws IOException {
+    if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.array) {
+      return pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.array);
+    }
+    if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.packed) {
+      ensureBasic(searcher, si, globalMap, schemaField, pool);
+      return pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.packed);
+    }
+    if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.auto) {
+      ensureBasic(searcher, si, globalMap, schemaField, pool);
+      return pool.usePacked(sparseKeys) ?
+          pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.packed) :
+          pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.array);
+    }
+    if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.dualplane) {
+      ensureHistogram(searcher, si, globalMap, schemaField, pool);
+      return pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.dualplane);
+    }
+    // TODO: nplane: Attempt to locate existing structures to avoid getting all maxima
+    throw new UnsupportedOperationException("No support yet for the " + sparseKeys.counter + " counter");
+  }
+
+  private static void ensureHistogram(SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
+                                      SchemaField schemaField, SparseCounterPool pool) throws IOException {
+    if (pool.getHistogram() != null) {
+      return;
+    }
+    final int[] globOrdCount = getGlobOrdCount(searcher, si, globalMap, schemaField);
+    ensureHistogram(searcher, si, schemaField, pool, globOrdCount);
+  }
+
+  private static void ensureHistogram(SolrIndexSearcher searcher, SortedSetDocValues si, SchemaField schemaField,
+                                      SparseCounterPool pool, int[] globOrdCount) {
+    if (pool.getHistogram() != null) {
+      return;
+    }
+    final long startTime = System.nanoTime();
+    int maxCount = -1;
+    long refCount = 0;
+    final long[] histogram = new long[64];
+    for (int ordCount : globOrdCount) {
+      histogram[PackedInts.bitsRequired(ordCount)]++;
+      refCount += ordCount;
+      if (ordCount > maxCount) {
+        maxCount = ordCount;
+      }
+    }
+
+    log.info(String.format(Locale.ENGLISH,
+        "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms. Histogram: %s",
+        maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime()-startTime)/1000000,
+        join(histogram)));
+    // +1 as everything is shifted by 1 to use index 0 as special counter
+    if (!pool.isInitialized()) {
+      pool.setFieldProperties((int) (si.getValueCount() + 1), maxCount, searcher.maxDoc(), refCount);
+    }
+    pool.setHistogram(histogram);
+  }
+
+  private static String join(long[] values) {
+    StringBuilder sb = new StringBuilder(values.length*5);
+    for (long value: values) {
+      if (sb.length() != 0) {
+        sb.append(", ");
+      }
+      sb.append(Long.toString(value));
+    }
+    return sb.toString();
+  }
+
+  private static void ensureBasic(
+      SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
       SchemaField schemaField, SparseCounterPool pool) throws IOException {
     if (pool.isInitialized()) {
       return;
     }
     final long startTime = System.nanoTime();
-    if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.array) {
-      return; // Array does not need any special processing
-    }
-
     final int[] globOrdCount = getGlobOrdCount(searcher, si, globalMap, schemaField);
 
     int maxCount = -1;
     long refCount = 0;
     for (int count: globOrdCount) {
       refCount += count;
-      if (count > maxCount) {
+      if (count > maxCount) { // This would be faster if we only needed maxBits (just & all the counts)
         maxCount = count;
       }
     }
@@ -365,7 +434,7 @@ public class SparseDocValuesFacets {
         "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms",
         maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime()-startTime)/1000000));
     // +1 as everything is shifted by 1 to use index 0 as special counter
-    pool.setFieldProperties((int) (si.getValueCount()+1), maxCount, searcher.maxDoc(), refCount);
+    pool.setFieldProperties((int) (si.getValueCount() + 1), maxCount, searcher.maxDoc(), refCount);
   }
 
   /*
