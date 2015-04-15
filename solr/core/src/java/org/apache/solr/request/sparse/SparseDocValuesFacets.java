@@ -89,32 +89,32 @@ public class SparseDocValuesFacets {
 
     final SortedSetDocValues si;  // for term lookups only
     OrdinalMap ordinalMap = null; // for mapping per-segment ords to global ones
-    if (schemaField.multiValued()) {
-      si = searcher.getAtomicReader().getSortedSetDocValues(fieldName);
-      if (si instanceof MultiSortedSetDocValues) {
-        ordinalMap = ((MultiSortedSetDocValues)si).mapping;
+    {
+      if (schemaField.multiValued()) {
+        si = searcher.getAtomicReader().getSortedSetDocValues(fieldName);
+        if (si instanceof MultiSortedSetDocValues) {
+          ordinalMap = ((MultiSortedSetDocValues)si).mapping;
+        }
+      } else {
+        SortedDocValues single = searcher.getAtomicReader().getSortedDocValues(fieldName);
+        si = single == null ? null : DocValues.singleton(single);
+        if (single instanceof MultiSortedDocValues) {
+          ordinalMap = ((MultiSortedDocValues)single).mapping;
+        }
       }
-    } else {
-      SortedDocValues single = searcher.getAtomicReader().getSortedDocValues(fieldName);
-      si = single == null ? null : DocValues.singleton(single);
-      if (single instanceof MultiSortedDocValues) {
-        ordinalMap = ((MultiSortedDocValues)single).mapping;
+      if (si == null) {
+        return finalize(new NamedList<Integer>(), searcher, schemaField, docs, -1, missing);
+      }
+      if (si.getValueCount() >= Integer.MAX_VALUE) {
+        throw new UnsupportedOperationException(
+            "Currently this faceting method is limited to Integer.MAX_VALUE=" + Integer.MAX_VALUE + " unique terms");
       }
     }
-    if (si == null) {
-      return finalize(new NamedList<Integer>(), searcher, schemaField, docs, -1, missing);
-    }
-    if (si.getValueCount() >= Integer.MAX_VALUE) {
-      throw new UnsupportedOperationException(
-          "Currently this faceting method is limited to Integer.MAX_VALUE=" + Integer.MAX_VALUE + " unique terms");
-    }
-
     // Checks whether we can logically skip faceting
     final int hitCount = docs.size();
 
     // Locate start and end-position in the ordinals if a prefix is given
     int startTermIndex, endTermIndex;
-    int missingCount = -1;
     {
       final BytesRef prefixRef;
       if (prefix == null) {
@@ -137,24 +137,22 @@ public class SparseDocValuesFacets {
         startTermIndex=-1;
         endTermIndex=(int) si.getValueCount();
       }
-
-      // Determine if the final result set is likely to be within the sparse constraints
-
     }
+
     final int nTerms=endTermIndex-startTermIndex;
     if (nTerms <= 0 || hitCount < minCount) {
       // Should we count this in statistics? It should be fast and is fairly independent of sparse
-      return finalize(new NamedList<Integer>(), searcher, schemaField, docs, missingCount, missing);
+      return finalize(new NamedList<Integer>(), searcher, schemaField, docs, -1, missing);
     }
 
     // Providers ready. Ensure that the searcher-specific pool is correctly initialized
     ensurePoolMetaData(sparseKeys, searcher, si, ordinalMap, schemaField, pool);
-
     final ValueCounter counts = pool.acquire(sparseKeys);
 
     // Calculate counts for all relevant terms if the counter structure is empty
     // The counter structure is always empty for single-shard searches and first phase of multi-shard searches
-    // Depending on pool cache setup, it might already be full and directly usable in second phase of multi-shard searches
+    // Depending on pool cache setup, it might already be full and directly usable in second phase of
+    // multi-shard searches
     if (counts.getContentKey() == null) {
       if (!pool.isProbablySparse(hitCount, sparseKeys)) {
         // It is guessed that the result set will be to large to be sparse so
@@ -177,12 +175,7 @@ public class SparseDocValuesFacets {
       }
     }
 
-    if (startTermIndex == -1) {
-      missingCount = (int) counts.get(0);
-    }
-
-    // IDEA: we could also maintain a count of "other"... everything that fell outside
-    // of the top 'N'
+    final int missingCount = startTermIndex == -1 ? (int) counts.get(0) : -1;
 
     int off=offset;
     int lim=limit>=0 ? limit : Integer.MAX_VALUE;
@@ -214,20 +207,6 @@ public class SparseDocValuesFacets {
             startTermIndex, nTerms, minCount, counts));
       }
       pool.incExtractTimeRel(sparseExtractTime);
-
-/*        for (int i=(startTermIndex==-1)?1:0; i<nTerms; i++) {
-          int c = counts[i];
-          if (c>min) {
-            // NOTE: we use c>min rather than c>=min as an optimization because we are going in
-            // index order, so we already know that the keys are ordered.  This can be very
-            // important if a lot of the counts are repeated (like zero counts would be).
-
-            // smaller term numbers sort higher, so subtract the term number instead
-            long pair = (((long)c)<<32) + (Integer.MAX_VALUE - i);
-            boolean displaced = queue.insert(pair);
-            if (displaced) min=(int)(queue.top() >>> 32);
-          }
-        }*/
 
       // if we are deep paging, we don't have to order the highest "offset" counts.
       int collectCount = Math.max(0, queue.size() - off);

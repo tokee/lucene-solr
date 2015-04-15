@@ -50,6 +50,17 @@ public class TestNPlaneMutable extends LuceneTestCase {
     final int[] CACHES = new int[] {200};
     final int[] MAX_PLANES = new int[] {4, 4};
     final int[] SPLITS = new int[] {1, 2, 3, 4};
+    final char[] WHITELIST = null;
+    LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
+        9, 9/2, 1, UPDATES, 10, CACHES, MAX_PLANES, 1, SPLITS, true, WHITELIST);
+  }
+
+  public void testMonkeySplitsWhitelist() {
+    final int DIVISOR = 500;
+    final int UPDATES = MI;
+    final int[] CACHES = new int[] {200};
+    final int[] MAX_PLANES = new int[] {4, 4};
+    final int[] SPLITS = new int[] {1, 2, 3, 4};
     final char[] WHITELIST = new char[] {'f', 'g', 'h', 'i', 'l', 'm', 'n', 'o'};
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
         9, 9/2, 1, UPDATES, 10, CACHES, MAX_PLANES, 1, SPLITS, true, WHITELIST);

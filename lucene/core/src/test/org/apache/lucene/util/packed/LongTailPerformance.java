@@ -505,7 +505,7 @@ public class LongTailPerformance {
     final int incrementsPerBlock;
     public final AtomicLong lastAddNS = new AtomicLong(-1);
     public long pingsSinceLastAdd = 0;
-    private final int pingFrequency = 1000;
+    private final int pingFrequency = 10000; // Every ping is synchronized, so don't do this too often
 
     public StatHolder(
         PackedInts.Mutable impl, char id, String designation, int totalUpdatesPerRun, int measurePoints, int splits) {
