@@ -143,6 +143,40 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     }
   }
 
+  public void testDualPlaneFaceting() throws Exception {
+
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, SINGLE_DV_FIELD);
+      params.set(FacetParams.FACET_LIMIT, 5);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.array.toString());
+      params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+      params.set("indent", true);
+      req.setParams(params);
+      assertEquals("Plain sparse faceting should give the expected number of results",
+          5, getEntries(req, "int name..(single_dv_[^\"]*)").size());
+    }
+
+    { // Dual
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, SINGLE_DV_FIELD);
+      params.set(FacetParams.FACET_LIMIT, 5);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.dualplane.toString());
+      params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+      params.set("indent", true);
+      req.setParams(params);
+      assertEquals("Dual plane sparse faceting should give the expected number of results",
+          5, getEntries(req, "int name..(single_dv_[^\"]*)").size());
+    }
+
+  }
+
   public void testBlackAndWhitelistFaceting() throws Exception {
     //dumpStats();
 

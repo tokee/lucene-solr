@@ -43,7 +43,7 @@ import org.apache.lucene.util.RamUsageEstimator;
  *
  */
 // TODO: Add support for bulk get & set
-abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Incrementable {
+public abstract class PackedOpportunistic extends PackedInts.MutableImpl implements Incrementable {
 
   public static final int MAX_SUPPORTED_BITS_PER_VALUE = 32;
 

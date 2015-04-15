@@ -31,6 +31,7 @@ import org.apache.lucene.util.Incrementable;
  * Warning: This representation does not support persistence yet.
  */
 public class DualPlaneMutable extends PackedInts.Mutable implements Incrementable {
+  private static final double DEFAULT_MAXSIZEFRACTION = 100.0; // Effectively disabled
   private final PackedInts.Mutable head;
   private final int headBit;
   private int headPos = 0;
@@ -69,6 +70,9 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
     return mutable;
   }
 
+  public static DualPlaneMutable create(long[] histogram) {
+    return create((int) totalCounters(histogram), histogram, DEFAULT_MAXSIZEFRACTION);
+  }
   public static DualPlaneMutable create(long[] histogram, double maxSizeFraction) {
     return create((int) totalCounters(histogram), histogram, maxSizeFraction);
   }

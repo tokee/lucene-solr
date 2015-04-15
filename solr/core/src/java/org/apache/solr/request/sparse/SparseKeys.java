@@ -132,6 +132,7 @@ public class SparseKeys {
   public static final String CUTOFF = "facet.sparse.cutoff";
   public static double CUTOFF_DEFAULT = 0.90; // 90%
 
+  // TODO: Extended auto with overhead for dual
   /**
    * The implementation used for counting. This has significant performance- and memory-impact.
    * Valid counters are:<br/>

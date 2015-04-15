@@ -26,7 +26,6 @@ import java.util.regex.Pattern;
 
 import org.apache.lucene.index.AtomicReaderContext;
 import org.apache.lucene.index.DocValues;
-import org.apache.lucene.index.MultiDocValues;
 import org.apache.lucene.index.MultiDocValues.MultiSortedDocValues;
 import org.apache.lucene.index.MultiDocValues.MultiSortedSetDocValues;
 import org.apache.lucene.index.MultiDocValues.OrdinalMap;
@@ -147,7 +146,7 @@ public class SparseDocValuesFacets {
       return finalize(new NamedList<Integer>(), searcher, schemaField, docs, -1, missing);
     }
 
-    // Providers ready. Ensure that the searcher-specific pool is correctly initialized
+    // Providers ready. Check that the pool has enough information and construct a counter
     final ValueCounter counts = acquireCounter(sparseKeys, searcher, si, ordinalMap, schemaField, pool);
 
     // Calculate counts for all relevant terms if the counter structure is empty
@@ -345,6 +344,7 @@ public class SparseDocValuesFacets {
       SparseKeys sparseKeys, SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
       SchemaField schemaField, SparseCounterPool pool) throws IOException {
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.array) {
+      ensureBasic(searcher, si, globalMap, schemaField, pool);
       return pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.array);
     }
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.packed) {
@@ -358,15 +358,15 @@ public class SparseDocValuesFacets {
           pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.array);
     }
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.dualplane) {
-      ensureHistogram(searcher, si, globalMap, schemaField, pool);
+      ensureBasicAndHistogram(searcher, si, globalMap, schemaField, pool);
       return pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.dualplane);
     }
     // TODO: nplane: Attempt to locate existing structures to avoid getting all maxima
     throw new UnsupportedOperationException("No support yet for the " + sparseKeys.counter + " counter");
   }
 
-  private static void ensureHistogram(SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
-                                      SchemaField schemaField, SparseCounterPool pool) throws IOException {
+  private static void ensureBasicAndHistogram(SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
+                                              SchemaField schemaField, SparseCounterPool pool) throws IOException {
     if (pool.getHistogram() != null) {
       return;
     }

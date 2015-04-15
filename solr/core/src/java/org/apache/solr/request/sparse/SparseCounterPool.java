@@ -17,7 +17,9 @@
 package org.apache.solr.request.sparse;
 
 import org.apache.lucene.util.BytesRefArray;
+import org.apache.lucene.util.packed.DualPlaneMutable;
 import org.apache.lucene.util.packed.PackedInts;
+import org.apache.lucene.util.packed.PackedOpportunistic;
 import org.apache.solr.common.util.NamedList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -106,6 +108,7 @@ public class SparseCounterPool {
   private final TimeStat backgroundClears = new TimeStat("backgroundClear");
   private final TimeStat packedAllocations = new TimeStat("packedAllocation");
   private final TimeStat intAllocations = new TimeStat("intAllocation");
+  private final TimeStat dualPlaneAllocations = new TimeStat("dualPlaneAllocation");
   private final TimeStat collections = new TimeStat("collect");
   private final TimeStat extractions = new TimeStat("extract");
   private final TimeStat resolvings = new TimeStat("resolve");
@@ -281,13 +284,22 @@ public class SparseCounterPool {
           vc = new SparseCounterPacked(
               uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
         } else {
-            throw new UnsupportedOperationException("Threaded sparse counter not supported yet");
+          PackedInts.Mutable counts = PackedOpportunistic.create(uniqueValues, PackedInts.bitsRequired(maxCountForAny));
+          vc = new SparseCounterThreaded(implementation, counts, maxCountForAny, sparseKeys.minTags,
+              sparseKeys.fraction, sparseKeys.maxCountsTracked);
         }
         packedAllocations.incRel(allocateTime);
         break;
       }
       case dualplane: {
-        throw new UnsupportedOperationException("Dual plane counter not supported yet");
+        if (getHistogram() == null) {
+          throw new IllegalStateException(
+              "Attempted to allocate dualplane counter, but the required histogram did not exist");
+        }
+        PackedInts.Mutable counts = DualPlaneMutable.create(getHistogram());
+        vc = new SparseCounterThreaded(implementation, counts, maxCountForAny, sparseKeys.minTags,
+            sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        break;
       }
       case nplane: throw new UnsupportedOperationException("NPlane counter not supported yet");
       default: throw new UnsupportedOperationException(
@@ -512,7 +524,7 @@ public class SparseCounterPool {
             "%s, %s, %s, " + // collect, extract, resolve
             "%s, %s, " + // disables,  withinCutoff
             "exceededCutoff=%d, SCPool(cached=%d/%d, currentBackgroundClears=%d, %s, " + // emptyReuses
-            "%s, %s, " + // packedAllocations, intAllocations
+            "%s, %s, %s, " + // packedAllocations, intAllocations, dualPlaneAllocations
             "%s, " + // regexpMatches
             "%s, %s, " + // requestClears, backgroundClears
             "cache(hits=%d, misses=%d, %s, %s), " + // filledFrees, emptyFrees
@@ -522,12 +534,20 @@ public class SparseCounterPool {
         collections, extractions, resolvings,
         disables, withinCutoffCount,
         exceededCutoffCount.get() - disables.get(), poolSize, maxPoolSize, pendingClears, emptyReuses,
-        packedAllocations, intAllocations,
+        packedAllocations, intAllocations, dualPlaneAllocations,
         regexpMatches,
         requestClears, backgroundClears,
         cacheHits.get(), cacheMisses.get(), filledFrees, emptyFrees,
         termsListLookup, count(lastTermsListRequest, ','), termLookup, termLookupMissing, lastTermLookup,
         externalTerms == null ? "no" : Integer.toString(externalTerms.size()));
+  }
+
+  public int getUniqueValues() {
+    return uniqueValues;
+  }
+
+  public void setUniqueValues(int uniqueValues) {
+    this.uniqueValues = uniqueValues;
   }
 
   private int count(String str, char c) {
