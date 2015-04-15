@@ -59,7 +59,7 @@ public class LongTailPerformance {
         return;
       }
     }
-    int    RUNS =       toIntArray(getArgs(args, "-r", 9))[0];
+    int    RUNS =       toIntArray(getArgs(args, "-r", 5))[0];
     int    ENTRY =      toIntArray(getArgs(args, "-e", RUNS/2))[0];
     int    THREADS =    toIntArray(getArgs(args, "-t", Integer.MAX_VALUE))[0];
     int[]  SPLITS =     toIntArray(getArgs(args, "-s", 1));
@@ -787,7 +787,7 @@ public class LongTailPerformance {
   private static final String USAGE =
       "LongTailPerformance arguments\n" +
           "-h:    Display usage\n" +
-          "-r x:  Number of runs per test case. Default: 9\n" +
+          "-r x:  Number of runs per test case. Default: 5\n" +
           "-e x:  Which measurement to report, as an index in slowest to fastest run. Default: runs/2\n" +
           "-t x:  Number of Threads used per run for parallel tests. Default: Unlimited\n" +
           "-s x*: Split update space into this number of parts for threaded updating. Default: 1\n" +
