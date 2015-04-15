@@ -238,6 +238,47 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
 
   }
 
+  public void testMultiValueFieldThreadedFaceting() throws Exception {
+
+    String dry;
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, MULTI_DV_FIELD);
+      params.set(FacetParams.FACET_LIMIT, 5);
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.packed.toString());
+      params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+      params.set("indent", true);
+      req.setParams(params);
+      dry = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+      assertEquals("Plain sparse faceting should give the expected number of results",
+          5, getEntries(req, "int name..(multi_[^\"]*)").size());
+    }
+
+    String dualThreaded;
+    { // Threads
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, MULTI_DV_FIELD);
+      params.set(FacetParams.FACET_LIMIT, 5);
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.packed.toString());
+      params.set(SparseKeys.COUNTING_THREADS, 2);
+      params.set(SparseKeys.COUNTING_THREADS_MINDOCS, 2);
+      params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+      params.set("indent", true);
+      req.setParams(params);
+      assertEquals("Multi threaded sparse faceting should give the expected number of results",
+          5, getEntries(req, "int name..(multi_[^\"]*)").size());
+      dualThreaded = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+      assertEquals("The result from multi threaded faceting should match single threaded",
+          dry, dualThreaded);
+    }
+
+  }
+
+
   public void testBlackAndWhitelistFaceting() throws Exception {
     //dumpStats();
 
