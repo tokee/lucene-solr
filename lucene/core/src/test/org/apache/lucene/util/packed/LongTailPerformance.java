@@ -65,7 +65,7 @@ public class LongTailPerformance {
     int[]  SPLITS =     toIntArray(getArgs(args, "-s", 1));
     int    INSTANCES =  toIntArray(getArgs(args, "-i", 1))[0];
     double UPDD =    toDoubleArray(getArgs(args, "-u", 10))[0];
-    int MEASURE_POINTS= toIntArray(getArgs(args, "-p", 50))[0];
+    int MEASURE_POINTS= toIntArray(getArgs(args, "-a", 50))[0];
     int[]  NCACHES =    toIntArray(getArgs(args, "-c", 1000, 500, 200, 100, 50, 20));
     int[]  MAX_PLANES = toIntArray(getArgs(args, "-p", 64));
     long[] HISTOGRAM = toLongArray(getArgs(args, "-m", toString(links20150209).split(", ")));
@@ -793,7 +793,7 @@ public class LongTailPerformance {
           "-s x*: Split update space into this number of parts for threaded updating. Default: 1\n" +
           "-i x:  Duplicate all instances this number of times. Default: 1\n" +
           "-u x:  Number of million updates per run. Default: 10\n" +
-          "-p x:  Measure points (rows in the output). Default: 50\n" +
+          "-a x:  Measure points (rows in the output). Default: 50\n" +
           "-c x*: Cache-setups for N-plane. Default: 1000 500 200 111 50 20\n" +
           "-p x*: Max planes for N-plane. Default: 64\n" +
           "-m x*: Histogram maxima. Default: 425799733 85835129 52695663...\n" +
