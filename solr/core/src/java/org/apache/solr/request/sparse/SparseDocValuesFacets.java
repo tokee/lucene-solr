@@ -109,44 +109,46 @@ public class SparseDocValuesFacets {
           "Currently this faceting method is limited to Integer.MAX_VALUE=" + Integer.MAX_VALUE + " unique terms");
     }
 
-    // Providers ready. Ensure that the searcher-specific pool is correctly initialized
-    ensurePoolMetaData(sparseKeys, searcher, si, ordinalMap, schemaField, pool);
-
+    // Checks whether we can logically skip faceting
+    final int hitCount = docs.size();
 
     // Locate start and end-position in the ordinals if a prefix is given
-    final BytesRef prefixRef;
-    if (prefix == null) {
-      prefixRef = null;
-    } else if (prefix.length()==0) {
-      prefix = null;
-      prefixRef = null;
-    } else {
-      prefixRef = new BytesRef(prefix);
-    }
-
     int startTermIndex, endTermIndex;
-    if (prefix!=null) {
-      startTermIndex = (int) si.lookupTerm(prefixRef);
-      if (startTermIndex<0) startTermIndex=-startTermIndex-1;
-      prefixRef.append(UnicodeUtil.BIG_TERM);
-      endTermIndex = (int) si.lookupTerm(prefixRef);
-      assert endTermIndex < 0;
-      endTermIndex = -endTermIndex-1;
-    } else {
-      startTermIndex=-1;
-      endTermIndex=(int) si.getValueCount();
-    }
-
-    final int hitCount = docs.size();
-    // Determine if the final result set is likely to be within the sparse constraints
-
-    final int nTerms=endTermIndex-startTermIndex;
     int missingCount = -1;
-    final CharsRef charsRef = new CharsRef(10);
+    {
+      final BytesRef prefixRef;
+      if (prefix == null) {
+        prefixRef = null;
+      } else if (prefix.length()==0) {
+        prefix = null;
+        prefixRef = null;
+      } else {
+        prefixRef = new BytesRef(prefix);
+      }
+
+      if (prefix!=null) {
+        startTermIndex = (int) si.lookupTerm(prefixRef);
+        if (startTermIndex<0) startTermIndex=-startTermIndex-1;
+        prefixRef.append(UnicodeUtil.BIG_TERM);
+        endTermIndex = (int) si.lookupTerm(prefixRef);
+        assert endTermIndex < 0;
+        endTermIndex = -endTermIndex-1;
+      } else {
+        startTermIndex=-1;
+        endTermIndex=(int) si.getValueCount();
+      }
+
+      // Determine if the final result set is likely to be within the sparse constraints
+
+    }
+    final int nTerms=endTermIndex-startTermIndex;
     if (nTerms <= 0 || hitCount < minCount) {
       // Should we count this in statistics? It should be fast and is fairly independent of sparse
       return finalize(new NamedList<Integer>(), searcher, schemaField, docs, missingCount, missing);
     }
+
+    // Providers ready. Ensure that the searcher-specific pool is correctly initialized
+    ensurePoolMetaData(sparseKeys, searcher, si, ordinalMap, schemaField, pool);
 
     final ValueCounter counts = pool.acquire(sparseKeys);
 
@@ -187,6 +189,7 @@ public class SparseDocValuesFacets {
 
     final FieldType ft = schemaField.getType();
     final NamedList<Integer> res = new NamedList<Integer>();
+    final CharsRef charsRef = new CharsRef(10);
     if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
       int maxsize = limit>0 ? offset+limit : Integer.MAX_VALUE-1;
       maxsize = Math.min(maxsize, nTerms);
