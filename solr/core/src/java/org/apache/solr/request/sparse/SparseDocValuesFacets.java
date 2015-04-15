@@ -269,6 +269,10 @@ public class SparseDocValuesFacets {
   private static void collectCounts(
       SparseKeys sparseKeys, SolrIndexSearcher searcher, DocSet docs, SchemaField schemaField, OrdinalMap ordinalMap,
       int startTermIndex, ValueCounter counts) throws IOException {
+
+    final ExecutorService executor = sparseKeys.countingThreads <= 1 ? null:
+        Executors.newFixedThreadPool(sparseKeys.countingThreads);
+
     String fieldName = schemaField.getName();
     Filter filter = docs.getTopFilter();
     List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
@@ -288,16 +292,19 @@ public class SparseDocValuesFacets {
           final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
           if (singleton != null) {
             // some codecs may optimize SORTED_SET storage for single-valued fields
-            accumSingle(sparseKeys, counts, startTermIndex, singleton, disi, subIndex, ordinalMap);
+            accumSingle(sparseKeys, counts, startTermIndex, singleton, disi, subIndex, ordinalMap, executor,
+                leaf.reader().maxDoc());
           } else {
-            accumMulti(sparseKeys, counts, startTermIndex, sub, disi, subIndex, ordinalMap);
+            accumMulti(sparseKeys, counts, startTermIndex, sub, disi, subIndex, ordinalMap, executor,
+                            leaf.reader().maxDoc());
           }
         } else {
           SortedDocValues sub = leaf.reader().getSortedDocValues(fieldName);
           if (sub == null) {
             sub = DocValues.EMPTY_SORTED;
           }
-          accumSingle(sparseKeys, counts, startTermIndex, sub, disi, subIndex, ordinalMap);
+          accumSingle(sparseKeys, counts, startTermIndex, sub, disi, subIndex, ordinalMap, executor,
+                          leaf.reader().maxDoc());
         }
       }
     }
@@ -370,41 +377,36 @@ public class SparseDocValuesFacets {
     throw new UnsupportedOperationException("No support yet for the " + sparseKeys.counter + " counter");
   }
 
+  @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
   private static void ensureBasicAndHistogram(SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
                                               SchemaField schemaField, SparseCounterPool pool) throws IOException {
-    if (pool.getHistogram() != null) {
-      return;
-    }
-    final int[] globOrdCount = getGlobOrdCount(searcher, si, globalMap, schemaField);
-    ensureHistogram(searcher, si, schemaField, pool, globOrdCount);
-  }
-
-  private static void ensureHistogram(SolrIndexSearcher searcher, SortedSetDocValues si, SchemaField schemaField,
-                                      SparseCounterPool pool, int[] globOrdCount) {
-    if (pool.getHistogram() != null) {
-      return;
-    }
-    final long startTime = System.nanoTime();
-    int maxCount = -1;
-    long refCount = 0;
-    final long[] histogram = new long[64];
-    for (int ordCount : globOrdCount) {
-      histogram[PackedInts.bitsRequired(ordCount)]++;
-      refCount += ordCount;
-      if (ordCount > maxCount) {
-        maxCount = ordCount;
+    synchronized (pool) {
+      final long startTime = System.nanoTime();
+      if (pool.getHistogram() != null) {
+        return;
       }
-    }
+      final int[] globOrdCount = getGlobOrdCount(searcher, si, globalMap, schemaField);
+      int maxCount = -1;
+      long refCount = 0;
+      final long[] histogram = new long[64];
+      for (int ordCount : globOrdCount) {
+        histogram[PackedInts.bitsRequired(ordCount)]++;
+        refCount += ordCount;
+        if (ordCount > maxCount) {
+          maxCount = ordCount;
+        }
+      }
 
-    log.info(String.format(Locale.ENGLISH,
-        "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms. Histogram: %s",
-        maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime()-startTime)/1000000,
-        join(histogram)));
-    // +1 as everything is shifted by 1 to use index 0 as special counter
-    if (!pool.isInitialized()) {
-      pool.setFieldProperties((int) (si.getValueCount() + 1), maxCount, searcher.maxDoc(), refCount);
+      log.info(String.format(Locale.ENGLISH,
+          "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms. Histogram: %s",
+          maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime() - startTime) / 1000000,
+          join(histogram)));
+      // +1 as everything is shifted by 1 to use index 0 as special counter
+      if (!pool.isInitialized()) {
+        pool.setFieldProperties((int) (si.getValueCount() + 1), maxCount, searcher.maxDoc(), refCount);
+      }
+      pool.setHistogram(histogram);
     }
-    pool.setHistogram(histogram);
   }
 
   private static String join(long[] values) {
@@ -418,28 +420,31 @@ public class SparseDocValuesFacets {
     return sb.toString();
   }
 
+  @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
   private static void ensureBasic(
       SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
       SchemaField schemaField, SparseCounterPool pool) throws IOException {
-    if (pool.isInitialized()) {
-      return;
-    }
-    final long startTime = System.nanoTime();
-    final int[] globOrdCount = getGlobOrdCount(searcher, si, globalMap, schemaField);
-
-    int maxCount = -1;
-    long refCount = 0;
-    for (int count: globOrdCount) {
-      refCount += count;
-      if (count > maxCount) { // This would be faster if we only needed maxBits (just & all the counts)
-        maxCount = count;
+    synchronized (pool) {
+      if (pool.isInitialized()) {
+        return;
       }
+      final long startTime = System.nanoTime();
+      final int[] globOrdCount = getGlobOrdCount(searcher, si, globalMap, schemaField);
+
+      int maxCount = -1;
+      long refCount = 0;
+      for (int count : globOrdCount) {
+        refCount += count;
+        if (count > maxCount) { // This would be faster if we only needed maxBits (just & all the counts)
+          maxCount = count;
+        }
+      }
+      log.info(String.format(
+          "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms",
+          maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime() - startTime) / 1000000));
+      // +1 as everything is shifted by 1 to use index 0 as special counter
+      pool.setFieldProperties((int) (si.getValueCount() + 1), maxCount, searcher.maxDoc(), refCount);
     }
-    log.info(String.format(
-        "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms",
-        maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime()-startTime)/1000000));
-    // +1 as everything is shifted by 1 to use index 0 as special counter
-    pool.setFieldProperties((int) (si.getValueCount() + 1), maxCount, searcher.maxDoc(), refCount);
   }
 
   /*
@@ -564,7 +569,6 @@ public class SparseDocValuesFacets {
         return maxCounts.get(maxDoc);
       }
     }
-    // TODO: Find a way to avoid race condition where the max is calculated more than once
     // TODO: We assume int as max to same space. We should switch to long if maxDoc*valueCount > Integer.MAX_VALUE
     final int[] counters = new int[(int) si.getValueCount()];
     long ord;
@@ -589,15 +593,17 @@ public class SparseDocValuesFacets {
   /*
   Iterate single-value DocValues and update the counters based on delivered ordinals.
    */
-  static void accumSingle(SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedDocValues si,
-                          DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
+  static void accumSingle(
+      SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedDocValues si,
+      DocIdSetIterator disi, int subIndex, OrdinalMap map, ExecutorService executor, int maxLeafDoc)
+      throws IOException {
 //    if (sparseKeys.countingThreads <= 1) {
+      // TODO: Check that maxLeafDoc is valid for ordinals delivered by disi
     try {
       new SingleAccumulator(counts, startTermIndex, Integer.MAX_VALUE, si, disi, subIndex, map).call();
     } catch (Exception e) {
       throw new IOException("Exception executing single threaded accumSingle", e);
     }
-    // TODO: Determine total docs in the disi
     // TODO: Sanity check for small sets?
 //    final ExecutorService executor = Executors.newFixedThreadPool(Math.max(1, threads, stats.size()));
   }
@@ -641,8 +647,10 @@ public class SparseDocValuesFacets {
   /*
   Iterate multi-value DocValues and update the counters based on delivered ordinals.
    */
-  static void accumMulti(SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedSetDocValues si,
-                         DocIdSetIterator disi, int subIndex, OrdinalMap map) throws IOException {
+  static void accumMulti(
+      SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedSetDocValues si,
+      DocIdSetIterator disi, int subIndex, OrdinalMap map, ExecutorService executor, int maxLeafDoc)
+      throws IOException {
     int doc;
     while ((doc = disi.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
       si.setDocument(doc);

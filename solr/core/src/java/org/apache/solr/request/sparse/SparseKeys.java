@@ -188,6 +188,7 @@ public class SparseKeys {
    * Optional. Default is 1.
    */
   // TODO: Consider if these should be taken from a super-pool for the facet or even for the full searcher
+  // TODO: Consider a lower limit for threading (should really be counted as references)
   public static final String COUNTING_THREADS = "facet.counting.threads";
   public static final int DEFAULT_COUNTING_THREADS = 1;
 
