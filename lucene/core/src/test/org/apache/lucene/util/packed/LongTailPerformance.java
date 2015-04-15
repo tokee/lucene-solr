@@ -49,7 +49,7 @@ public class LongTailPerformance {
     final int[] MAX_PLANES = new int[] {1, 2, 3, 4, 64};
     final int[] SPLITS = new int[] {1};
     measurePerformance(
-        pad(10000, 2000, 10, 3, 2, 1), 5, 5/2, 1, UPDATES, 10, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, false);
+        pad(10000, 2000, 10, 3, 2, 1), 5, 5/2, 1, UPDATES, 10, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, false, null);
   }
 
   public static void main(String[] args) {
@@ -79,25 +79,27 @@ public class LongTailPerformance {
         RUNS, ENTRY, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, join(SPLITS), INSTANCES, UPDATES,
         join(NCACHES), join(MAX_PLANES), join(HISTOGRAM), FACTOR));
     measurePerformance(HISTOGRAM, RUNS, ENTRY, INSTANCES, UPDATES, MEASURE_POINTS, NCACHES, MAX_PLANES, THREADS,
-        SPLITS, false);
+        SPLITS, false, null);
   }
 
   static void measurePerformance(
       long[] histogram, int runs, int entry, int instances, int updates, int measurePoints,
-      int[] caches, int[] maxPlanes, int threads, int[] splits, boolean checkEquivalence) {
+      int[] caches, int[] maxPlanes, int threads, int[] splits, boolean checkEquivalence, char[] whitelist) {
     System.out.println("Creating pseudo-random maxima from histogram" + heap());
     final PackedInts.Reader maxima = getMaxima(histogram);
     histogram = getHistogram(maxima); // Re-calc as the maxima generator rounds up to nearest prime
     List<StatHolder> stats = new ArrayList<>();
     System.out.println("Initializing implementations" + heap());
 //    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
+
+    // Create the instances
     char id = 'a';
     for (int d = 0; d < instances; d++) {
       for (int split : splits) { // Counters that support threaded updates (currently only tank)
-        stats.add(new StatHolder(
-            new DummyMutable(maxima.size()), id++,
-            "Dummy(s=" + split + ")",
-            updates, measurePoints, split));
+        if (acceptID(whitelist, id++)) {
+          stats.add(new StatHolder(
+              new DummyMutable(maxima.size()), id, "Dummy(s=" + split + ")", updates, measurePoints, split));
+        }
       }
       for (int mp : maxPlanes) {
         NPlaneMutable.Layout layout = null;
@@ -107,60 +109,68 @@ public class LongTailPerformance {
           // Disabled split as it is always worse than spank
 //          for (NPlaneMutable.IMPL impl : new NPlaneMutable.IMPL[]{NPlaneMutable.IMPL.split, NPlaneMutable.IMPL.shift}) {
           for (NPlaneMutable.IMPL impl : new NPlaneMutable.IMPL[]{NPlaneMutable.IMPL.shift}) {
-            NPlaneMutable nplane = new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), impl);
-            stats.add(new StatHolder(nplane, id++,
-                "N-" + impl + "(#" + nplane.getPlaneCount() + ", 1/" + cache + ")",
-                updates, measurePoints, 1));
+            if (acceptID(whitelist, id++)) {
+              NPlaneMutable nplane = new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), impl);
+              stats.add(new StatHolder(nplane, id,
+                  "N-" + impl + "(#" + nplane.getPlaneCount() + ", 1/" + cache + ")", updates, measurePoints, 1));
+            }
           }
         }
         for (int split : splits) { // Counters that support threaded updates (currently only tank)
-          NPlaneMutable nplane = layout == null ?
-              new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), 0, mp,
-                  NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.tank) :
-              new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), NPlaneMutable.IMPL.tank);
-          stats.add(new StatHolder(nplane, id++,
-              "N-" + NPlaneMutable.IMPL.tank + "(#" + nplane.getPlaneCount() + ", s=" + split + ")",
-              updates, measurePoints, split));
+          if (acceptID(whitelist, id++)) {
+            NPlaneMutable nplane = layout == null ?
+                new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), 0, mp,
+                    NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.tank) :
+                new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), NPlaneMutable.IMPL.tank);
+            stats.add(new StatHolder(nplane, id,
+                "N-" + NPlaneMutable.IMPL.tank + "(#" + nplane.getPlaneCount() + ", s=" + split + ")",
+                updates, measurePoints, split));
+          }
         }
-        {
+        if (acceptID(whitelist, id++)) {
           NPlaneMutable nplane = layout == null ?
               new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), 0, mp,
                   NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.spank) :
               new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), NPlaneMutable.IMPL.spank);
-          stats.add(new StatHolder(nplane, id++,
-              "N-" + NPlaneMutable.IMPL.spank + "(#" + nplane.getPlaneCount() + ")",
-              updates, measurePoints, 1));
+          stats.add(new StatHolder(nplane, id,
+              "N-" + NPlaneMutable.IMPL.spank + "(#" + nplane.getPlaneCount() + ")", updates, measurePoints, 1));
         }
       }
-      stats.add(new StatHolder(
-          DualPlaneMutable.create(histogram, 0.99), id++,
-          "Dual-plane",
-          updates, measurePoints, 1));
-      stats.add(new StatHolder(
-          PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.COMPACT), id++,
-          "PackedInts.COMPACT",
-          updates, measurePoints, 1));
+      if (acceptID(whitelist, id++)) {
+        stats.add(new StatHolder(
+            DualPlaneMutable.create(histogram, 0.99), id,
+            "Dual-plane", updates, measurePoints, 1));
+      }
+      if (acceptID(whitelist, id++)) {
+        stats.add(new StatHolder(
+            PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.COMPACT), id,
+            "PackedInts.COMPACT", updates, measurePoints, 1));
+      }
       for (int split : splits) { // Counters that support threaded updates (currently only tank)
         for (int candidateBPV = maxBit(histogram); candidateBPV < 64 ; candidateBPV++) {
           if (PackedOpportunistic.isSupported(candidateBPV)) {
-            stats.add(new StatHolder(
-                PackedOpportunistic.create(maxima.size(), candidateBPV), id++,
-                "PackedOpport(s=" + split + ")",
-                updates, measurePoints, split));
+            if (acceptID(whitelist, id++)) {
+              stats.add(new StatHolder(
+                  PackedOpportunistic.create(maxima.size(), candidateBPV), id,
+                  "PackedOpport(s=" + split + ")", updates, measurePoints, split));
+            }
             break;
           }
         }
       }
-      stats.add(new StatHolder(
-          PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.FAST), id,
-          "PackedInts.FAST",
-          updates, measurePoints, 1));
+      if (acceptID(whitelist, id++)) {
+        stats.add(new StatHolder(
+            PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.FAST), id,
+            "PackedInts.FAST",
+            updates, measurePoints, 1));
+      }
 /*    stats.add(new StatHolder(
         PackedInts.getMutable(maxima.size(), 31, PackedInts.FASTEST),
         "PackedInts int[]",
         updates
     ));*/
     }
+
     for (StatHolder stat : stats) {
       System.out.print(stat.id + ":" + stat.designation + "  ");
     }
@@ -174,6 +184,18 @@ public class LongTailPerformance {
 
     printHTMLTable(caption, updates, measurePoints, stats);
     printGnuplotData(caption, updates, measurePoints, entry, stats);
+  }
+
+  private static boolean acceptID(char[] whitelist, char id) {
+    if (whitelist == null) {
+      return true;
+    }
+    for (char ok : whitelist) {
+      if (ok == id) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static void printHTMLTable(String caption, int updates, int measurePoints, List<StatHolder> stats) {

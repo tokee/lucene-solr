@@ -41,8 +41,20 @@ public class TestNPlaneMutable extends LuceneTestCase {
     final int[] MAX_PLANES = new int[] {4};
     final int[] SPLITS = new int[] {1};
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
-        9, 9/2, 2, UPDATES, 10, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, true);
+        9, 9/2, 2, UPDATES, 10, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, true, null);
   }
+
+  public void testMonkeySplits() {
+    final int DIVISOR = 500;
+    final int UPDATES = MI;
+    final int[] CACHES = new int[] {200};
+    final int[] MAX_PLANES = new int[] {4, 4};
+    final int[] SPLITS = new int[] {1, 2, 3, 4};
+    final char[] WHITELIST = new char[] {'f', 'g', 'h', 'i', 'l', 'm', 'n', 'o'};
+    LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
+        9, 9/2, 1, UPDATES, 10, CACHES, MAX_PLANES, 1, SPLITS, true, WHITELIST);
+  }
+
   public void testThreadedStressOpportunistic() {
     final int SIZE = 100;
     final int UPDATES = 10*1000000;
@@ -107,16 +119,6 @@ public class TestNPlaneMutable extends LuceneTestCase {
     }
   }
 
-  public void testMonkeySplits() {
-    final int DIVISOR = 50;
-    final int UPDATES = MI;
-    final int[] CACHES = new int[] {200};
-    final int[] MAX_PLANES = new int[] {4};
-    final int[] SPLITS = new int[] {1, 4};
-    LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
-        9, 9/2, 2, UPDATES, 10, CACHES, MAX_PLANES, 1, SPLITS, true);
-  }
-
   // Triggers problem with shift implementation
   public void testShiftWrongValues() {
     final double DIVISOR = 1/0.0001;
@@ -126,7 +128,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
     final int[] SPLITS = new int[] {1};
 
     LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
-        9, 9/2, 1, UPDATES, 10, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, true);
+        9, 9/2, 1, UPDATES, 10, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, true, null);
   }
 
   public void testOverflow() {
