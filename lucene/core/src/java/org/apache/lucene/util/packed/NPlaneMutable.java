@@ -45,7 +45,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 100; // Should probably be a low lower (100 or so)
   public static final int DEFAULT_MAX_PLANES = 64; // No default limit
   public static final double DEFAULT_COLLAPSE_FRACTION = 0.01; // If there's <= 1% counters left, pack them in 1 plane
-  public static final IMPL DEFAULT_IMPLEMENTATION = IMPL.split;
+  public static final IMPL DEFAULT_IMPLEMENTATION = IMPL.spank;
 
   public static enum IMPL {split, spank, tank, shift}
 

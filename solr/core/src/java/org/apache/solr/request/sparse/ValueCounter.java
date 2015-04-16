@@ -27,6 +27,12 @@ import org.apache.solr.util.LongPriorityQueue;
 public interface ValueCounter {
 
   /**
+   * Increment special counter for missing values.
+   */
+  void incMissing();
+  long getMissing();
+
+  /**
    * Increment the given counter with 1.
    * @param counter the index of the counter to increment.
    */

@@ -122,6 +122,7 @@ public class SparseDocValuesFacets {
     final int hitCount = docs.size();
 
     // Locate start and end-position in the ordinals if a prefix is given
+    // TODO: This messes up dualplane & nplane counters
     int startTermIndex, endTermIndex;
     {
       final BytesRef prefixRef;
@@ -142,7 +143,8 @@ public class SparseDocValuesFacets {
         assert endTermIndex < 0;
         endTermIndex = -endTermIndex-1;
       } else {
-        startTermIndex=-1;
+        //startTermIndex=-1;
+        startTermIndex=0; // Changed to explicit missingCount
         endTermIndex=(int) si.getValueCount();
       }
     }
@@ -182,13 +184,14 @@ public class SparseDocValuesFacets {
       }
     }
 
-    final int missingCount = startTermIndex == -1 ? (int) counts.get(0) : -1;
+    //final int missingCount = startTermIndex == -1 ? (int) counts.get(0) : -1;
+    final int missingCount = startTermIndex == -1 ? (int) counts.getMissing() : -1;
 
     int off=offset;
     int lim=limit>=0 ? limit : Integer.MAX_VALUE;
 
     final FieldType ft = schemaField.getType();
-    final NamedList<Integer> res = new NamedList<Integer>();
+    final NamedList<Integer> res = new NamedList<>();
     final CharsRef charsRef = new CharsRef(10);
     if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
       int maxsize = limit>0 ? offset+limit : Integer.MAX_VALUE-1;
@@ -273,9 +276,9 @@ public class SparseDocValuesFacets {
       SparseKeys sparseKeys, SolrIndexSearcher searcher, DocSet docs, SchemaField schemaField, OrdinalMap ordinalMap,
       int startTermIndex, ValueCounter counts) throws IOException {
 
+    // TODO: This must be made persistent as the indirectly used SegmentReader.getSortedSetDocValue uses thread local
     final ExecutorService executor = sparseKeys.countingThreads <= 1 ? null:
         Executors.newFixedThreadPool(sparseKeys.countingThreads);
-
     String fieldName = schemaField.getName();
     Filter filter = docs.getTopFilter();
     List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
@@ -297,8 +300,8 @@ public class SparseDocValuesFacets {
         final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
         if (singleton != null) {
           // some codecs may optimize SORTED_SET storage for single-valued fields
-          accumSingle(sparseKeys, counts, startTermIndex, singleton, disi, dis, subIndex, ordinalMap, executor,
-              leaf.reader().maxDoc());
+          accumSingle(sparseKeys, counts, startTermIndex, leaf, fieldName, singleton, disi, dis, subIndex,
+              ordinalMap, executor, leaf.reader().maxDoc());
         } else {
           accumMulti(sparseKeys, counts, startTermIndex, sub, leaf, fieldName,
               disi, dis, subIndex, ordinalMap, executor, leaf.reader().maxDoc());
@@ -308,8 +311,8 @@ public class SparseDocValuesFacets {
         if (sub == null) {
           sub = DocValues.EMPTY_SORTED;
         }
-        accumSingle(sparseKeys, counts, startTermIndex, sub, disi, dis, subIndex, ordinalMap, executor,
-            leaf.reader().maxDoc());
+        accumSingle(sparseKeys, counts, startTermIndex, leaf, fieldName, sub, disi, dis, subIndex, ordinalMap,
+            executor, leaf.reader().maxDoc());
       }
     }
   }
@@ -328,6 +331,7 @@ public class SparseDocValuesFacets {
    */
   private static String resolveTerm(SparseCounterPool pool, SparseKeys sparseKeys, SortedSetDocValues si,
                                     FieldType ft, int ordinal, CharsRef charsRef, BytesRef br) {
+    // TODO: Check that the cache spans segments instead of just handling one
     if (sparseKeys.termLookupMaxCache > 0 && sparseKeys.termLookupMaxCache >= si.getValueCount()) {
       BytesRefArray brf = pool.getExternalTerms();
       if (brf == null) {
@@ -635,9 +639,9 @@ public class SparseDocValuesFacets {
   Iterate single-value DocValues and update the counters based on delivered ordinals.
    */
   static void accumSingle(
-      SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedDocValues si,
-      DocIdSetIterator disi, DocIdSet dis, int subIndex, OrdinalMap map, ExecutorService executor, int maxLeafDoc)
-      throws IOException {
+      SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, AtomicReaderContext leaf, String fieldName,
+      SortedDocValues si, DocIdSetIterator disi, DocIdSet dis, int subIndex, OrdinalMap map, ExecutorService executor,
+      int maxLeafDoc) throws IOException {
     try {
       if (sparseKeys.countingThreads <= 1 || maxLeafDoc < sparseKeys.countingThreadsMinDocs) {
         new Accumulator(counts, startTermIndex, 0, Integer.MAX_VALUE, si, disi, subIndex, map).call();
@@ -648,9 +652,15 @@ public class SparseDocValuesFacets {
       for (int i = 0 ; i < sparseKeys.countingThreads ; i++) {
         accumulators.add(executor.submit(
             new Accumulator(counts, startTermIndex, chunkSize * i,
-                i == sparseKeys.countingThreads - 1 ? maxLeafDoc : chunkSize * (i+1),
+                i == sparseKeys.countingThreads - 1 ? Integer.MAX_VALUE : chunkSize * (i+1),
                 si, disi, subIndex, map)));
-        if (i < sparseKeys.countingThreads-1) { // More futures will be created
+        if (i < sparseKeys.countingThreads-1) { // More futures will be created and these are not thread safe
+          si = leaf.reader().getSortedDocValues(fieldName);
+          if (si == null) {
+            si = DocValues.EMPTY_SORTED;
+          }
+          // TODO: Investigate the singleton issue (multi-value which only contains a single value?)
+          //final SortedDocValues singleton = DocValues.unwrapSingleton(si);
           disi = dis.iterator();
         }
       }
@@ -734,9 +744,9 @@ public class SparseDocValuesFacets {
 
     private void single(int doc) {
       int term = si.getOrd(doc);
-      if (map != null && term >= 0) {
-        term = (int) map.getGlobalOrd(subIndex, term);
-      }
+        if (map != null && term >= 0) {
+          term = (int) map.getGlobalOrd(subIndex, term);
+        }
       int arrIdx = term-startTermIndex;
       if (arrIdx>=0 && arrIdx<counts.size()) {
         counts.inc(arrIdx);
@@ -748,9 +758,10 @@ public class SparseDocValuesFacets {
       // strange do-while to collect the missing count (first ord is NO_MORE_ORDS)
       int term = (int) ssi.nextOrd();
       if (term < 0) {
-        if (startTermIndex == -1) {
+        counts.incMissing();
+        /*if (startTermIndex == -1) {
           counts.inc(0); // missing count
-        }
+        } */
         return;
       }
 
@@ -784,11 +795,9 @@ public class SparseDocValuesFacets {
       final int chunkSize = maxLeafDoc / sparseKeys.countingThreads;
       List<Future<Accumulator>> accumulators = new ArrayList<>();
       for (int i = 0 ; i < sparseKeys.countingThreads ; i++) {
-        System.out.println("*** max=" + maxLeafDoc + ", start=" + (chunkSize * i) + ", end=" +
-            (i == sparseKeys.countingThreads - 1 ? maxLeafDoc : chunkSize * (i+1)));
         accumulators.add(executor.submit(
             new Accumulator(counts, startTermIndex, chunkSize * i,
-                i == sparseKeys.countingThreads - 1 ? maxLeafDoc : chunkSize * (i+1),
+                i == sparseKeys.countingThreads - 1 ? Integer.MAX_VALUE : chunkSize * (i+1),
                 ssi, disi, subIndex, map, leaf, fieldName)));
         if (i < sparseKeys.countingThreads-1) { // More futures will be created
           disi = dis.iterator();
@@ -879,7 +888,8 @@ public class SparseDocValuesFacets {
         if (queue.size() < queueMaxSize || pair > queue.top()) { // Add to queue
           long patternStart = System.nanoTime();
           try {
-            final String term = resolveTerm(pool, sparseKeys, si, ft, counter-1, charsRef, br);
+            //final String term = resolveTerm(pool, sparseKeys, si, ft, counter-1, charsRef, br);
+            final String term = resolveTerm(pool, sparseKeys, si, ft, counter, charsRef, br);
             for (Matcher whiteMatcher: whiteMatchers) {
               regexps++;
               whiteMatcher.reset(term);

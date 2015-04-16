@@ -38,6 +38,7 @@ public class SparseCounterThreaded implements ValueCounter {
 
   // The current amount of tracker entries. Setting this to 0 works as a tracker clear
   private AtomicInteger tracksPos = new AtomicInteger(0);
+  private AtomicLong missing = new AtomicLong(0);
 
   private final long maxCountForAny;    // The maximum count that it is possible to reach. Intended to PackedInts
   private final int minCountsForSparse; // The minimum amount of unique tags in order to perform sparse tracking at all
@@ -177,6 +178,16 @@ public class SparseCounterThreaded implements ValueCounter {
   }
 
   @Override
+  public void incMissing() {
+    missing.incrementAndGet();
+  }
+
+  @Override
+  public long getMissing() {
+    return missing.get();
+  }
+
+  @Override
   public boolean hasThreadSafeInc() {
     return false;
   }
@@ -223,6 +234,7 @@ public class SparseCounterThreaded implements ValueCounter {
     explicitlyDisabled = false;
     tracksPos.set(0);
     zeroCounter.set(0);
+    missing.set(0);
     setContentKey(null);
   }
 

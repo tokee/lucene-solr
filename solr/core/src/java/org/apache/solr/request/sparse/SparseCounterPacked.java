@@ -35,6 +35,7 @@ public class SparseCounterPacked implements ValueCounter {
   private long zeroCounter = 0; // The counter at index 0 is special as it can exceed the maxValue of {@link #counts}
 
   private int tracksPos;       // The current amount of tracker entries. Setting this to 0 works as a tracker clear
+  private int missing = 0;
 
   private final long maxCountForAny;    // The maximum count that it is possible to reach. Intended to PackedInts
   private final int minCountsForSparse; // The minimum amount of unique tags in order to perform sparse tracking at all
@@ -122,6 +123,8 @@ public class SparseCounterPacked implements ValueCounter {
     }
   }
 
+
+
   @Override
   public boolean hasThreadSafeInc() {
     return false;
@@ -155,6 +158,16 @@ public class SparseCounterPacked implements ValueCounter {
         tracker[tracksPos++] = counter;
       }
     }
+  }
+
+  @Override
+  public void incMissing() {
+    missing++;
+  }
+
+  @Override
+  public long getMissing() {
+    return missing;
   }
 
   @Override
@@ -195,6 +208,7 @@ public class SparseCounterPacked implements ValueCounter {
     explicitlyDisabled = false;
     tracksPos = 0;
     zeroCounter = 0;
+    missing = 0;
     setContentKey(null);
   }
 
