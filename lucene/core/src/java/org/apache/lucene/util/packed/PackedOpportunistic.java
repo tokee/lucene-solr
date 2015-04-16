@@ -208,7 +208,9 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
     return reader;
   }
 
+  // Lenient with the bitsPerValue
   public static PackedOpportunistic create(int valueCount, int bitsPerValue) {
+    bitsPerValue = nextValid(bitsPerValue);
     switch (bitsPerValue) {
       case 1:
         return new PackedOpportunistic1(valueCount);
@@ -239,8 +241,22 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
       case 32:
         return new PackedOpportunistic32(valueCount);
       default:
-        throw new IllegalArgumentException("Unsupported number of bits per value: " + 32);
+        throw new IllegalArgumentException("Unsupported number of bits per value: " + bitsPerValue);
     }
+  }
+
+  /**
+   * Attempt to find the nearest BPV that is acceptable by PackedOpportunistic.
+   * @param bitsPerValue the least amount of bits per value acceptable.
+   * @return a valid amount of bits per value or the input is none could be found.
+   */
+  public static int nextValid(int bitsPerValue) {
+    for (int bpv = bitsPerValue ; bpv <= 32 ; bpv++) {
+      if (isSupported(bpv)) {
+        return bpv;
+      }
+    }
+    return bitsPerValue;
   }
 
   static class PackedOpportunistic1 extends PackedOpportunistic {
