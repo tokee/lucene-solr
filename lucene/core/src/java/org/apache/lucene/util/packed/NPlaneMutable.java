@@ -91,6 +91,10 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     this(maxima, DEFAULT_OVERFLOW_BUCKET_SIZE);
   }
 
+  private NPlaneMutable(Plane[] planes) {
+    this.planes = planes;
+  }
+
   public NPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize) {
     this(new BPVPackedWrapper(maxima, false), overflowBucketSize,
         DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, DEFAULT_IMPLEMENTATION);
@@ -105,6 +109,17 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       planes[i] = layout.get(i).createPlane(implementation);
     }
     populateStaticStructures(maxima);
+  }
+
+  /**
+   * @return a NPlane with independent counters but shared overflow layout structure.
+   */
+  public NPlaneMutable createSibling() {
+    Plane[] newPlanes = new Plane [planes.length];
+    for (int i = 0 ; i < planes.length ; i++) {
+      newPlanes[i] = planes[i].createSibling();
+    }
+    return new NPlaneMutable(newPlanes);
   }
 
   /**
@@ -504,10 +519,47 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     public String toString() {
       return "Plane(#values=" + valueCount + ", bpv=" + bpv + ", maxBit=" + maxBit + ", overflow=" + hasOverflow + ")";
     }
+
+    /**
+     * Creates a new Plane that shares overflow structures with the current Plane.
+     * Used to get multiple counters with the same maxima.
+     * The counter bits for the constructed Plane will be empty.
+     * @return a Plane sharing components with this Plane, but with independent counter values.
+     */
+    public abstract Plane createSibling();
+
+    protected PackedInts.Mutable newFromTemplate(PackedInts.Mutable original) {
+      if (original instanceof Packed64) {
+        return new Packed64(original.size(), original.getBitsPerValue());
+      }
+      if (original instanceof Packed64SingleBlock) {
+        return Packed64SingleBlock.create(original.size(), original.getBitsPerValue());
+      }
+      if (original instanceof Packed8ThreeBlocks) {
+        return new Packed8ThreeBlocks(original.size());
+      }
+      if (original instanceof Packed16ThreeBlocks) {
+        return new Packed16ThreeBlocks(original.size());
+      }
+      if (original instanceof Direct8) {
+        return new Direct8(original.size());
+      }
+      if (original instanceof Direct16) {
+        return new Direct16(original.size());
+      }
+      if (original instanceof Direct32) {
+        return new Direct32(original.size());
+      }
+      if (original instanceof PackedOpportunistic) {
+        return PackedOpportunistic.create(original.size(), original.getBitsPerValue());
+      }
+      throw new UnsupportedOperationException(
+          "The PackedInts.Mutable " + original.getClass().getSimpleName() + " is not supported");
+    }
   }
 
   private static class SplitPlane extends Plane {
-    private final PackedInts.Mutable values;
+    private final PackedInts.Mutable values;     // TODO: Make an incrementable version
     private final OpenBitSet overflows;
     private final PackedInts.Mutable overflowCache; // [count(cacheChunkSize)]
     private final int overflowBucketSize;
@@ -519,6 +571,21 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       this.overflowBucketSize = overflowBucketSize;
       overflowCache = PackedInts.getMutable( // TODO: Spare the +1
           valueCount / overflowBucketSize + 1, PackedInts.bitsRequired(valueCount), PackedInts.COMPACT);
+    }
+
+    private SplitPlane(int valueCount, int bpv, int maxBit, boolean hasOverflow, PackedInts.Mutable values,
+                       OpenBitSet overflows, PackedInts.Mutable overflowCache, int overflowBucketSize) {
+      super(valueCount, bpv, maxBit, hasOverflow);
+      this.values = values;
+      this.overflows = overflows;
+      this.overflowCache = overflowCache;
+      this.overflowBucketSize = overflowBucketSize;
+    }
+
+    @Override
+    public Plane createSibling() {
+      return new SplitPlane(
+          valueCount, bpv, maxBit, hasOverflow, newFromTemplate(values), overflows, overflowCache, overflowBucketSize);
     }
 
     @Override
@@ -627,6 +694,18 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       overflows = new RankBitSet(hasOverflow ? valueCount : 0);
     }
 
+    private SplitRankPlane(PackedInts.Mutable values, RankBitSet overflows, int maxBit, boolean hasOverflow, int bpv) {
+      super(values.size(), bpv, maxBit, hasOverflow);
+      this.values = values;
+      incValues = values instanceof Incrementable ? (Incrementable)values : new IncrementableMutable(values);
+      this.overflows = overflows;
+    }
+
+    @Override
+    public Plane createSibling() {
+      return new SplitRankPlane(values, overflows, maxBit, hasOverflow, bpv);
+    }
+
     private PackedInts.Mutable getPacked(int valueCount, int bpv, boolean threadGuarded) {
       if (!threadGuarded) {
         return PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
@@ -722,6 +801,27 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       overflowCache = PackedInts.getMutable( // TODO: Spare the +1
           valueCount / overflowBucketSize + 1, PackedInts.bitsRequired(valueCount), PackedInts.COMPACT);
       VALUE_BITS_MASK = ~(~1L << (bpv-1));
+    }
+
+    private ShiftPlane(PackedInts.Mutable values, PackedInts.Mutable overflowCache, boolean hasOverflow,
+                      int overflowBucketSize, int maxBit, int bpv) {
+      super(values.size(), bpv, maxBit, hasOverflow);
+      this.values = values;
+      this.overflowCache = overflowCache;
+      this.overflowBucketSize = overflowBucketSize;
+      VALUE_BITS_MASK = ~(~1L << (bpv-1));
+    }
+
+    // In reality this shares only the overflowCache with siblings, not the overflow bits
+    @Override
+    public Plane createSibling() {
+      PackedInts.Mutable emptyValues = newFromTemplate(values);
+      if (hasOverflow) { // Copy the overflow bits
+        for (int i = 0 ; i < valueCount ; i++) {
+          emptyValues.set(i, values.get(i) & 0x1);
+        }
+      }
+      return new ShiftPlane(emptyValues, overflowCache, false, overflowBucketSize, maxBit, bpv);
     }
 
     @Override
