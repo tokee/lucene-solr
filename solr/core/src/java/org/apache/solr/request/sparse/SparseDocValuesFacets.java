@@ -754,6 +754,7 @@ public class SparseDocValuesFacets {
     }
 
     private void multi(int doc) {
+      // FIXME: Encapsulating this as synchronized makes the SparseFacetTest.testMultiThreadedNPlaneMultiValueTest pass
       ssi.setDocument(doc);
       // strange do-while to collect the missing count (first ord is NO_MORE_ORDS)
       int term = (int) ssi.nextOrd();
@@ -773,7 +774,6 @@ public class SparseDocValuesFacets {
         if (arrIdx>=0 && arrIdx<counts.size()) counts.inc(arrIdx);
       } while ((term = (int) ssi.nextOrd()) >= 0);
     }
-
   }
 
   /*
