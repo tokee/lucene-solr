@@ -32,6 +32,7 @@ import java.util.regex.Pattern;
 
 import org.apache.lucene.index.AtomicReaderContext;
 import org.apache.lucene.index.DocValues;
+import org.apache.lucene.index.MultiDocValues;
 import org.apache.lucene.index.MultiDocValues.MultiSortedDocValues;
 import org.apache.lucene.index.MultiDocValues.MultiSortedSetDocValues;
 import org.apache.lucene.index.MultiDocValues.OrdinalMap;
@@ -276,7 +277,7 @@ public class SparseDocValuesFacets {
       SparseKeys sparseKeys, SolrIndexSearcher searcher, DocSet docs, SchemaField schemaField, OrdinalMap ordinalMap,
       int startTermIndex, ValueCounter counts) throws IOException {
 
-    // TODO: This must be made persistent as the indirectly used SegmentReader.getSortedSetDocValue uses thread local
+    // TODO: The executor must be made persistent as SegmentReader.getSortedSetDocValue uses thread local
     final ExecutorService executor = sparseKeys.countingThreads <= 1 ? null:
         Executors.newFixedThreadPool(sparseKeys.countingThreads);
     String fieldName = schemaField.getName();
@@ -284,13 +285,72 @@ public class SparseDocValuesFacets {
     List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
     for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
       AtomicReaderContext leaf = leaves.get(subIndex);
+      if (sparseKeys.countingThreads <= 1 || leaf.reader().maxDoc() < sparseKeys.countingThreadsMinDocs ||
+          executor == null) {
+        try {
+          new Accumulator2(leaf, 0, Integer.MAX_VALUE, sparseKeys, schemaField, ordinalMap, startTermIndex, counts,
+              fieldName, filter, subIndex).call();
+        } catch (Exception e) {
+          throw new IOException("Exception calling " + Accumulator2.class.getSimpleName() + " within currentThread", e);
+        }
+      } else { // Multi threaded counting
+        int blockSize = Math.max(1, leaf.reader().maxDoc());
+        List<Accumulator2> accumulators = new ArrayList<>();
+        for (int i = 0 ; i < sparseKeys.countingThreads ; i++) {
+          accumulators.add(new Accumulator2(
+              leaf, i*blockSize, i < sparseKeys.countingThreads-1 ? (i+1)*blockSize : Integer.MAX_VALUE,
+              sparseKeys, schemaField, ordinalMap, startTermIndex, counts, fieldName, filter, subIndex));
+        }
+        try {
+          executor.invokeAll(accumulators);
+        } catch (InterruptedException e) {
+          throw new IOException("Exception calling " + Accumulator2.class.getSimpleName() + " within "
+              + sparseKeys.countingThreads + " threads", e);
+        }
+
+      }
+
+    }
+  }
+
+  private static class Accumulator2 implements Callable<Accumulator2> {
+    private final AtomicReaderContext leaf;
+    private final int startDocID;
+    private final int endDocID;
+    private final SparseKeys sparseKeys;
+    private final SchemaField schemaField;
+    private final OrdinalMap ordinalMap;
+    private final int startTermIndex;
+    private final ValueCounter counts;
+    private final String fieldName;
+    private final Filter filter;
+    private final int subIndex;
+
+    public Accumulator2(
+        AtomicReaderContext leaf, int startDocID, int endDocID, SparseKeys sparseKeys, SchemaField schemaField,
+        OrdinalMap ordinalMap, int startTermIndex, ValueCounter counts, String fieldName, Filter filter, int subIndex) {
+      this.leaf = leaf;
+      this.startDocID = startDocID;
+      this.endDocID = endDocID;
+      this.sparseKeys = sparseKeys;
+      this.schemaField = schemaField;
+      this.ordinalMap = ordinalMap;
+      this.startTermIndex = startTermIndex;
+      this.counts = counts;
+      this.fieldName = fieldName;
+      this.filter = filter;
+      this.subIndex = subIndex;
+    }
+
+    @Override
+    public Accumulator2 call() throws Exception {
       DocIdSet dis = filter.getDocIdSet(leaf, null); // solr docsets already exclude any deleted docs
       DocIdSetIterator disi = null;
       if (dis != null) {
         disi = dis.iterator();
       }
       if (disi == null) {
-        continue;
+        return this;
       }
       if (schemaField.multiValued()) {
         SortedSetDocValues sub = leaf.reader().getSortedSetDocValues(fieldName);
@@ -300,20 +360,19 @@ public class SparseDocValuesFacets {
         final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
         if (singleton != null) {
           // some codecs may optimize SORTED_SET storage for single-valued fields
-          accumSingle(sparseKeys, counts, startTermIndex, leaf, fieldName, singleton, disi, dis, subIndex,
-              ordinalMap, executor, leaf.reader().maxDoc());
+          // FIXME: Make a proper thread safe version here
+          accumSingle(counts, startTermIndex, singleton, disi, startDocID, endDocID, subIndex, ordinalMap);
         } else {
-          accumMulti(sparseKeys, counts, startTermIndex, sub, leaf, fieldName,
-              disi, dis, subIndex, ordinalMap, executor, leaf.reader().maxDoc());
+          accumMulti(counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, ordinalMap);
         }
       } else {
         SortedDocValues sub = leaf.reader().getSortedDocValues(fieldName);
         if (sub == null) {
           sub = DocValues.EMPTY_SORTED;
         }
-        accumSingle(sparseKeys, counts, startTermIndex, leaf, fieldName, sub, disi, dis, subIndex, ordinalMap,
-            executor, leaf.reader().maxDoc());
+        accumSingle(counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, ordinalMap);
       }
+      return this;
     }
   }
 
@@ -522,8 +581,8 @@ public class SparseDocValuesFacets {
         } else {
           for (int docID = 0 ; docID < leaf.reader().maxDoc() ; docID++) {
             if (live == null || live.get(docID)) {
-            sub.setDocument(docID);
-            // strange do-while to collect the missing count (first ord is NO_MORE_ORDS)
+              sub.setDocument(docID);
+              // strange do-while to collect the missing count (first ord is NO_MORE_ORDS)
               int ord = (int) sub.nextOrd();
               if (ord < 0) {
                 continue;
@@ -638,124 +697,42 @@ public class SparseDocValuesFacets {
   /*
   Iterate single-value DocValues and update the counters based on delivered ordinals.
    */
-  static void accumSingle(
-      SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, AtomicReaderContext leaf, String fieldName,
-      SortedDocValues si, DocIdSetIterator disi, DocIdSet dis, int subIndex, OrdinalMap map, ExecutorService executor,
-      int maxLeafDoc) throws IOException {
-    try {
-      if (sparseKeys.countingThreads <= 1 || maxLeafDoc < sparseKeys.countingThreadsMinDocs) {
-        new Accumulator(counts, startTermIndex, 0, Integer.MAX_VALUE, si, disi, subIndex, map).call();
-        return;
-      }
-      final int chunkSize = maxLeafDoc / sparseKeys.countingThreads;
-      List<Future<Accumulator>> accumulators = new ArrayList<>();
-      for (int i = 0 ; i < sparseKeys.countingThreads ; i++) {
-        accumulators.add(executor.submit(
-            new Accumulator(counts, startTermIndex, chunkSize * i,
-                i == sparseKeys.countingThreads - 1 ? Integer.MAX_VALUE : chunkSize * (i+1),
-                si, disi, subIndex, map)));
-        if (i < sparseKeys.countingThreads-1) { // More futures will be created and these are not thread safe
-          si = leaf.reader().getSortedDocValues(fieldName);
-          if (si == null) {
-            si = DocValues.EMPTY_SORTED;
-          }
-          // TODO: Investigate the singleton issue (multi-value which only contains a single value?)
-          //final SortedDocValues singleton = DocValues.unwrapSingleton(si);
-          disi = dis.iterator();
-        }
-      }
-      for (Future<Accumulator> accumulator: accumulators) {
-        // TODO: Better output on Exceptions. Maybe timeout?
-        accumulator.get();
-      }
-    } catch (Exception e) {
-      throw new IOException("Exception executing accumSingle with " + sparseKeys.countingThreads + " threads", e);
+  private static void accumSingle(ValueCounter counts, int startTermIndex, SortedDocValues si, DocIdSetIterator disi,
+                                  int startDocID, int endDocID, int subIndex, OrdinalMap map) throws IOException {
+    int doc = disi.nextDoc();
+    if (startDocID > 0 && doc != DocIdSetIterator.NO_MORE_DOCS) {
+      doc = disi.advance(startDocID);
     }
-  }
-  private static class Accumulator implements Callable<Accumulator> {
-    final private ValueCounter counts;
-    final private int startTermIndex;
-    final private int startDocID;     // Inclusive
-    final private int endDocID;       // Exclusive
-    final private SortedDocValues si;
-    private SortedSetDocValues ssi;
-    final private DocIdSetIterator disi;
-    final private int subIndex;
-    final private OrdinalMap map;
-    final private AtomicReaderContext leaf;
-    final private String field;
-    private final boolean singleValue;
-
-    // Single-value
-    private Accumulator(ValueCounter counts, int startTermIndex, int startDocID, int endDocID,
-                        SortedDocValues si, DocIdSetIterator disi, int subIndex, OrdinalMap map) {
-      this(counts, startTermIndex, startDocID, endDocID, si, disi, null, subIndex, map, null, null, true);
-    }
-
-    // Multi-value
-    private Accumulator(ValueCounter counts, int startTermIndex, int startDocID, int endDocID,
-                        SortedSetDocValues ssi, DocIdSetIterator disi, int subIndex, OrdinalMap map,
-                        AtomicReaderContext leaf, String field) {
-      this(counts, startTermIndex, startDocID, endDocID, null, disi, ssi, subIndex, map, leaf, field, false);
-    }
-
-    private Accumulator(ValueCounter counts, int startTermIndex, int startDocID, int endDocID,
-                        SortedDocValues si, DocIdSetIterator disi, SortedSetDocValues ssi,
-                        int subIndex, OrdinalMap map, AtomicReaderContext leaf, String field, boolean singleValue) {
-      this.counts = counts;
-      this.startTermIndex = startTermIndex;
-      this.startDocID = startDocID;
-      this.endDocID = endDocID;
-      this.si = si;
-      this.ssi = ssi;
-      this.disi = disi;
-      this.subIndex = subIndex;
-      this.map = map;
-      this.leaf = leaf;
-      this.field = field;
-      this.singleValue = singleValue;
-    }
-
-    @Override
-    public Accumulator call() throws Exception {
-      if (!singleValue && ssi == null) {
-        // ThreadLocal-instances so they must be created in the thread
-        ssi = leaf.reader().getSortedSetDocValues(field);
-        if (ssi == null) {
-          ssi = DocValues.EMPTY_SORTED_SET;
-        }
-      }
-
-      int doc;
-      doc = disi.nextDoc();
-      if (startDocID > 0 && doc != DocIdSetIterator.NO_MORE_DOCS) {
-        doc = disi.advance(startDocID);
-      }
-      while (doc != DocIdSetIterator.NO_MORE_DOCS && doc < endDocID) {
-        if (singleValue) {
-          single(doc);
-        } else {
-          multi(doc);
-        }
-        doc = disi.nextDoc();
-      }
-      return this;
-    }
-
-    private void single(int doc) {
+    while (doc != DocIdSetIterator.NO_MORE_DOCS && doc < endDocID) {
       int term = si.getOrd(doc);
-        if (map != null && term >= 0) {
-          term = (int) map.getGlobalOrd(subIndex, term);
-        }
+      if (map != null && term >= 0) {
+        term = (int) map.getGlobalOrd(subIndex, term);
+      }
       int arrIdx = term-startTermIndex;
       if (arrIdx>=0 && arrIdx<counts.size()) {
         counts.inc(arrIdx);
       }
+      doc = disi.nextDoc();
     }
+  }
 
-    private void multi(int doc) {
-      // FIXME: Encapsulating this as synchronized makes the SparseFacetTest.testMultiThreadedNPlaneMultiValueTest pass
+  /*
+  Iterate multi-value DocValues and update the counters based on delivered ordinals.
+   */
+  private static void accumMulti(ValueCounter counts, int startTermIndex, SortedSetDocValues ssi, DocIdSetIterator disi,
+                                 int startDocID, int endDocID, int subIndex, OrdinalMap map) throws IOException {
+    if (ssi == DocValues.EMPTY_SORTED_SET) {
+      return; // Nothing to process; return immediately
+    }
+    int doc;
+    doc = disi.nextDoc();
+    if (startDocID > 0 && doc != DocIdSetIterator.NO_MORE_DOCS) {
+      doc = disi.advance(startDocID);
+    }
+    while (doc != DocIdSetIterator.NO_MORE_DOCS && doc < endDocID) {
       ssi.setDocument(doc);
+      doc = disi.nextDoc();
+
       // strange do-while to collect the missing count (first ord is NO_MORE_ORDS)
       int term = (int) ssi.nextOrd();
       if (term < 0) {
@@ -763,54 +740,16 @@ public class SparseDocValuesFacets {
         /*if (startTermIndex == -1) {
           counts.inc(0); // missing count
         } */
-        return;
+        continue;
       }
 
       do {
         if (map != null) {
           term = (int) map.getGlobalOrd(subIndex, term);
         }
-        int arrIdx = term-startTermIndex;
-        if (arrIdx>=0 && arrIdx<counts.size()) counts.inc(arrIdx);
+        int arrIdx = term - startTermIndex;
+        if (arrIdx >= 0 && arrIdx < counts.size()) counts.inc(arrIdx);
       } while ((term = (int) ssi.nextOrd()) >= 0);
-    }
-  }
-
-  /*
-  Iterate multi-value DocValues and update the counters based on delivered ordinals.
-   */
-  static void accumMulti(
-      SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedSetDocValues ssi,
-      AtomicReaderContext leaf, String fieldName, DocIdSetIterator disi, DocIdSet dis, int subIndex, OrdinalMap map,
-      ExecutorService executor, int maxLeafDoc)
-      throws IOException {
-    if (ssi == DocValues.EMPTY_SORTED_SET) {
-      return; // Nothing to process; return immediately
-    }
-    try {
-      if (sparseKeys.countingThreads <= 1 || maxLeafDoc < sparseKeys.countingThreadsMinDocs) {
-        new Accumulator(counts, startTermIndex, 0, Integer.MAX_VALUE, ssi, disi, subIndex, map, null, null).call();
-        return;
-      }
-      final int chunkSize = maxLeafDoc / sparseKeys.countingThreads;
-      List<Future<Accumulator>> accumulators = new ArrayList<>();
-      for (int i = 0 ; i < sparseKeys.countingThreads ; i++) {
-        accumulators.add(executor.submit(
-            new Accumulator(counts, startTermIndex, chunkSize * i,
-                i == sparseKeys.countingThreads - 1 ? Integer.MAX_VALUE : chunkSize * (i+1),
-                ssi, disi, subIndex, map, leaf, fieldName)));
-        if (i < sparseKeys.countingThreads-1) { // More futures will be created
-          disi = dis.iterator();
-          // ssi must be created in separate threads, so we signal that with null
-          ssi = null;
-        }
-      }
-      for (Future<Accumulator> accumulator: accumulators) {
-        // TODO: Better output on Exceptions. Maybe timeout?
-        accumulator.get();
-      }
-    } catch (Exception e) {
-      throw new IOException("Exception executing accumSingle with " + sparseKeys.countingThreads + " threads", e);
     }
   }
 
@@ -830,34 +769,34 @@ public class SparseDocValuesFacets {
     private final SortedSetDocValues si;
     private final FieldType ft;
     private final CharsRef charsRef;
-    
+
     private final Matcher[] whiteMatchers;
     private final Matcher[] blackMatchers;
-    
+
     private BytesRef br = new BytesRef(""); // To avoid re-allocation
 
     /**
-      * Creates a basic callback where only the values >= min are considered.
-      * @param min      the starting min value.
-      * @param queue   the destination of the values of the counters.
-      */
-     public PatternMatchingCallback(
-         int min, LongPriorityQueue queue, int queueMaxSize, SparseKeys sparseKeys, SparseCounterPool pool,
-         SortedSetDocValues si, FieldType ft, CharsRef charsRef) {
-       this.maxTermCounts = null;
-       this.min = min;
-       this.doNegative = false;
-       this.queue = queue;
-       this.queueMaxSize = queueMaxSize;
-       this.sparseKeys = sparseKeys;
-       this.pool = pool;
-       this.si = si;
-       this.ft = ft;
-       this.charsRef = charsRef;
-       // Instead of generating new matchers all the time, we create them once and re-use them
-       whiteMatchers = generateMatchers(sparseKeys.whitelists);
-       blackMatchers = generateMatchers(sparseKeys.blacklists);
-     }
+     * Creates a basic callback where only the values >= min are considered.
+     * @param min      the starting min value.
+     * @param queue   the destination of the values of the counters.
+     */
+    public PatternMatchingCallback(
+        int min, LongPriorityQueue queue, int queueMaxSize, SparseKeys sparseKeys, SparseCounterPool pool,
+        SortedSetDocValues si, FieldType ft, CharsRef charsRef) {
+      this.maxTermCounts = null;
+      this.min = min;
+      this.doNegative = false;
+      this.queue = queue;
+      this.queueMaxSize = queueMaxSize;
+      this.sparseKeys = sparseKeys;
+      this.pool = pool;
+      this.si = si;
+      this.ft = ft;
+      this.charsRef = charsRef;
+      // Instead of generating new matchers all the time, we create them once and re-use them
+      whiteMatchers = generateMatchers(sparseKeys.whitelists);
+      blackMatchers = generateMatchers(sparseKeys.blacklists);
+    }
 
     private Matcher[] generateMatchers(List<Pattern> patterns) {
       Matcher[] matchers = new Matcher[patterns.size()];
