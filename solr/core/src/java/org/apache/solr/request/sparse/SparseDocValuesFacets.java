@@ -79,6 +79,10 @@ import org.slf4j.LoggerFactory;
 public class SparseDocValuesFacets {
   public static Logger log = LoggerFactory.getLogger(SparseDocValuesFacets.class);
 
+  // TODO: Make the number of threads adjustable
+  // TODO: Promote this to a general executor for heavy lifting
+  static final ExecutorService executor = Executors.newFixedThreadPool(20);
+
   private SparseDocValuesFacets() {}
 
   // This is a equivalent to {@link UnInvertedField#getCounts} with the extension that it also handles
@@ -276,17 +280,12 @@ public class SparseDocValuesFacets {
   private static void collectCounts(
       SparseKeys sparseKeys, SolrIndexSearcher searcher, DocSet docs, SchemaField schemaField, OrdinalMap ordinalMap,
       int startTermIndex, ValueCounter counts) throws IOException {
-
-    // TODO: The executor must be made persistent as SegmentReader.getSortedSetDocValue uses thread local
-    final ExecutorService executor = sparseKeys.countingThreads <= 1 ? null:
-        Executors.newFixedThreadPool(sparseKeys.countingThreads);
     String fieldName = schemaField.getName();
     Filter filter = docs.getTopFilter();
     List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
     for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
       AtomicReaderContext leaf = leaves.get(subIndex);
-      if (sparseKeys.countingThreads <= 1 || leaf.reader().maxDoc() < sparseKeys.countingThreadsMinDocs ||
-          executor == null) {
+      if (sparseKeys.countingThreads <= 1 || leaf.reader().maxDoc() < sparseKeys.countingThreadsMinDocs) {
         try {
           new Accumulator2(leaf, 0, Integer.MAX_VALUE, sparseKeys, schemaField, ordinalMap, startTermIndex, counts,
               fieldName, filter, subIndex).call();

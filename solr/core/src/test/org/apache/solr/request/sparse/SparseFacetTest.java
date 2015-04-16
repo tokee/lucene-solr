@@ -28,6 +28,7 @@ import org.junit.BeforeClass;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -58,7 +59,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
 
 
   static void createIndex() throws Exception {
-    indexFacetValues();
+    indexFacetValues(DOCS, 0, true);
 
     Collections.shuffle(pendingDocs, random());
     for (String[] doc : pendingDocs) {
@@ -82,12 +83,11 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
   static final int MAX_MULTI = 10;
   static final int[] MODULOS = new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 25, 50};
 
-  static void indexFacetValues() {
-
+  static void indexFacetValues(int docs, int origo, boolean randomize) {
     List<String> values = new ArrayList<>();
-    for (int docID = 0 ; docID < DOCS ; docID++) {
+    for (int docID = 0 ; docID < docs ; docID++) {
       values.clear();
-      values.add("id"); values.add(Integer.toString(docID));
+      values.add("id"); values.add(origo + Integer.toString(docID));
       for (int mod: MODULOS) {
         if (mod < docID && docID % mod == 0) {
           values.add(MODULO_FIELD); values.add("mod_" + mod);
@@ -101,7 +101,16 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
         values.add(MULTI_DV_FIELD); values.add(val);
         values.add(MULTI_TEXT_FIELD); values.add(val);
       }
-      add_doc(values.toArray(new String[values.size()]));
+
+      if (randomize) {
+        add_doc(values.toArray(new String[values.size()]));
+      } else {
+        assertU(adoc(values.toArray(new String[values.size()])));
+      }
+
+    }
+    if (!randomize) {
+      assertU(commit());
     }
   }
 
@@ -113,7 +122,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
 
     assertQ("Modulo 7 search should work",
         req(MODULO_FIELD + ":mod_7"),
-        "//*[@numFound='" + (DOCS/7-1) + "']"
+        "//*[@numFound='" + (DOCS / 7 - 1) + "']"
     );
 
   }
@@ -323,6 +332,102 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
           "[single_dv_7]",
           entries.toString());
     }
+  }
+
+  public void testThreadedPerformance() throws Exception {
+    final int NEW_DOCS = 10000;
+    //final int NEW_DOCS = 1000000;
+    final int WARMUPS = 5;
+    final int RUNS = 10;
+    final int THREADS = 3;
+
+    indexFacetValues(NEW_DOCS, DOCS+1000, false);
+    assertU(optimize());
+
+    long totSingle = 0;
+    long totSingleT = 0;
+    {
+      SolrQueryRequest single = req("*:*");
+      ModifiableSolrParams sParams = new ModifiableSolrParams(single.getParams());
+      sParams.set(FacetParams.FACET, true);
+      sParams.set(FacetParams.FACET_FIELD, SINGLE_DV_FIELD);
+      sParams.set(FacetParams.FACET_LIMIT, 5);
+      sParams.set(SparseKeys.SPARSE, true);
+      sParams.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.nplane.toString());
+      sParams.set(SparseKeys.MINTAGS, 1);
+      single.setParams(sParams);
+
+      SolrQueryRequest singleT = req("*:*");
+      ModifiableSolrParams stParams = new ModifiableSolrParams(singleT.getParams());
+      stParams.set(FacetParams.FACET, true);
+      stParams.set(FacetParams.FACET_FIELD, SINGLE_DV_FIELD);
+      stParams.set(FacetParams.FACET_LIMIT, 5);
+      stParams.set(SparseKeys.SPARSE, true);
+      sParams.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.nplane.toString());
+      stParams.set(SparseKeys.COUNTING_THREADS, THREADS);
+      stParams.set(SparseKeys.COUNTING_THREADS_MINDOCS, 10000); // Should be way higher (10K or more)
+      stParams.set(SparseKeys.MINTAGS, 1);
+      singleT.setParams(stParams);
+
+      for (int warmup = 1; warmup <= WARMUPS; warmup++) {
+        assertNotNull(h.query(single));
+        assertNotNull(h.query(singleT));
+      }
+
+      for (int run = 1; run <= RUNS; run++) {
+        totSingle -= System.nanoTime();
+        assertNotNull(h.query(single));
+        totSingle += System.nanoTime();
+
+        totSingleT -= System.nanoTime();
+        assertNotNull(h.query(singleT));
+        totSingleT += System.nanoTime();
+      }
+    }
+
+    long totMulti = 0;
+    long totMultiT = 0;
+    {
+      SolrQueryRequest multi = req("*:*");
+      ModifiableSolrParams mParams = new ModifiableSolrParams(multi.getParams());
+      mParams.set(FacetParams.FACET, true);
+      mParams.set(FacetParams.FACET_FIELD, MULTI_DV_FIELD);
+      mParams.set(FacetParams.FACET_LIMIT, 5);
+      mParams.set(SparseKeys.SPARSE, true);
+      mParams.set(SparseKeys.MINTAGS, 1);
+      multi.setParams(mParams);
+
+      SolrQueryRequest multiT = req("*:*");
+      ModifiableSolrParams mtParams = new ModifiableSolrParams(multiT.getParams());
+      mtParams.set(FacetParams.FACET, true);
+      mtParams.set(FacetParams.FACET_FIELD, MULTI_DV_FIELD);
+      mtParams.set(FacetParams.FACET_LIMIT, 5);
+      mtParams.set(SparseKeys.SPARSE, true);
+      mtParams.set(SparseKeys.COUNTING_THREADS, THREADS);
+      mtParams.set(SparseKeys.COUNTING_THREADS_MINDOCS, 10000); // Should be way higher (10K or more)
+      mtParams.set(SparseKeys.MINTAGS, 1);
+      multiT.setParams(mtParams);
+
+      for (int warmup = 1; warmup <= WARMUPS; warmup++) {
+        assertNotNull(h.query(multi));
+        assertNotNull(h.query(multiT));
+      }
+
+      for (int run = 1; run <= RUNS; run++) {
+        totMulti -= System.nanoTime();
+        assertNotNull(h.query(multi));
+        totMulti += System.nanoTime();
+
+        totMultiT -= System.nanoTime();
+        assertNotNull(h.query(multiT));
+        totMultiT += System.nanoTime();
+      }
+    }
+
+    System.out.println(String.format(Locale.ENGLISH,
+        "Average from " + RUNS + " runs: single: %3.1f ms, singleT: %3.1f ms, multi: %3.1f ms, multiT: %3.1f ms",
+        1.0*totSingle/1000000/RUNS, 1.0*totSingleT/1000000/RUNS,
+        1.0*totMulti/1000000/RUNS, 1.0*totMultiT/1000000/RUNS));
   }
 
   private List<String> getEntries(SolrQueryRequest req, String regexp) throws Exception {
