@@ -181,6 +181,8 @@ public class SparseKeys {
   public static final String PACKED_BITLIMIT = "facet.sparse.packed.bitlimit";
   public static int DEFAULT_PACKED_BITLIMIT = 24;
 
+  // TODO: Fine grained config for nplane
+
   /**
    * If the {@link #COUNTER} supports it, the counting phase for faceting is done with the specified
    * number of threads. This increases speed at the cost of extra CPU power.

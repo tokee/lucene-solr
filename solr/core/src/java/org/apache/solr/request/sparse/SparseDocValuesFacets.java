@@ -48,6 +48,7 @@ import org.apache.lucene.util.BytesRefArray;
 import org.apache.lucene.util.CharsRef;
 import org.apache.lucene.util.Counter;
 import org.apache.lucene.util.UnicodeUtil;
+import org.apache.lucene.util.packed.NPlaneMutable;
 import org.apache.lucene.util.packed.PackedInts;
 import org.apache.solr.common.params.FacetParams;
 import org.apache.solr.common.util.NamedList;
@@ -358,6 +359,8 @@ public class SparseDocValuesFacets {
   private static ValueCounter acquireCounter(
       SparseKeys sparseKeys, SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
       SchemaField schemaField, SparseCounterPool pool) throws IOException {
+    // Overall the code gets a bit muddy as we do lazy extraction of meta data about the ordinals
+
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.array) {
       ensureBasic(searcher, si, globalMap, schemaField, pool);
       return pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.array);
@@ -376,40 +379,71 @@ public class SparseDocValuesFacets {
       ensureBasicAndHistogram(searcher, si, globalMap, schemaField, pool);
       return pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.dualplane);
     }
-    // TODO: nplane: Attempt to locate existing structures to avoid getting all maxima
+    // nplane is very heavy at first call: Its overflow bits needs the maximum counts for all ordinals
+    // to be calculated.
+    if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.nplane) {
+      ValueCounter vc;
+      if (!pool.isInitialized() || ((vc = pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplane)) == null)) {
+        final int[] globOrdCount = getGlobOrdCountAndUpdatePool(searcher, si, globalMap, schemaField, pool);
+        NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getHistogram());
+        PackedInts.Mutable innerCounter = new NPlaneMutable(
+            layout, new NPlaneMutable.BPVIntArrayWrapper(globOrdCount, false), NPlaneMutable.DEFAULT_IMPLEMENTATION);
+        vc = new SparseCounterThreaded(SparseKeys.COUNTER_IMPL.nplane, innerCounter, pool.getMaxCountForAny(),
+            sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
+      }
+      return vc;
+    }
     throw new UnsupportedOperationException("No support yet for the " + sparseKeys.counter + " counter");
+  }
+
+  @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
+  private static int[] getGlobOrdCountAndUpdatePool(
+      SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
+      SchemaField schemaField, SparseCounterPool pool) throws IOException {
+    final int[] globOrdCount = getGlobOrdCount(searcher, si, globalMap, schemaField);
+    calculateAndUpdateBasicAndHistogram(searcher, si, schemaField, pool, globOrdCount);
+    return globOrdCount;
   }
 
   @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
   private static void ensureBasicAndHistogram(SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
                                               SchemaField schemaField, SparseCounterPool pool) throws IOException {
     synchronized (pool) {
-      final long startTime = System.nanoTime();
-      if (pool.getHistogram() != null) {
+      if (pool.getHistogram() != null && pool.isInitialized()) {
         return;
       }
       final int[] globOrdCount = getGlobOrdCount(searcher, si, globalMap, schemaField);
-      int maxCount = -1;
-      long refCount = 0;
-      final long[] histogram = new long[64];
-      for (int ordCount : globOrdCount) {
-        histogram[PackedInts.bitsRequired(ordCount)]++;
-        refCount += ordCount;
-        if (ordCount > maxCount) {
-          maxCount = ordCount;
-        }
-      }
-
-      log.info(String.format(Locale.ENGLISH,
-          "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms. Histogram: %s",
-          maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime() - startTime) / 1000000,
-          join(histogram)));
-      // +1 as everything is shifted by 1 to use index 0 as special counter
-      if (!pool.isInitialized()) {
-        pool.setFieldProperties((int) (si.getValueCount() + 1), maxCount, searcher.maxDoc(), refCount);
-      }
-      pool.setHistogram(histogram);
+      calculateAndUpdateBasicAndHistogram(searcher, si, schemaField, pool, globOrdCount);
     }
+  }
+
+  private static void calculateAndUpdateBasicAndHistogram(
+      SolrIndexSearcher searcher, SortedSetDocValues si, SchemaField schemaField, SparseCounterPool pool,
+      int[] globOrdCount) {
+    if (pool.getHistogram() != null && pool.isInitialized()) {
+      return;
+    }
+    final long startTime = System.nanoTime();
+    int maxCount = -1;
+    long refCount = 0;
+    final long[] histogram = new long[64];
+    for (int ordCount : globOrdCount) {
+      histogram[PackedInts.bitsRequired(ordCount)]++;
+      refCount += ordCount;
+      if (ordCount > maxCount) {
+        maxCount = ordCount;
+      }
+    }
+
+    log.info(String.format(Locale.ENGLISH,
+        "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms. Histogram: %s",
+        maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime() - startTime) / 1000000,
+        join(histogram)));
+    // +1 as everything is shifted by 1 to use index 0 as special counter
+    if (!pool.isInitialized()) {
+      pool.setFieldProperties((int) (si.getValueCount() + 1), maxCount, searcher.maxDoc(), refCount);
+    }
+    pool.setHistogram(histogram);
   }
 
   private static String join(long[] values) {
@@ -456,6 +490,7 @@ public class SparseDocValuesFacets {
    */
   private static int[] getGlobOrdCount(SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
                                        SchemaField schemaField) throws IOException {
+    final long startTime = System.nanoTime();
     final int[] globOrdCount = new int[(int) (si.getValueCount()+1)];
     List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
     for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
@@ -520,6 +555,9 @@ public class SparseDocValuesFacets {
         }
       }
     }
+    log.info(String.format(Locale.ENGLISH,
+        "Summed global ord count for field %s with %d unique values in %dms",
+        schemaField.getName(), globOrdCount.length, (System.nanoTime() - startTime) / 1000000));
     return globOrdCount;
   }
 
@@ -746,6 +784,8 @@ public class SparseDocValuesFacets {
       final int chunkSize = maxLeafDoc / sparseKeys.countingThreads;
       List<Future<Accumulator>> accumulators = new ArrayList<>();
       for (int i = 0 ; i < sparseKeys.countingThreads ; i++) {
+        System.out.println("*** max=" + maxLeafDoc + ", start=" + (chunkSize * i) + ", end=" +
+            (i == sparseKeys.countingThreads - 1 ? maxLeafDoc : chunkSize * (i+1)));
         accumulators.add(executor.submit(
             new Accumulator(counts, startTermIndex, chunkSize * i,
                 i == sparseKeys.countingThreads - 1 ? maxLeafDoc : chunkSize * (i+1),

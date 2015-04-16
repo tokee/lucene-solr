@@ -103,6 +103,11 @@ public interface ValueCounter {
   boolean explicitlyDisabled();
 
   /**
+   * @return an empty ValueCounter with the same setup as this, potentially sharing underlying support structures.
+   */
+  ValueCounter createSibling();
+
+  /**
    * Used for (hopefully) efficient iteration of counters with {@link #iterate}.
    */
   public static interface Callback {

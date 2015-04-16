@@ -85,6 +85,14 @@ public class SparseCounterInt implements ValueCounter {
   }
 
   @Override
+  public ValueCounter createSibling() {
+    SparseCounterInt newCounter = new SparseCounterInt(
+        counts.length, maxCountForAny, minCountsForSparse, fraction, maxTracked);
+    newCounter.setContentKey(getContentKey());
+    return newCounter;
+  }
+
+  @Override
   public boolean hasThreadSafeInc() {
     return false;
   }

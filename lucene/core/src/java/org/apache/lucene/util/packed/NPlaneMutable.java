@@ -129,9 +129,17 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * @return a layout for later instantiation of NPlaneMutables.
    */
   public static Layout getLayout(BPVProvider maxima, int overflowBucketSize, int maxPlanes, double collapseFraction) {
-    return getLayout(getZeroBitHistogram(maxima), overflowBucketSize, maxPlanes, collapseFraction);
+    return getLayoutWithZeroHistogram(
+        getZeroBitHistogram(maxima), overflowBucketSize, maxPlanes, collapseFraction);
   }
-  static Layout getLayout(
+  public static Layout getLayout(long[] histogram) {
+    return getLayout(histogram, DEFAULT_MAX_PLANES);
+  }
+  public static Layout getLayout(long[] histogram, int maxPlanes) {
+    return getLayoutWithZeroHistogram(
+        directHistogramToFullZero(histogram), DEFAULT_OVERFLOW_BUCKET_SIZE, maxPlanes, DEFAULT_COLLAPSE_FRACTION);
+  }
+  static Layout getLayoutWithZeroHistogram(
       long[] zeroHistogram, int overflowBucketSize, int maxPlanes, double collapseFraction) {
     int maxBit = getMaxBit(zeroHistogram);
 
@@ -181,7 +189,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       IMPL impl) {
     long[] full = directHistogramToFullZero(histogram);
     long mem = 0;
-    for (PseudoPlane pp: getLayout(full, overflowBucketSize, maxPlanes, collapseFraction)) {
+    for (PseudoPlane pp: getLayoutWithZeroHistogram(full, overflowBucketSize, maxPlanes, collapseFraction)) {
       mem += pp.estimateBytesNeeded(extraInstance, impl);
     }
     return mem;
@@ -528,34 +536,6 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
      */
     public abstract Plane createSibling();
 
-    protected PackedInts.Mutable newFromTemplate(PackedInts.Mutable original) {
-      if (original instanceof Packed64) {
-        return new Packed64(original.size(), original.getBitsPerValue());
-      }
-      if (original instanceof Packed64SingleBlock) {
-        return Packed64SingleBlock.create(original.size(), original.getBitsPerValue());
-      }
-      if (original instanceof Packed8ThreeBlocks) {
-        return new Packed8ThreeBlocks(original.size());
-      }
-      if (original instanceof Packed16ThreeBlocks) {
-        return new Packed16ThreeBlocks(original.size());
-      }
-      if (original instanceof Direct8) {
-        return new Direct8(original.size());
-      }
-      if (original instanceof Direct16) {
-        return new Direct16(original.size());
-      }
-      if (original instanceof Direct32) {
-        return new Direct32(original.size());
-      }
-      if (original instanceof PackedOpportunistic) {
-        return PackedOpportunistic.create(original.size(), original.getBitsPerValue());
-      }
-      throw new UnsupportedOperationException(
-          "The PackedInts.Mutable " + original.getClass().getSimpleName() + " is not supported");
-    }
   }
 
   private static class SplitPlane extends Plane {
@@ -999,6 +979,37 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     }
   }
 
+  public static class BPVIntArrayWrapper implements BPVProvider {
+    private final int[] maxima;
+    private final boolean alreadyBPV;
+    private int pos = 0;
+
+    public BPVIntArrayWrapper(int[] maxima, boolean alreadyBPV) {
+      this.maxima = maxima;
+      this.alreadyBPV = alreadyBPV;
+    }
+
+    @Override
+    public int size() {
+      return maxima.length;
+    }
+
+    @Override
+    public boolean hasNext() {
+      return pos < maxima.length;
+    }
+
+    @Override
+    public int next() {
+      return alreadyBPV ? (int) maxima[pos++] : PackedInts.bitsRequired(maxima[pos++]);
+    }
+
+    @Override
+    public void reset() {
+      pos = 0;
+    }
+  }
+
   public static class BPVAbsorber {
     private final PackedInts.Mutable bpvs;
     private int pos = 0;
@@ -1014,5 +1025,38 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     public BPVProvider getProvider() {
       return new BPVPackedWrapper(bpvs, true);
     }
+  }
+
+  public static PackedInts.Mutable newFromTemplate(PackedInts.Mutable original) {
+    if (original instanceof Packed64) {
+      return new Packed64(original.size(), original.getBitsPerValue());
+    }
+    if (original instanceof Packed64SingleBlock) {
+      return Packed64SingleBlock.create(original.size(), original.getBitsPerValue());
+    }
+    if (original instanceof Packed8ThreeBlocks) {
+      return new Packed8ThreeBlocks(original.size());
+    }
+    if (original instanceof Packed16ThreeBlocks) {
+      return new Packed16ThreeBlocks(original.size());
+    }
+    if (original instanceof Direct8) {
+      return new Direct8(original.size());
+    }
+    if (original instanceof Direct16) {
+      return new Direct16(original.size());
+    }
+    if (original instanceof Direct32) {
+      return new Direct32(original.size());
+    }
+    if (original instanceof PackedOpportunistic) {
+      return PackedOpportunistic.create(original.size(), original.getBitsPerValue());
+    }
+    if (original instanceof NPlaneMutable) {
+      return ((NPlaneMutable)original).createSibling();
+    }
+    // TODO: Add dualplane
+    throw new UnsupportedOperationException(
+        "The PackedInts.Mutable " + original.getClass().getSimpleName() + " is not supported");
   }
 }

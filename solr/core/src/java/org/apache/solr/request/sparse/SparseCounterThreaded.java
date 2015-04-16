@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.lucene.util.Incrementable;
+import org.apache.lucene.util.packed.NPlaneMutable;
 import org.apache.lucene.util.packed.PackedInts;
 
 /**
@@ -32,7 +33,7 @@ public class SparseCounterThreaded implements ValueCounter {
   private final Incrementable countsInc; // Wrapper around or same-reference as counts
   private final int[] tracker; // Tracker not PackedInts.Mutable as it should be relatively small
   private final int tracksMax; // The maximum amount of trackers (tracker.length)
-  private final SparseKeys.COUNTER_IMPL counterImpl; // Used for key generation
+  public final SparseKeys.COUNTER_IMPL counterImpl; // Used for key generation
   private AtomicLong zeroCounter = new AtomicLong(0); // The counter at index 0 is special as it can exceed the maxValue of {@link #counts}
 
   // The current amount of tracker entries. Setting this to 0 works as a tracker clear
@@ -81,10 +82,19 @@ public class SparseCounterThreaded implements ValueCounter {
     }
   }
 
+  @Override
+  public ValueCounter createSibling() {
+    SparseCounterThreaded newCounter = new SparseCounterThreaded(
+        counterImpl, NPlaneMutable.newFromTemplate(counts), maxCountForAny, minCountsForSparse,
+        fraction, maxCountTracked);
+    newCounter.setContentKey(getContentKey());
+    return newCounter;
+  }
+
   /*
-   * Constructs an ID which is unique for the given layout. Used for lookup of cached counters in
-   * {@link SparseCounterPool}.
-   */
+     * Constructs an ID which is unique for the given layout. Used for lookup of cached counters in
+     * {@link SparseCounterPool}.
+     */
   public static String createStructureKey(
       int counts, long maxCountForAny, int minCountForSparse, double fraction, long maxCountTracked,
       SparseKeys.COUNTER_IMPL counter) {

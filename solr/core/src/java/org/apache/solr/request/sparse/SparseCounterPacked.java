@@ -72,6 +72,14 @@ public class SparseCounterPacked implements ValueCounter {
     }
   }
 
+  @Override
+  public ValueCounter createSibling() {
+    SparseCounterPacked newCounter = new SparseCounterPacked(
+        counts.size(), maxCountForAny, minCountsForSparse, fraction, maxCountTracked);
+    newCounter.setContentKey(getContentKey());
+    return newCounter;
+  }
+
   /*
    * Constructs an ID which is unique for the given layout. Used for lookup of cached counters in
    * {@link SparseCounterPool}.

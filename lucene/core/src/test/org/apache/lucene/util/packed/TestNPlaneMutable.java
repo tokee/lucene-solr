@@ -55,6 +55,8 @@ public class TestNPlaneMutable extends LuceneTestCase {
         9, 9/2, 1, UPDATES, 10, CACHES, MAX_PLANES, 1, SPLITS, true, WHITELIST);
   }
 
+  // TODO: Add test for creating new empty clones
+
   public void testMonkeySplitsWhitelist() {
     final int DIVISOR = 500;
     final int UPDATES = MI;
@@ -230,7 +232,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
     long[] histogram = LongTailPerformance.reduce(LongTailPerformance.links20150209, 1.0);
 
     long[] full = NPlaneMutable.directHistogramToFullZero(histogram);
-    NPlaneMutable.Layout layout = NPlaneMutable.getLayout(full, 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
+    NPlaneMutable.Layout layout = NPlaneMutable.getLayoutWithZeroHistogram(full, 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
     assertTrue("There should be more than 3 planes", layout.size() > 3);
     long mem = 0;
     for (NPlaneMutable.PseudoPlane plane: layout) {
