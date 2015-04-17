@@ -17,6 +17,7 @@ package org.apache.solr.request.sparse;
  * limitations under the License.
  */
 
+import org.apache.commons.collections.list.FixedSizeList;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.solr.SolrTestCaseJ4;
 import org.apache.solr.common.params.CommonParams;
@@ -29,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Queue;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -334,8 +336,11 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     }
   }
 
-  public void testThreadedPerformance() throws Exception {
-    final int NEW_DOCS = 10000;
+  // disabled as it takes a long time to build an index of a size where
+  // threading is beneficial (10s or 100s of millions documents)
+  // TODO: Create a test with fewer documents but a large amount of references from documents to values
+  public void disabledtestThreadedPerformance() throws Exception {
+    final int NEW_DOCS = 10*1000;
     //final int NEW_DOCS = 1000000;
     final int WARMUPS = 5;
     final int RUNS = 10;
