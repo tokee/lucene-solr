@@ -82,6 +82,7 @@ public class SparseDocValuesFacets {
 
   // TODO: Make the number of threads adjustable
   // TODO: Promote this to a general executor for heavy lifting
+  // TODO: Create daemon Threads for clean shutdown
   static final ExecutorService executor = Executors.newFixedThreadPool(20);
 
   private SparseDocValuesFacets() {}
