@@ -18,7 +18,6 @@ package org.apache.solr.request.sparse;
 
 import org.apache.lucene.util.BytesRefArray;
 import org.apache.lucene.util.packed.DualPlaneMutable;
-import org.apache.lucene.util.packed.NPlaneMutable;
 import org.apache.lucene.util.packed.PackedInts;
 import org.apache.lucene.util.packed.PackedOpportunistic;
 import org.apache.solr.common.util.NamedList;
@@ -28,12 +27,9 @@ import org.slf4j.LoggerFactory;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -242,17 +238,37 @@ public class SparseCounterPool {
 
   /**
    * Provides the pool with a new counter created from the outside, registers the counter in the system and returns it.
+   *
    * @param sparseKeys setup for the Sparse system as well as the specific call.
    * @param implementation the implementation of the counter to add.
+   * @param newVC the counter to add.
+   * @param allocateStartTime marker set just before collecting needed statistics and allocating the counter.
    * @return the given counter.
    */
-  public ValueCounter addAndReturn(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation, ValueCounter newVC) {
+  public ValueCounter addAndReturn(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation, ValueCounter newVC,
+                                   long allocateStartTime) {
     // Checking for existing and potential reset of the structureKey and pool
     ValueCounter vc = getCounter(sparseKeys, implementation);
     if (vc != null) {
       log.warn("addAndReturn: An available counter already existed, but was discarded");
     }
     template = newVC;
+    switch (implementation) {
+      case array:
+        intAllocations.incRel(allocateStartTime);
+        break;
+      case packed:
+        packedAllocations.incRel(allocateStartTime);
+        break;
+      case dualplane:
+        dualPlaneAllocations.incRel(allocateStartTime);
+        break;
+      case nplane:
+        nplaneAllocations.incRel(allocateStartTime);
+        break;
+      default: throw new UnsupportedOperationException(
+          "Unable to add statistics for counter implementation " + implementation);
+    }
     return newVC;
   }
 
@@ -573,7 +589,7 @@ public class SparseCounterPool {
             "%s, %s, %s, " + // collect, extract, resolve
             "%s, %s, " + // disables,  withinCutoff
             "exceededCutoff=%d, SCPool(cached=%d/%d, currentBackgroundClears=%d, %s, " + // emptyReuses
-            "%s, %s, %s, %s, " + // packedAllocations, intAllocations, dualPlaneAllocations
+            "%s, %s, %s, %s, " + // packedAllocations, intAllocations, dualPlaneAllocations, nplaneAllocations
             "%s, " + // regexpMatches
             "%s, %s, " + // requestClears, backgroundClears
             "cache(hits=%d, misses=%d, %s, %s), " + // filledFrees, emptyFrees

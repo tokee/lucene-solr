@@ -496,12 +496,14 @@ public class SparseDocValuesFacets {
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.nplane) {
       ValueCounter vc;
       if (!pool.isInitialized() || ((vc = pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplane)) == null)) {
+        final long allocateTime = System.nanoTime();
         final int[] globOrdCount = getGlobOrdCountAndUpdatePool(searcher, si, globalMap, schemaField, pool);
         NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getHistogram());
         PackedInts.Mutable innerCounter = new NPlaneMutable(
             layout, new NPlaneMutable.BPVIntArrayWrapper(globOrdCount, false), NPlaneMutable.DEFAULT_IMPLEMENTATION);
         vc = new SparseCounterThreaded(SparseKeys.COUNTER_IMPL.nplane, innerCounter, pool.getMaxCountForAny(),
             sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplane, vc, allocateTime);
       }
       return vc;
     }

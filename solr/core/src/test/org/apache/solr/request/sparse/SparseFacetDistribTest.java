@@ -97,32 +97,46 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     commit();
 
     // Trigger a two-phase distributed faceting call
-    ModifiableSolrParams params = new ModifiableSolrParams();
-    params.add("q", "*:*");
-    for (int clientID = 0 ; clientID < shardCount ; clientID++) {
-      QueryResponse results = clients.get(clientID).query(params);
-      assertEquals(DOCS, results.getResults().getNumFound());
+    {
+      ModifiableSolrParams params = new ModifiableSolrParams();
+      params.set(CommonParams.Q, "*:*");
+      for (int clientID = 0 ; clientID < shardCount ; clientID++) {
+        QueryResponse results = clients.get(clientID).query(params);
+        assertEquals("Initiating searches on different Solr's should give the same number of hits",
+            DOCS, results.getResults().getNumFound());
+      }
     }
-
-    params.add(FacetParams.FACET, Boolean.TRUE.toString());
-    params.add(FacetParams.FACET_FIELD, FF);
-    params.add(FacetParams.FACET_LIMIT, Integer.toString(10));
-    params.add(FacetParams.FACET_METHOD, FacetParams.FACET_METHOD_fc);
-    params.set(SparseKeys.SPARSE, Boolean.FALSE.toString());
-    params.add("indent", "true");
 
     QueryResponse nonSparseFF;
-    { // vanilla Solr FF
-      nonSparseFF = clients.get(0).query(params);
-      QueryResponse nonSparseFF2 = clients.get(0).query(params);
-      assertEquals("Repeating the facet request with standard Solr should be equal except for QTime",
-          nonSparseFF.toString().replaceAll("QTime=[0-9]+", ""),
-          nonSparseFF2.toString().replaceAll("QTime=[0-9]+", ""));
-    }
+    {
+      ModifiableSolrParams params = new ModifiableSolrParams();
+      params.set(CommonParams.Q, "*:*");
+      params.add(FacetParams.FACET, Boolean.TRUE.toString());
+      params.add(FacetParams.FACET_FIELD, FF);
+      params.add(FacetParams.FACET_LIMIT, Integer.toString(10));
+      params.add(FacetParams.FACET_METHOD, FacetParams.FACET_METHOD_fc);
+      params.set(SparseKeys.SPARSE, Boolean.FALSE.toString());
+      params.add("indent", "true");
 
+      { // vanilla Solr FF
+        nonSparseFF = clients.get(0).query(params);
+        QueryResponse nonSparseFF2 = clients.get(0).query(params);
+        assertEquals("Repeating the facet request with standard Solr should be equal except for QTime",
+            nonSparseFF.toString().replaceAll("QTime=[0-9]+", ""),
+            nonSparseFF2.toString().replaceAll("QTime=[0-9]+", ""));
+      }
+
+    }
     QueryResponse nonSparseTHIN;
     { // vanilla Solr THIN
+      ModifiableSolrParams params = new ModifiableSolrParams();
+      params.set(CommonParams.Q, "*:*");
+      params.add(FacetParams.FACET, Boolean.TRUE.toString());
       params.set(FacetParams.FACET_FIELD, THIN);
+      params.add(FacetParams.FACET_LIMIT, Integer.toString(10));
+      params.add(FacetParams.FACET_METHOD, FacetParams.FACET_METHOD_fc);
+      params.set(SparseKeys.SPARSE, Boolean.FALSE.toString());
+
       nonSparseTHIN = clients.get(0).query(params);
       assertTrue("Faceting on " + THIN + " with vanilla Solr should give facet results\n"
           + nonSparseTHIN.toString().replace("{", "\n{"),
@@ -131,7 +145,14 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     }
 
     { // sparse equality with vanilla Solr
+      ModifiableSolrParams params = new ModifiableSolrParams();
+      params.set(CommonParams.Q, "*:*");
+      params.add(FacetParams.FACET, Boolean.TRUE.toString());
+      params.set(FacetParams.FACET_FIELD, THIN);
+      params.add(FacetParams.FACET_LIMIT, Integer.toString(10));
+      params.add(FacetParams.FACET_METHOD, FacetParams.FACET_METHOD_fc);
       params.set(SparseKeys.SPARSE, Boolean.TRUE.toString());
+
       params.add(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
       params.add(SparseKeys.TERMLOOKUP, Boolean.TRUE.toString());
 
@@ -165,12 +186,15 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
       }
     }
 
-    // Change back to defaults
-    params.remove(SparseKeys.TERMLOOKUP);
-    params.remove(SparseKeys.CACHE_DISTRIBUTED);
-    params.remove(SparseKeys.MAXMINCOUNT);
-
     { // is sparse activated?
+      ModifiableSolrParams params = new ModifiableSolrParams();
+      params.set(CommonParams.Q, "*:*");
+      params.add(FacetParams.FACET, Boolean.TRUE.toString());
+      params.add(FacetParams.FACET, Boolean.TRUE.toString());
+      params.add(FacetParams.FACET_FIELD, FF);
+      params.add(FacetParams.FACET_LIMIT, Integer.toString(10));
+      params.add(FacetParams.FACET_METHOD, FacetParams.FACET_METHOD_fc);
+      params.set(SparseKeys.SPARSE, Boolean.TRUE.toString());
 
       // Check that the call was sparse-processed
       params.remove(SparseKeys.STATS_RESET);
@@ -186,6 +210,14 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
 
     {
       // Check that fine-counting is also sparse-counted
+      ModifiableSolrParams params = new ModifiableSolrParams();
+      params.set(CommonParams.Q, "*:*");
+      params.add(FacetParams.FACET, Boolean.TRUE.toString());
+      params.set(SparseKeys.SPARSE, Boolean.TRUE.toString());
+      params.add(FacetParams.FACET_LIMIT, Integer.toString(10));
+      params.add(FacetParams.FACET_METHOD, FacetParams.FACET_METHOD_fc);
+      params.add(SparseKeys.STATS, Boolean.TRUE.toString());
+
       params.set(FacetParams.FACET_FIELD, THIN);
       params.set(FacetParams.FACET_LIMIT, Integer.toString(5));
 
@@ -202,10 +234,21 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
 
     // Is it possible to turn the distributed facet call cache off?
     {
+      ModifiableSolrParams params = new ModifiableSolrParams();
+      params.set(CommonParams.Q, "*:*");
+      params.add(FacetParams.FACET, Boolean.TRUE.toString());
+      params.add(FacetParams.FACET_METHOD, FacetParams.FACET_METHOD_fc);
+      params.set(SparseKeys.SPARSE, Boolean.TRUE.toString());
+
+      params.set(FacetParams.FACET_FIELD, THIN);
+      params.set(FacetParams.FACET_LIMIT, Integer.toString(5));
+
       params.set(SparseKeys.CACHE_DISTRIBUTED, Boolean.FALSE.toString());
       params.set(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
       clients.get(0).query(params);
       params.remove(SparseKeys.STATS_RESET);
+
+      params.add(SparseKeys.STATS, Boolean.TRUE.toString());
       clients.get(0).query(params);
       QueryResponse results = clients.get(0).query(params);
       assertTrue("With disabled cache, stats should contain neither cache hits or misses\n" + results,
@@ -217,33 +260,88 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     System.out.println(nonSparseFF.toString().replace("{", "\n{"));
 
     {
+      ModifiableSolrParams params = new ModifiableSolrParams();
+      params.set(CommonParams.Q, "*:*");
+      params.add(FacetParams.FACET, Boolean.TRUE.toString());
+      params.add(FacetParams.FACET_METHOD, FacetParams.FACET_METHOD_fc);
+      params.set(SparseKeys.SPARSE, Boolean.TRUE.toString());
+
+      params.set(FacetParams.FACET_FIELD, THIN);
+      params.set(FacetParams.FACET_LIMIT, Integer.toString(5));
+      params.set(SparseKeys.SKIPREFINEMENTS, Boolean.TRUE.toString());
+
       // Disable fine-counting
       params.set(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
-      params.set(SparseKeys.SKIPREFINEMENTS, Boolean.TRUE.toString());
       clients.get(0).query(params);
       params.remove(SparseKeys.STATS_RESET);
+      params.set(SparseKeys.STATS, Boolean.TRUE.toString());
+
       QueryResponse sparseThin = clients.get(0).query(params);
-      System.out.println("****************** sparse");
       System.out.println(sparseThin.toString().replace("{", "\n{"));
-      System.out.println("******************");
       assertTrue("Without fine-counting stats should contain an instance of 'termLookup(calls=0)'\n"
           + sparseThin.toString().replace("{", "\n{"),
           sparseThin.toString().contains("termLookup(calls=0)"));
+      params.remove(SparseKeys.SKIPREFINEMENTS);
     }
 
     {
-      // minCount 0 vs. minCount 1, both should still be sparse
+      ModifiableSolrParams params = new ModifiableSolrParams();
       params.set(CommonParams.Q, "id:1");
+      params.add(FacetParams.FACET, Boolean.TRUE.toString());
+      params.add(FacetParams.FACET_METHOD, FacetParams.FACET_METHOD_fc);
+      params.set(SparseKeys.SPARSE, Boolean.TRUE.toString());
+
+      params.set(FacetParams.FACET_FIELD, THIN);
+      params.set(FacetParams.FACET_LIMIT, Integer.toString(5));
+      params.set(SparseKeys.SKIPREFINEMENTS, Boolean.TRUE.toString());
+
+      // minCount 0 vs. minCount 1, both should still be sparse
       params.set(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
-      params.remove(SparseKeys.SKIPREFINEMENTS);
       params.set(SparseKeys.MAXMINCOUNT, Integer.toString(0));
       clients.get(0).query(params);
       params.remove(SparseKeys.STATS_RESET);
+      params.set(SparseKeys.STATS, Boolean.TRUE.toString());
       QueryResponse sparseThin = clients.get(0).query(params);
       // With tiny result sets all possible facet values are returned in the first call, so no secondary call is needed
       assertTrue("For single-hit search, setting maxMin=0 should contain empty facet values\n"
           + sparseThin.toString().replace("{", "\n{"),
           sparseThin.toString().matches("(?m).*thin[0-9]+=0.*"));
+      params.remove(SparseKeys.MAXMINCOUNT);
+    }
+
+    { // nplane fails with -Dtests.seed=A04379F5D396357C
+      ModifiableSolrParams params = new ModifiableSolrParams();
+      params.set(CommonParams.Q, "*:*");
+      params.add(FacetParams.FACET, Boolean.TRUE.toString());
+      params.add(FacetParams.FACET_METHOD, FacetParams.FACET_METHOD_fc);
+      params.set(SparseKeys.SPARSE, Boolean.TRUE.toString());
+
+      params.set(FacetParams.FACET_FIELD, FF);
+      params.set(FacetParams.FACET_LIMIT, Integer.toString(10));
+
+      params.set(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
+      clients.get(0).query(params);
+      params.remove(SparseKeys.STATS_RESET);
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.nplane.toString());
+
+      {
+        params.set(SparseKeys.STATS, Boolean.TRUE.toString());
+        clients.get(0).query(params); // Double tap to get stats to bubble up
+        QueryResponse ngramThin = clients.get(0).query(params);
+        assertTrue("nplane faceting should be active\n"
+            + ngramThin.toString().replace("{", "\n{").replace(")", ")\n"),
+            ngramThin.toString().contains("nplaneAllocation(calls=1"));
+      }
+
+      {
+        params.set(SparseKeys.STATS, Boolean.FALSE.toString()); // For comparison
+        QueryResponse ngramFF = clients.get(0).query(params);
+        // With tiny result sets all possible facet values are returned in the first call, so no secondary call is needed
+        assertEquals("ngram faceting should give the same result as Vanilla Solr\n"
+            + ngramFF.toString().replace("{", "\n{"),
+            nonSparseFF.toString().replaceAll("QTime=[0-9]+", "").replace("{", "\n{"),
+            ngramFF.toString().replaceAll("QTime=[0-9]+", "").replace("{", "\n{"));
+      }
     }
     /*   TODO: Add facet content with 12+ unique values and a matching search that contains zero values
     params.set(SparseKeys.MAXMINCOUNT, Integer.toString(1));
