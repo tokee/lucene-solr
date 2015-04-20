@@ -119,6 +119,7 @@ public class SparseCounterPool {
   private final TimeStat requestClears = new TimeStat("requestClear");
   private final TimeStat backgroundClears = new TimeStat("backgroundClear");
   private final TimeStat packedAllocations = new TimeStat("packedAllocation");
+  private final TimeStat nplaneAllocations = new TimeStat("nplaneAllocation");
   private final TimeStat intAllocations = new TimeStat("intAllocation");
   private final TimeStat dualPlaneAllocations = new TimeStat("dualPlaneAllocation");
   private final TimeStat collections = new TimeStat("collect");
@@ -315,6 +316,7 @@ public class SparseCounterPool {
         PackedInts.Mutable counts = DualPlaneMutable.create(getHistogram());
         vc = new SparseCounterThreaded(implementation, counts, maxCountForAny, sparseKeys.minTags,
             sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        dualPlaneAllocations.incRel(allocateTime);
         break;
       }
       case nplane: {
@@ -335,7 +337,10 @@ public class SparseCounterPool {
                 "Logic error: nplane counting was requested and an a template existed, but the template contained a "
                     + "counter with implementation " + scp.counterImpl);
           }
-          return scp.createSibling();
+
+          ValueCounter counter = scp.createSibling();
+          nplaneAllocations.incRel(allocateTime);
+          return counter;
         }
       }
 
@@ -568,7 +573,7 @@ public class SparseCounterPool {
             "%s, %s, %s, " + // collect, extract, resolve
             "%s, %s, " + // disables,  withinCutoff
             "exceededCutoff=%d, SCPool(cached=%d/%d, currentBackgroundClears=%d, %s, " + // emptyReuses
-            "%s, %s, %s, " + // packedAllocations, intAllocations, dualPlaneAllocations
+            "%s, %s, %s, %s, " + // packedAllocations, intAllocations, dualPlaneAllocations
             "%s, " + // regexpMatches
             "%s, %s, " + // requestClears, backgroundClears
             "cache(hits=%d, misses=%d, %s, %s), " + // filledFrees, emptyFrees
@@ -578,7 +583,7 @@ public class SparseCounterPool {
         collections, extractions, resolvings,
         disables, withinCutoffCount,
         exceededCutoffCount.get() - disables.get(), poolSize, maxPoolSize, pendingClears, emptyReuses,
-        packedAllocations, intAllocations, dualPlaneAllocations,
+        packedAllocations, intAllocations, dualPlaneAllocations, nplaneAllocations,
         regexpMatches,
         requestClears, backgroundClears,
         cacheHits.get(), cacheMisses.get(), filledFrees, emptyFrees,
