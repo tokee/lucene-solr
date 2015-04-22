@@ -101,29 +101,11 @@ public class SparseDocValuesFacets {
     // Resolve providers of terms and ordinal-mapping
     final SchemaField schemaField = searcher.getSchema().getField(fieldName);
 
-    final SortedSetDocValues si;  // for term lookups only
-    OrdinalMap ordinalMap = null; // for mapping per-segment ords to global ones
-    {
-      if (schemaField.multiValued()) {
-        si = searcher.getAtomicReader().getSortedSetDocValues(fieldName);
-        if (si instanceof MultiSortedSetDocValues) {
-          ordinalMap = ((MultiSortedSetDocValues)si).mapping;
-        }
-      } else {
-        SortedDocValues single = searcher.getAtomicReader().getSortedDocValues(fieldName);
-        si = single == null ? null : DocValues.singleton(single);
-        if (single instanceof MultiSortedDocValues) {
-          ordinalMap = ((MultiSortedDocValues)single).mapping;
-        }
-      }
-      if (si == null) {
-        return finalize(new NamedList<Integer>(), searcher, schemaField, docs, -1, missing);
-      }
-      if (si.getValueCount() >= Integer.MAX_VALUE) {
-        throw new UnsupportedOperationException(
-            "Currently this faceting method is limited to Integer.MAX_VALUE=" + Integer.MAX_VALUE + " unique terms");
-      }
+    final Lookup lookup = new Lookup(searcher, schemaField);
+    if (lookup.si == null) {
+      return finalize(new NamedList<Integer>(), searcher, schemaField, docs, -1, missing);
     }
+
     // Checks whether we can logically skip faceting
     final int hitCount = docs.size();
 
@@ -142,16 +124,16 @@ public class SparseDocValuesFacets {
       }
 
       if (prefix!=null) {
-        startTermIndex = (int) si.lookupTerm(prefixRef);
+        startTermIndex = (int) lookup.si.lookupTerm(prefixRef);
         if (startTermIndex<0) startTermIndex=-startTermIndex-1;
         prefixRef.append(UnicodeUtil.BIG_TERM);
-        endTermIndex = (int) si.lookupTerm(prefixRef);
+        endTermIndex = (int) lookup.si.lookupTerm(prefixRef);
         assert endTermIndex < 0;
         endTermIndex = -endTermIndex-1;
       } else {
         //startTermIndex=-1;
         startTermIndex=0; // Changed to explicit missingCount
-        endTermIndex=(int) si.getValueCount();
+        endTermIndex=(int) lookup.si.getValueCount();
       }
     }
 
@@ -162,7 +144,7 @@ public class SparseDocValuesFacets {
     }
 
     // Providers ready. Check that the pool has enough information and construct a counter
-    final ValueCounter counts = acquireCounter(sparseKeys, searcher, si, ordinalMap, schemaField, pool);
+    final ValueCounter counts = acquireCounter(sparseKeys, searcher, lookup.si, lookup.ordinalMap, schemaField, pool);
 
     // Calculate counts for all relevant terms if the counter structure is empty
     // The counter structure is always empty for single-shard searches and first phase of multi-shard searches
@@ -176,14 +158,14 @@ public class SparseDocValuesFacets {
       }
 
       final long sparseCollectTime = System.nanoTime();
-      collectCounts(sparseKeys, searcher, docs, schemaField, ordinalMap, startTermIndex, counts);
+      collectCounts(sparseKeys, searcher, docs, schemaField, lookup, startTermIndex, counts);
       pool.incCollectTimeRel(sparseCollectTime);
     }
 
     if (termList != null) {
       // Specific terms were requested. This is used with fine-counting of facet values in distributed faceting
       try {
-        return extractSpecificCounts(searcher, pool, si, fieldName, docs, counts, termList);
+        return extractSpecificCounts(searcher, pool, lookup.si, fieldName, docs, counts, termList);
       } finally  {
         pool.release(counts, sparseKeys);
         pool.incTermsListTotalTimeRel(fullStartTime);
@@ -211,7 +193,7 @@ public class SparseDocValuesFacets {
         if (counts.iterate(startTermIndex==-1?1:0, nTerms, minCount, false,
             sparseKeys.blacklists.isEmpty() && sparseKeys.whitelists.isEmpty() ?
                 new ValueCounter.TopCallback(minCount-1, queue) :
-                new PatternMatchingCallback(minCount-1, queue, maxsize, sparseKeys, pool, si, ft, charsRef)
+                new PatternMatchingCallback(minCount-1, queue, maxsize, sparseKeys, pool, lookup.si, ft, charsRef)
         )) {
           pool.incWithinCount();
         } else {
@@ -239,7 +221,7 @@ public class SparseDocValuesFacets {
         long pair = sorted[i];
         int c = (int)(pair >>> 32);
         int tnum = Integer.MAX_VALUE - (int)pair;
-        res.add(resolveTerm(pool, sparseKeys, si, ft, startTermIndex+tnum, charsRef, br), c);
+        res.add(resolveTerm(pool, sparseKeys, lookup.si, ft, startTermIndex+tnum, charsRef, br), c);
 /*        si.lookupOrd(startTermIndex+tnum, br);
         ft.indexedToReadable(br, charsRef);
         res.add(charsRef.toString(), c);*/
@@ -262,7 +244,7 @@ public class SparseDocValuesFacets {
         int c = (int) counts.get(i);
         if (c<minCount || --off>=0) continue;
         if (--lim<0) break;
-        res.add(resolveTerm(pool, sparseKeys, si, ft, startTermIndex+i, charsRef, br), c);
+        res.add(resolveTerm(pool, sparseKeys, lookup.si, ft, startTermIndex+i, charsRef, br), c);
 /*        si.lookupOrd(startTermIndex+i, br);
         ft.indexedToReadable(br, charsRef);
         res.add(charsRef.toString(), c);*/
@@ -275,14 +257,53 @@ public class SparseDocValuesFacets {
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
   }
 
+  /**
+   * Encapsulation of DocValues and OrdinalMap. Neither are Thread safe so an instance/Thread is needed.
+   */
+  private static class Lookup {
+    private final SchemaField schemaField;
+    private final SolrIndexSearcher searcher;
+
+    final SortedSetDocValues si;
+    final OrdinalMap ordinalMap;
+
+    public Lookup(SolrIndexSearcher searcher, SchemaField schemaField) throws IOException {
+      this.schemaField = schemaField;
+      this.searcher = searcher;
+
+      String fieldName = schemaField.getName();
+      if (schemaField.multiValued()) {
+        si = searcher.getAtomicReader().getSortedSetDocValues(fieldName);
+        ordinalMap = si instanceof MultiSortedSetDocValues ? ((MultiSortedSetDocValues)si).mapping : null;
+      } else {
+        SortedDocValues single = searcher.getAtomicReader().getSortedDocValues(fieldName);
+        si = single == null ? null : DocValues.singleton(single);
+        ordinalMap = single instanceof MultiSortedDocValues ? ((MultiSortedDocValues)single).mapping : null;
+      }
+      if (si != null && si.getValueCount() >= Integer.MAX_VALUE) {
+        throw new UnsupportedOperationException(
+            "Currently this faceting method is limited to Integer.MAX_VALUE=" + Integer.MAX_VALUE + " unique terms");
+      }
+    }
+
+    /**
+     * Call this from another Thread than the one constructing this to get a Thread-local instance.
+     * @return a Thread-local instance of Lookup with suitable DocValues and OrdinalMap structures.
+     * @throws IOException if the cloning could not be performed.
+     */
+    public Lookup cloneToThread() throws IOException {
+      return new Lookup(searcher, schemaField);
+    }
+  }
+
   /*
   Iterate the leafs and update the counters based on the DocValues ordinals, adjusted to the global ordinal structure.
    */
   private static void collectCounts(
-      SparseKeys sparseKeys, SolrIndexSearcher searcher, DocSet docs, SchemaField schemaField, OrdinalMap ordinalMap,
+      SparseKeys sparseKeys, SolrIndexSearcher searcher, DocSet docs, SchemaField schemaField, Lookup lookup,
       int startTermIndex, ValueCounter counts) throws IOException {
     String fieldName = schemaField.getName();
-    Filter filter = docs.getTopFilter();
+    final Filter filter = docs.getTopFilter(); // Should be Thread safe (see PerSegmentSingleValuedFaceting)
     List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
     // The que ensures that only the given max of threads are started
     // Accumulators are responsible for removing themselves from the queue
@@ -298,8 +319,8 @@ public class SparseDocValuesFacets {
 
       if (accumulators == null) { // In-thread counting
         try {
-          new Accumulator(leaf, 0, Integer.MAX_VALUE, sparseKeys, schemaField, ordinalMap, startTermIndex, counts,
-              fieldName, filter, subIndex, null).call();
+          new Accumulator(leaf, 0, Integer.MAX_VALUE, sparseKeys, schemaField, lookup, startTermIndex, counts,
+              fieldName, filter, subIndex, null, false).call();
           continue;
         } catch (Exception e) {
           throw new IOException("Exception calling " + Accumulator.class.getSimpleName() + " within currentThread", e);
@@ -316,20 +337,20 @@ public class SparseDocValuesFacets {
       for (int i = 0 ; i < parts ; i++) {
         Accumulator accumulator = new Accumulator(
             leaf, i*blockSize, i < parts-1 ? (i+1)*blockSize : Integer.MAX_VALUE,
-            sparseKeys, schemaField, ordinalMap, startTermIndex, counts, fieldName, filter, subIndex,
-            accumulators);
+            sparseKeys, schemaField, lookup, startTermIndex, counts, fieldName, filter, subIndex,
+            accumulators, false); // TODO: Do we need to clone lookup for subsequent (i!=0) slices inside same segment?
         try {
           accumulators.put(accumulator);
         } catch (InterruptedException e) {
           throw new RuntimeException("Interrupted while putting new Accumulator into the queue", e);
         }
         executor.submit(accumulator);
-        emptyQueue(sparseKeys, accumulators); // FIXME: This should be at the end, but that trips SparseFacetTest
       }
     }
     if (accumulators == null) {
       return;
     }
+    emptyQueue(sparseKeys, accumulators);
   }
 
   @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We synchronize to wait
@@ -352,35 +373,40 @@ public class SparseDocValuesFacets {
     private final int endDocID;
     private final SparseKeys sparseKeys;
     private final SchemaField schemaField;
-    private final OrdinalMap ordinalMap;
     private final int startTermIndex;
     private final ValueCounter counts;
     private final String fieldName;
     private final Filter filter;
     private final int subIndex;
     private final Queue<Accumulator> accumulators;
+    private final boolean cloneLookup;
+    private Lookup lookup;
 
     public Accumulator(
         AtomicReaderContext leaf, int startDocID, int endDocID, SparseKeys sparseKeys, SchemaField schemaField,
-        OrdinalMap ordinalMap, int startTermIndex, ValueCounter counts, String fieldName, Filter filter, int subIndex,
-        Queue<Accumulator> accumulators) {
+        Lookup lookup, int startTermIndex, ValueCounter counts, String fieldName, Filter filter, int subIndex,
+        Queue<Accumulator> accumulators, boolean multiThreadedInLeaf) {
       this.leaf = leaf;
       this.startDocID = startDocID;
       this.endDocID = endDocID;
       this.sparseKeys = sparseKeys;
       this.schemaField = schemaField;
-      this.ordinalMap = ordinalMap;
+      this.lookup = lookup;
       this.startTermIndex = startTermIndex;
       this.counts = counts;
       this.fieldName = fieldName;
       this.filter = filter;
       this.subIndex = subIndex;
       this.accumulators = accumulators;
+      this.cloneLookup = multiThreadedInLeaf;
     }
 
     @Override
     public Accumulator call() throws Exception {
       try {
+        if (cloneLookup) { // Needed for multi-threading inside segments
+          lookup = lookup.cloneToThread();
+        }
         // TODO: Check if dis.bits() are available and share them instead of re-issuing a lot of searches
         DocIdSet dis = filter.getDocIdSet(leaf, null); // solr docsets already exclude any deleted docs
         DocIdSetIterator disi = null;
@@ -398,17 +424,16 @@ public class SparseDocValuesFacets {
           final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
           if (singleton != null) {
             // some codecs may optimize SORTED_SET storage for single-valued fields
-            // FIXME: Make a proper thread safe version here
-            accumSingle(counts, startTermIndex, singleton, disi, startDocID, endDocID, subIndex, ordinalMap);
+            accumSingle(counts, startTermIndex, singleton, disi, startDocID, endDocID, subIndex, lookup);
           } else {
-            accumMulti(counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, ordinalMap);
+            accumMulti(counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, lookup);
           }
         } else {
           SortedDocValues sub = leaf.reader().getSortedDocValues(fieldName);
           if (sub == null) {
             sub = DocValues.EMPTY_SORTED;
           }
-          accumSingle(counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, ordinalMap);
+          accumSingle(counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, lookup);
         }
         return this;
       } finally {
@@ -754,19 +779,20 @@ public class SparseDocValuesFacets {
   Iterate single-value DocValues and update the counters based on delivered ordinals.
    */
   private static void accumSingle(ValueCounter counts, int startTermIndex, SortedDocValues si, DocIdSetIterator disi,
-                                  int startDocID, int endDocID, int subIndex, OrdinalMap map) throws IOException {
+                                  int startDocID, int endDocID, int subIndex, Lookup lookup) throws IOException {
     int doc = disi.nextDoc();
     if (startDocID > 0 && doc != DocIdSetIterator.NO_MORE_DOCS) {
       doc = disi.advance(startDocID);
     }
     while (doc != DocIdSetIterator.NO_MORE_DOCS && doc < endDocID) {
       int term = si.getOrd(doc);
-      if (map != null && term >= 0) {
-        term = (int) map.getGlobalOrd(subIndex, term);
+      if (lookup.ordinalMap != null && term >= 0) {
+        term = (int) lookup.ordinalMap.getGlobalOrd(subIndex, term);
       }
       int arrIdx = term-startTermIndex;
       if (arrIdx>=0 && arrIdx<counts.size()) {
-        counts.inc(arrIdx);
+        synchronized (SparseDocValuesFacets.class) { // TODO: Not synchronized fails with nplane
+        counts.inc(arrIdx);                         }
       }
       doc = disi.nextDoc();
     }
@@ -776,7 +802,7 @@ public class SparseDocValuesFacets {
   Iterate multi-value DocValues and update the counters based on delivered ordinals.
    */
   private static void accumMulti(ValueCounter counts, int startTermIndex, SortedSetDocValues ssi, DocIdSetIterator disi,
-                                 int startDocID, int endDocID, int subIndex, OrdinalMap map) throws IOException {
+                                 int startDocID, int endDocID, int subIndex, Lookup lookup) throws IOException {
     if (ssi == DocValues.EMPTY_SORTED_SET) {
       return; // Nothing to process; return immediately
     }
@@ -800,11 +826,15 @@ public class SparseDocValuesFacets {
       }
 
       do {
-        if (map != null) {
-          term = (int) map.getGlobalOrd(subIndex, term);
+        if (lookup.ordinalMap != null) {
+          term = (int) lookup.ordinalMap.getGlobalOrd(subIndex, term);
         }
         int arrIdx = term - startTermIndex;
-        if (arrIdx >= 0 && arrIdx < counts.size()) counts.inc(arrIdx);
+        synchronized (SparseDocValuesFacets.class) { // TODO: Not synchronized fails with nplane
+
+        if (arrIdx >= 0 && arrIdx < counts.size()) {
+          counts.inc(arrIdx);
+        }}
       } while ((term = (int) ssi.nextOrd()) >= 0);
     }
   }
