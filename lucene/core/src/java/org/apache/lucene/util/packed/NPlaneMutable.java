@@ -341,7 +341,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
   @Override
   public boolean compareAndSet(int index, long expect, long update) {
-    throw new UnsupportedOperationException("Cannot uphold the contract of this operation");
+    throw new UnsupportedOperationException(
+        "Cannot guarantee atomicity of compareAndSet due to the multi-plane nature of NPlaneMutable");
   }
 
   @Override

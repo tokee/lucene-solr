@@ -29,7 +29,7 @@ import org.apache.lucene.util.packed.PackedInts;
  * increments and sets. For single-threaded usage, this class is slower than SparseCounterPacked.
  */
 public class SparseCounterThreaded implements ValueCounter {
-  private final PackedInts.Mutable counts;  // One counter/tag
+  final PackedInts.Mutable counts;  // One counter/tag
   private final Incrementable countsInc; // Wrapper around or same-reference as counts
   private final int[] tracker; // Tracker not PackedInts.Mutable as it should be relatively small
   private final int tracksMax; // The maximum amount of trackers (tracker.length)
@@ -141,7 +141,6 @@ public class SparseCounterThreaded implements ValueCounter {
       }
       return;
     }
-
     // There is an explicit max (facet.sparse.maxtracked). We must avoid blowing through
     // the ceiling
     while (true) {

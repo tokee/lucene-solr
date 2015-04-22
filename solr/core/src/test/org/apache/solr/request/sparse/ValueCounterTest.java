@@ -17,6 +17,8 @@ package org.apache.solr.request.sparse;
  * limitations under the License.
  */
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 import java.util.concurrent.Callable;
@@ -50,6 +52,7 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
     testPackedOpportunisticReflection(8);
   }
 
+  // Generation of increments fails with -Dtests.seed=89A5D9C1D51AA973
   public void testPackedOpportunisticReflectionNonThreaded() throws Exception {
     testPackedOpportunisticReflection(1);
   }
@@ -62,32 +65,63 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
     final PackedInts.Reader maxima = createMaxima(SIZE, MAX);
     SparseCounterThreaded counterA = new SparseCounterThreaded(
         SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima),
-        MAX, 0, 1.0, Integer.MAX_VALUE);
+        MAX, 0, 1.0, -1);
     SparseCounterThreaded counterB = new SparseCounterThreaded(
         SparseKeys.COUNTER_IMPL.packed, PackedOpportunistic.create(SIZE, PackedInts.bitsRequired(MAX)),
-        MAX, 0, 1.0, Integer.MAX_VALUE);
+        MAX, 0, 1.0, -1);
 
-    assertVCEquals(counterA, counterB, maxima, MAX_UPDATES, threads);
+    updateAndTest(counterA, counterB, maxima, MAX_UPDATES, threads);
+  }
+
+  public void testNPlaneSmall() throws Exception {
+    final int SIZE = 10;
+    final int MAX = 10;
+    final int MAX_UPDATES = 1;
+
+    final PackedInts.Reader maxima = createMaxima(SIZE, MAX);
+    SparseCounterThreaded counterA = new SparseCounterThreaded(
+        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima),
+        MAX, 0, 1.0, -1);
+    SparseCounterThreaded counterB = new SparseCounterThreaded(
+        SparseKeys.COUNTER_IMPL.packed, PackedOpportunistic.create(SIZE, PackedInts.bitsRequired(MAX)),
+        MAX, 0, 1.0, -1);
+
+    updateAndTest(counterA, counterB, maxima, MAX_UPDATES, 1);
+  }
+
+  public void testNPlaneTrivial() throws Exception {
+    final PackedInts.Mutable maxima = PackedInts.getMutable(10, 32, PackedInts.COMPACT);
+    List<Long> maximaSrc= Arrays.asList(10L, 20L, 30L, 100L, 1L, 1L, 1L, 1L, 1L, 1L);
+    for (int i = 0 ; i < maxima.size() ; i++) {
+      maxima.set(i, maximaSrc.get(i));
+    }
+
+    SparseCounterThreaded counterA = new SparseCounterThreaded(
+        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima),
+        100L, 0, 1.0, -1);
+
+    counterA.inc(0);
+    assertEquals("The value at index 0 should be correct", 1, counterA.get(0));
   }
 
   private void testPackedOpportunisticReflection(int threads) throws Exception {
-    final int SIZE = 1000;
+    final int SIZE = 10;
     final int MAX = 1000;
     final int MAX_UPDATES = SIZE*MAX;
 
     final PackedInts.Reader maxima = createMaxima(SIZE, MAX);
     SparseCounterThreaded counterA = new SparseCounterThreaded(
         SparseKeys.COUNTER_IMPL.packed, PackedOpportunistic.create(SIZE, PackedInts.bitsRequired(MAX)),
-        MAX, 0, 1.0, Integer.MAX_VALUE);
+        MAX, Integer.MAX_VALUE, 1.0, -1);
     SparseCounterThreaded counterB = new SparseCounterThreaded(
         SparseKeys.COUNTER_IMPL.packed, PackedOpportunistic.create(SIZE, PackedInts.bitsRequired(MAX)),
-        MAX, 0, 1.0, Integer.MAX_VALUE);
+        MAX, Integer.MAX_VALUE, 1.0, -1);
 
-    assertVCEquals(counterA, counterB, maxima, MAX_UPDATES, threads);
+    updateAndTest(counterA, counterB, maxima, MAX_UPDATES, threads);
   }
 
-  private void assertVCEquals(SparseCounterThreaded counterA, SparseCounterThreaded counterB, PackedInts.Reader maxima,
-                              int maxUpdates, int threads) throws Exception {
+  private void updateAndTest(SparseCounterThreaded counterA, SparseCounterThreaded counterB, PackedInts.Reader maxima,
+                             int maxUpdates, int threads) throws Exception {
     final long sum = sum(maxima);
     final PackedInts.Reader increments = generateRepresentativeValueIncrements(
         maxima, (int) Math.min(sum, maxUpdates), random().nextLong(), sum);
@@ -104,6 +138,8 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
       }
       executor.shutdown();
     }
+    assertWithinMaxima("counterA", maxima, counterA.counts);
+    assertWithinMaxima("counterB", maxima, counterB.counts);
     assertVCEquals(counterB, counterA); // We trust PackedOpportunistic more
   }
 
@@ -117,7 +153,7 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
   private PackedInts.Reader createMaxima(int count, int max) {
     PackedInts.Mutable maxima = PackedInts.getMutable(count, PackedInts.bitsRequired(max), PackedInts.COMPACT);
     for (int i = 0 ; i < count ; i++) {
-      maxima.set(i, 1+random().nextInt(max));
+      maxima.set(i, 1+random().nextInt(max-1));
     }
     return maxima;
   }
@@ -149,7 +185,26 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
       nextPos += delta;
     }
     shuffle(increments, new Random(seed));
+    verifyIncrements(maxima, increments);
     return increments;
+  }
+
+  private static void verifyIncrements(PackedInts.Reader maxima, PackedInts.Mutable increments) {
+    PackedInts.Mutable counter = PackedInts.getMutable(maxima.size(), 32, PackedInts.FAST);
+    //PackedInts.Mutable counter = PackedOpportunistic.create(maxima.size(), 32);
+    // Fill
+    for (int i = 0 ; i < increments.size() ; i++) {
+      counter.set((int) increments.get(i), counter.get((int) increments.get(i))+1);
+    }
+    assertWithinMaxima("Verifying plain increments", maxima, increments);
+  }
+
+  private static void assertWithinMaxima(String message, PackedInts.Reader maxima, PackedInts.Reader counter) {
+    for (int i = 0 ; i < maxima.size() ; i++) {
+      assertTrue(message + ": counter(" + i + ")=" + counter.get(i)
+              + " is greater than maxima(" + i + ")=" + maxima.get(i),
+          counter.get(i) <= maxima.get(i));
+    }
   }
 
   // http://stackoverflow.com/questions/1519736/random-shuffling-of-an-array
@@ -194,6 +249,7 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
         try {
 //          System.out.println("inc(" + i + " -> " + increments.get(i) + ")");
           counters.inc((int) increments.get(i));
+//          counters.set((int) increments.get(i), counters.get((int) increments.get(i))+1);
         } catch (Exception e) {
           int totalIncs = -1;
           for (int l = 0; l <= i; l++) { // Locate duplicate increments
