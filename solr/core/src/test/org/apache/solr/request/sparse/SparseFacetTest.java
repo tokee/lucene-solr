@@ -17,7 +17,6 @@ package org.apache.solr.request.sparse;
  * limitations under the License.
  */
 
-import org.apache.commons.collections.list.FixedSizeList;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.solr.SolrTestCaseJ4;
 import org.apache.solr.common.params.CommonParams;
@@ -27,10 +26,10 @@ import org.apache.solr.request.SolrQueryRequest;
 import org.junit.BeforeClass;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
-import java.util.Queue;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -195,6 +194,48 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
   // Failed consistably with -Dtests.seed=4AF7FD360658E93E or -Dtests.seed=B5814A333F9F734C (seems reproducible)
   public void testMultiThreadedNPlaneMultiValueFaceting() throws Exception {
     testFacetImplementation(SparseKeys.COUNTER_IMPL.nplane, MULTI_DV_FIELD, "multi_", 2);
+  }
+
+  public void testTermsCount() throws Exception {
+    final String FIELD = MULTI_DV_FIELD;
+    final String TERMS = "multi_1,multi_2";
+    final String PREFIX = "multi";
+    final int LIMIT = 10;
+
+    String vanilla;
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, String.format(Locale.ENGLISH, "{!terms=$%1$s__terms}%1$s", FIELD));
+      params.set(String.format(Locale.ENGLISH, "%s__terms", FIELD), TERMS);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, false);
+      params.set("indent", true);
+      req.setParams(params);
+      vanilla = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+      assertEquals("Vanilla Solr faceting should give the expected number of results",
+          TERMS.split(",").length, getEntries(req, "int name..(" + PREFIX + "[^\"]*)").size());
+    }
+
+    for (SparseKeys.COUNTER_IMPL impl: SparseKeys.COUNTER_IMPL.values()) {
+    //for (SparseKeys.COUNTER_IMPL impl: Arrays.asList(SparseKeys.COUNTER_IMPL.array)) {
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, String.format(Locale.ENGLISH, "{!terms=$%1$s__terms}%1$s", FIELD));
+      params.set(String.format(Locale.ENGLISH, "%s__terms", FIELD), TERMS);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.COUNTER, impl.toString());
+      params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+      params.set("indent", true);
+      req.setParams(params);
+      String sparse = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+      assertEquals("Packed sparse faceting should give the expected number of results",
+          TERMS.split(",").length, getEntries(req, "int name..(" + PREFIX + "[^\"]*)").size());
+      assertEquals("Sparse counter implementation " + impl + " should match vanilla", vanilla, sparse);
+    }
   }
 
   public void testFacetImplementation(

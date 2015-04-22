@@ -18,7 +18,6 @@ package org.apache.solr.request.sparse;
  */
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -695,8 +694,8 @@ public class SparseDocValuesFacets {
     NamedList<Integer> res = new NamedList<>();
     for (String term : terms) {
       String internal = ft.toInternal(term);
-      // TODO: Check if +1 is always the case (what about startTermIndex with prefix queries?)
-      long index = 1+si.lookupTerm(new BytesRef(term));
+      // Direct lookup as we removed the missing-values-in-counter-zero hack
+      long index = si.lookupTerm(new BytesRef(term));
       // TODO: Remove err-out after sufficiently testing
       int count;
       if (index < 0) { // This is OK. Asking for a non-existing term is normal in distributed faceting
