@@ -174,6 +174,7 @@ public class SparseCounterThreaded implements ValueCounter {
           tracker[oldTracksPos] = counter;
         }
       }
+      break;
     }
   }
 
