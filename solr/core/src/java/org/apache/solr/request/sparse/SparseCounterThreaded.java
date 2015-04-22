@@ -34,7 +34,6 @@ public class SparseCounterThreaded implements ValueCounter {
   private final int[] tracker; // Tracker not PackedInts.Mutable as it should be relatively small
   private final int tracksMax; // The maximum amount of trackers (tracker.length)
   public final SparseKeys.COUNTER_IMPL counterImpl; // Used for key generation
-  private AtomicLong zeroCounter = new AtomicLong(0); // The counter at index 0 is special as it can exceed the maxValue of {@link #counts}
 
   // The current amount of tracker entries. Setting this to 0 works as a tracker clear
   private AtomicInteger tracksPos = new AtomicInteger(0);
@@ -123,18 +122,6 @@ public class SparseCounterThreaded implements ValueCounter {
   // tracking structure for high contention multi-threading.
   // This only affects performance, not validity of the end result.
   public final void inc(int counter) {
-    // The zero counter is a special case. It tracks missing values and can be very high.
-    if (counter == 0) {
-      long newZero = zeroCounter.incrementAndGet();
-      if (newZero == 1) { // Update tracker
-        final int oldTracksPos = tracksPos.getAndIncrement();
-        if (oldTracksPos < tracksMax) {
-          tracker[oldTracksPos] = 0;
-        }
-      }
-      return;
-    }
-
     // No explicit max set for the for counters (this is the standard case)
     if (maxCountTracked == -1) {
       if (tracksPos.get() >= tracksMax) {
@@ -195,17 +182,6 @@ public class SparseCounterThreaded implements ValueCounter {
 
   @Override
   public final void set(int counter, long value) {
-    if (counter == 0) {
-      long oldZeroCount = zeroCounter.getAndSet(value);
-      if (oldZeroCount == 0) { // Update tracker
-        final int oldTracksPos = tracksPos.getAndIncrement();
-        if (oldTracksPos < tracksMax) {
-          tracker[oldTracksPos] = 0;
-        }
-      }
-      return;
-    }
-
     // getAndSet would be nice here to guard against double tracking with concurrent
     // setting of a value to the same counter
     long oldValue = counts.get(counter);
@@ -234,7 +210,6 @@ public class SparseCounterThreaded implements ValueCounter {
     }
     explicitlyDisabled = false;
     tracksPos.set(0);
-    zeroCounter.set(0);
     missing.set(0);
     setContentKey(null);
   }
@@ -264,7 +239,7 @@ public class SparseCounterThreaded implements ValueCounter {
    */
   @Override
   public final long get(int counter) {
-    return counter == 0 ? zeroCounter.get() : counts.get(counter);
+    return counts.get(counter);
   }
 
   // This code should be kept in sync with SparseCounterInt.iterate

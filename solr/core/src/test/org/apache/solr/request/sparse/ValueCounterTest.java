@@ -38,23 +38,23 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
   public static void beforeClass() throws Exception {
   }
 
-  public void testNPlaneThreaded() {
+  public void testNPlaneThreaded() throws Exception {
     testNPlane(8);
   }
 
-  public void testNPlaneNonThreaded() {
+  public void testNPlaneNonThreaded() throws Exception {
     testNPlane(1);
   }
 
-  public void testPackedOpportunisticReflectionThreaded() {
+  public void testPackedOpportunisticReflectionThreaded() throws Exception {
     testPackedOpportunisticReflection(8);
   }
 
-  public void testPackedOpportunisticReflectionNonThreaded() {
+  public void testPackedOpportunisticReflectionNonThreaded() throws Exception {
     testPackedOpportunisticReflection(1);
   }
 
-  private void testNPlane(int threads) {
+  private void testNPlane(int threads) throws Exception {
     final int SIZE = 1000;
     final int MAX = 1000;
     final int MAX_UPDATES = SIZE*MAX;
@@ -70,7 +70,7 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
     assertVCEquals(counterA, counterB, maxima, MAX_UPDATES, threads);
   }
 
-  private void testPackedOpportunisticReflection(int threads) {
+  private void testPackedOpportunisticReflection(int threads) throws Exception {
     final int SIZE = 1000;
     final int MAX = 1000;
     final int MAX_UPDATES = SIZE*MAX;
@@ -86,19 +86,24 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
     assertVCEquals(counterA, counterB, maxima, MAX_UPDATES, threads);
   }
 
-  private void assertVCEquals(SparseCounterThreaded counterA, SparseCounterThreaded counterB, PackedInts.Reader maxima, int maxUpdates, int threads) {
+  private void assertVCEquals(SparseCounterThreaded counterA, SparseCounterThreaded counterB, PackedInts.Reader maxima,
+                              int maxUpdates, int threads) throws Exception {
     final long sum = sum(maxima);
     final PackedInts.Reader increments = generateRepresentativeValueIncrements(
         maxima, (int) Math.min(sum, maxUpdates), random().nextLong(), sum);
-    final ExecutorService executor = Executors.newFixedThreadPool(threads * 2);
-    int splitSize = increments.size() / threads;
 
-    for (int i = 0 ; i < threads; i++) {
-      executor.submit(new UpdateJob(counterA, increments, maxima, i*splitSize, splitSize));
-      executor.submit(new UpdateJob(counterB, increments, maxima, i*splitSize, splitSize));
+    if (threads == 1) {
+      new UpdateJob(counterA, increments, maxima, 0, increments.size()).call();
+      new UpdateJob(counterB, increments, maxima, 0, increments.size()).call();
+    } else {
+      final ExecutorService executor = Executors.newFixedThreadPool(threads * 2);
+      int splitSize = increments.size() / threads;
+      for (int i = 0; i < threads; i++) {
+        executor.submit(new UpdateJob(counterA, increments, maxima, i * splitSize, splitSize));
+        executor.submit(new UpdateJob(counterB, increments, maxima, i * splitSize, splitSize));
+      }
+      executor.shutdown();
     }
-
-    executor.shutdown();
     assertVCEquals(counterB, counterA); // We trust PackedOpportunistic more
   }
 
@@ -136,7 +141,7 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
           System.out.println(String.format(Locale.ENGLISH,
               "generateRepresentativeValueIncrements error: currentPos=%d with maxima.size()=%d at %d/%d updates",
               currentPos, maxima.size(), i+1, updates));
-          break out; // Problem: This leaved the last counters dangling, potentially leading to overflow
+          break out; // Problem: This leaves the last counters dangling, potentially leading to overflow
         }
         currentSum += maxima.get(currentPos++);
       }
@@ -187,8 +192,8 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
     public UpdateJob call() throws Exception {
       for (int i = start; i < start + length; i++) {
         try {
-          synchronized (ValueCounterTest.class){
-          counters.inc((int) increments.get(i));}
+//          System.out.println("inc(" + i + " -> " + increments.get(i) + ")");
+          counters.inc((int) increments.get(i));
         } catch (Exception e) {
           int totalIncs = -1;
           for (int l = 0; l <= i; l++) { // Locate duplicate increments
