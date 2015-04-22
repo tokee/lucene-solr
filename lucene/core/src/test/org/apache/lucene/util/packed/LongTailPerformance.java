@@ -353,7 +353,7 @@ public class LongTailPerformance {
     long currentSum = maxima.get(0);
     out:
     for (int i = 0 ; i < updates ; i++) {
-      while (nextPos > currentSum) {
+      while (nextPos + 0.01 >= currentSum) { // 0.01 to handle rounding errors
         if (currentPos >= maxima.size()) {
           System.out.println(String.format(Locale.ENGLISH,
               "generateRepresentativeValueIncrements error: currentPos=%d with maxima.size()=%d at %d/%d updates",
