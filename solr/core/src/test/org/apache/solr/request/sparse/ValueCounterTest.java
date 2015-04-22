@@ -196,7 +196,7 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
     for (int i = 0 ; i < increments.size() ; i++) {
       counter.set((int) increments.get(i), counter.get((int) increments.get(i))+1);
     }
-    assertWithinMaxima("Verifying plain increments", maxima, increments);
+    assertWithinMaxima("Verifying plain increments", maxima, counter);
   }
 
   private static void assertWithinMaxima(String message, PackedInts.Reader maxima, PackedInts.Reader counter) {
