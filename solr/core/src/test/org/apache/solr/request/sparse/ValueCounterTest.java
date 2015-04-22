@@ -40,6 +40,7 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
   public static void beforeClass() throws Exception {
   }
 
+  // Sometimes fails, always with index 0 (might be due to opportunistic being used as reference
   public void testNPlaneThreaded() throws Exception {
     testNPlane(8);
   }
@@ -48,6 +49,7 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
     testNPlane(1);
   }
 
+  // Sometimes fails, always with index 0
   public void testPackedOpportunisticReflectionThreaded() throws Exception {
     testPackedOpportunisticReflection(8);
   }
@@ -126,27 +128,33 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
     final PackedInts.Reader increments = generateRepresentativeValueIncrements(
         maxima, (int) Math.min(sum, maxUpdates), random().nextLong(), sum);
 
+    new UpdateJob(counterA, increments, maxima, 0, increments.size()).call();
+    new UpdateJob(counterB, increments, maxima, 0, increments.size()).call();
+    assertWithinMaxima("counterA single threaded", maxima, counterA.counts);
+    assertWithinMaxima("counterB single threaded", maxima, counterB.counts);
+    assertVCEquals("Single threaded", counterB, counterA); // We trust PackedOpportunistic more
     if (threads == 1) {
-      new UpdateJob(counterA, increments, maxima, 0, increments.size()).call();
-      new UpdateJob(counterB, increments, maxima, 0, increments.size()).call();
-    } else {
-      final ExecutorService executor = Executors.newFixedThreadPool(threads * 2);
-      int splitSize = increments.size() / threads;
-      for (int i = 0; i < threads; i++) {
-        executor.submit(new UpdateJob(counterA, increments, maxima, i * splitSize, splitSize));
-        executor.submit(new UpdateJob(counterB, increments, maxima, i * splitSize, splitSize));
-      }
+      return;
+    }
+
+    counterA.clear();
+    counterB.clear();
+    final ExecutorService executor = Executors.newFixedThreadPool(threads * 2);
+    int splitSize = increments.size() / threads;
+    for (int i = 0; i < threads; i++) {
+      executor.submit(new UpdateJob(counterA, increments, maxima, i * splitSize, splitSize));
+      executor.submit(new UpdateJob(counterB, increments, maxima, i * splitSize, splitSize));
       executor.shutdown();
     }
-    assertWithinMaxima("counterA", maxima, counterA.counts);
-    assertWithinMaxima("counterB", maxima, counterB.counts);
-    assertVCEquals(counterB, counterA); // We trust PackedOpportunistic more
+    assertWithinMaxima("counterA threaded " + threads, maxima, counterA.counts);
+    assertWithinMaxima("counterB threaded " + threads, maxima, counterB.counts);
+    assertVCEquals("Threaded " + threads, counterB, counterA); // We trust PackedOpportunistic more
   }
 
-  private void assertVCEquals(ValueCounter expected, ValueCounter actual) {
-    assertEquals("The counters should have the same size", expected.size(), actual.size());
+  private void assertVCEquals(String message, ValueCounter expected, ValueCounter actual) {
+    assertEquals(message + ": The counters should have the same size", expected.size(), actual.size());
     for (int i = 0 ; i < expected.size() ; i++) {
-      assertEquals("The values at index " + i + " should be equal", expected.get(i), actual.get(i));
+      assertEquals(message + ": The values at index " + i + " should be equal", expected.get(i), actual.get(i));
     }
   }
 
@@ -172,7 +180,7 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
     long currentSum = maxima.get(0);
     out:
     for (int i = 0 ; i < updates ; i++) {
-      while (nextPos > currentSum) {
+      while (nextPos+0.01 >= currentSum) {
         if (currentPos >= maxima.size()) {
           System.out.println(String.format(Locale.ENGLISH,
               "generateRepresentativeValueIncrements error: currentPos=%d with maxima.size()=%d at %d/%d updates",
