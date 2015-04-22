@@ -579,9 +579,9 @@ public class SparseDocValuesFacets {
       if (pool.isInitialized()) {
         return;
       }
-      final long startTime = System.nanoTime();
       final int[] globOrdCount = getGlobOrdCount(searcher, si, globalMap, schemaField);
 
+      final long startTime = System.nanoTime();
       int maxCount = -1;
       long refCount = 0;
       for (int count : globOrdCount) {
@@ -591,7 +591,8 @@ public class SparseDocValuesFacets {
         }
       }
       log.info(String.format(
-          "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms",
+          "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms " +
+              "(excluding global ord count)",
           maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime() - startTime) / 1000000));
       // +1 as everything is shifted by 1 to use index 0 as special counter
       pool.setFieldProperties((int) (si.getValueCount() + 1), maxCount, searcher.maxDoc(), refCount);
@@ -605,7 +606,13 @@ public class SparseDocValuesFacets {
   private static int[] getGlobOrdCount(SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
                                        SchemaField schemaField) throws IOException {
     final long startTime = System.nanoTime();
-    final int[] globOrdCount = new int[(int) (si.getValueCount()+1)];
+    int valueCount = (int) si.getValueCount();
+    if (valueCount > 10*1000*1000) { // Counting time will probably not be trivial
+      log.info(
+          "Extracting global ordinal count for field " + schemaField.getName() + " with " + valueCount
+              + " values. Temporary memory overhead will be " + 1L*valueCount*Integer.SIZE/8/1024/1024 + "MB");
+    }
+    final int[] globOrdCount = new int[valueCount+1];
     List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
     for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
       AtomicReaderContext leaf = leaves.get(subIndex);
@@ -670,7 +677,7 @@ public class SparseDocValuesFacets {
       }
     }
     log.info(String.format(Locale.ENGLISH,
-        "Summed global ord count for field %s with %d unique values in %dms",
+        "Extracted global ord count for field %s with %d unique values in %dms",
         schemaField.getName(), globOrdCount.length, (System.nanoTime() - startTime) / 1000000));
     return globOrdCount;
   }
