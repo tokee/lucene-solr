@@ -45,7 +45,6 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 100; // Should probably be a low lower (100 or so)
   public static final int DEFAULT_MAX_PLANES = 64; // No default limit
   public static final double DEFAULT_COLLAPSE_FRACTION = 0.01; // If there's <= 1% counters left, pack them in 1 plane
-  public static final IMPL DEFAULT_IMPLEMENTATION = IMPL.spank; // Not thread safe. For multi-threading use tank
 
   public static enum IMPL {split, spank, tank, shift}
 
@@ -86,13 +85,15 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * Create a mutable of length {@code maxima.size()} capable of holding values up to the given maxima.
    * Space/performance trade-offs uses default values. The values will be initialized to 0.
    * @param maxima maxima for all values.
+   * @param implementation either spank (not thread safe increments) or tank (thread safe increments) are recommended.
    */
-  public NPlaneMutable(PackedInts.Reader maxima) {
-    this(maxima, DEFAULT_OVERFLOW_BUCKET_SIZE);
-  }
-
   public NPlaneMutable(PackedInts.Reader maxima, IMPL implementation) {
     this(new BPVPackedWrapper(maxima, false), DEFAULT_OVERFLOW_BUCKET_SIZE,
+        DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, implementation);
+  }
+
+  public NPlaneMutable(PackedInts.Reader maxima, IMPL implementation, int overflowBucketSize) {
+    this(new BPVPackedWrapper(maxima, false), overflowBucketSize,
         DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, implementation);
   }
 
@@ -100,10 +101,6 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     this.planes = planes;
   }
 
-  public NPlaneMutable(PackedInts.Reader maxima, int overflowBucketSize) {
-    this(new BPVPackedWrapper(maxima, false), overflowBucketSize,
-        DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, DEFAULT_IMPLEMENTATION);
-  }
   public NPlaneMutable(
       BPVProvider maxima, int overflowBucketSize, int maxPlanes, double collapseFraction, IMPL implementation) {
     this(getLayout(maxima, overflowBucketSize, maxPlanes, collapseFraction), maxima, implementation);
@@ -179,15 +176,15 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static class Layout extends ArrayList<PseudoPlane> { }
 
   // pos 0 = first bit
-  public static long estimateBytesNeeded(long[] histogram) {
+  public static long estimateBytesNeeded(long[] histogram, IMPL implementation) {
     return estimateBytesNeeded(
         histogram, DEFAULT_OVERFLOW_BUCKET_SIZE, DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, false,
-        DEFAULT_IMPLEMENTATION);
+        implementation);
   }
-  public static long estimateBytesNeeded(long[] histogram, boolean extraInstance) {
+  public static long estimateBytesNeeded(long[] histogram, IMPL implementation, boolean extraInstance) {
     return estimateBytesNeeded(
         histogram, DEFAULT_OVERFLOW_BUCKET_SIZE, DEFAULT_MAX_PLANES, DEFAULT_COLLAPSE_FRACTION, extraInstance,
-        DEFAULT_IMPLEMENTATION);
+        implementation);
   }
   public static long estimateBytesNeeded(
       long[] histogram, int overflowBucketSize, int maxPlanes, double collapseFraction, boolean extraInstance,
@@ -1007,7 +1004,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
     @Override
     public int next() {
-      return alreadyBPV ? (int) maxima[pos++] : PackedInts.bitsRequired(maxima[pos++]);
+      return alreadyBPV ? maxima[pos++] : PackedInts.bitsRequired(maxima[pos++]);
     }
 
     @Override

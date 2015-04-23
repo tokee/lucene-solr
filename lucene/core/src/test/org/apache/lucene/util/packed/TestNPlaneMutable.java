@@ -213,7 +213,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
     }
     System.out.println("maxima: " + toString(maxima));
 
-    PackedInts.Mutable bpm = new NPlaneMutable(maxima);
+    PackedInts.Mutable bpm = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank);
     bpm.set(1, bpm.get(1)+1);
     assertEquals("Test 1: index 1", 1, bpm.get(1));
     assertEquals("The unmodified counter 0 should be zero", 0 , bpm.get(0));
@@ -232,7 +232,8 @@ public class TestNPlaneMutable extends LuceneTestCase {
     long[] histogram = LongTailPerformance.reduce(LongTailPerformance.links20150209, 1.0);
 
     long[] full = NPlaneMutable.directHistogramToFullZero(histogram);
-    NPlaneMutable.Layout layout = NPlaneMutable.getLayoutWithZeroHistogram(full, 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
+    NPlaneMutable.Layout layout = NPlaneMutable.getLayoutWithZeroHistogram(
+        full, 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
     assertTrue("There should be more than 3 planes", layout.size() > 3);
     long mem = 0;
     for (NPlaneMutable.PseudoPlane plane: layout) {
@@ -252,7 +253,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
   public void testSmallInc() {
     final PackedInts.Mutable maxima = toMutable(10, 1, 16, 2, 3);
     System.out.println("maxima: " + toString(maxima));
-    NPlaneMutable bpm = new NPlaneMutable(maxima);
+    NPlaneMutable bpm = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank);
 
     bpm.increment(1);
     assertEquals("Test 1: index 1", 1, bpm.get(1));
@@ -269,7 +270,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
 
   public void testOverflowCache() {
     final PackedInts.Mutable maxima = toMutable(10, 1, 16, 2, 3, 2, 3, 100, 140);
-    NPlaneMutable bpm = new NPlaneMutable(maxima, 5);
+    NPlaneMutable bpm = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank, 5);
     final int[][] TESTS = new int[][]{
         {8, 14},
         {7, 50},
@@ -337,14 +338,14 @@ public class TestNPlaneMutable extends LuceneTestCase {
 
   public void testBytesEstimation() {
     System.out.println(String.format(Locale.ENGLISH, "ltbpm=%d/%d/%dMB",
-        NPlaneMutable.estimateBytesNeeded(LongTailPerformance.links20150209) / M,
+        NPlaneMutable.estimateBytesNeeded(LongTailPerformance.links20150209, NPlaneMutable.IMPL.spank) / M,
         640280533L*(NPlaneMutable.getMaxBit(LongTailPerformance.links20150209)+1)/8/M,
         640280533L*4/M));
   }
 
   public void disabledtestAssignRealLargeSample() {
     PackedInts.Reader maxima = LongTailPerformance.getMaxima(LongTailPerformance.links20150209);
-    NPlaneMutable bpm = new NPlaneMutable(maxima);
+    NPlaneMutable bpm = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank);
     for (int i = 0 ; i < maxima.size() ; i++) {
       bpm.set(i, maxima.get(i));
       assertEquals("The set max value at index " + i + " should be correct", maxima.get(i), bpm.get(i));
@@ -363,7 +364,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
   }
 
   private void assertMonkey(PackedInts.Reader maxima, int updates) {
-    NPlaneMutable bpm = new NPlaneMutable(maxima);
+    NPlaneMutable bpm = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank);
     PackedInts.Mutable expected = PackedInts.getMutable(bpm.size(), bpm.getBitsPerValue(), PackedInts.FASTEST);
     System.out.println(String.format(Locale.ENGLISH, "Memory used: %d/%dMB (%4.2f%%)",
         bpm.ramBytesUsed()/M, maxima.ramBytesUsed()/M, bpm.ramBytesUsed() * 100.0 / maxima.ramBytesUsed()));

@@ -120,16 +120,16 @@ public class TestDualPlaneMutable extends LuceneTestCase {
 
   private void dumpImplementationMemUsages(String source, long[] histogram) {
     long valueCount = 0;
-    for (int i = 0; i < histogram.length; i++) {
-      valueCount += histogram[i];
+    for (long counters : histogram) {
+      valueCount += counters;
       //valueCount += histogram[i]*(i+1);
     }
     final long intC = valueCount*4;
     final long packC = valueCount * LongTailPerformance.maxBit(histogram) / 8;
-    final long nplaneSplit = NPlaneMutable.estimateBytesNeeded(histogram);
+    final long nplaneSplit = NPlaneMutable.estimateBytesNeeded(histogram, NPlaneMutable.IMPL.split);
     final long nplaneSplitRank = NPlaneMutable.estimateBytesNeeded(
         histogram, 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, false, NPlaneMutable.IMPL.spank);
-    final long nplaneExtra = NPlaneMutable.estimateBytesNeeded(histogram, true);
+    final long nplaneExtra = NPlaneMutable.estimateBytesNeeded(histogram, NPlaneMutable.IMPL.spank, true);
     final long ltmC = DualPlaneMutable.estimateBytesNeeded(histogram, (int) valueCount);
     long lowest = 0; // TODO: Something is wrong as this is not lowest
     for (int i = 0 ; i < histogram[i] ; i++) {
