@@ -17,13 +17,16 @@ package org.apache.solr.request.sparse;
  * limitations under the License.
  */
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.packed.NPlaneMutable;
@@ -41,25 +44,46 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
   }
 
   // Sometimes fails, always with index 0 (might be due to opportunistic being used as reference
+  public void testNPlaneAndPackedThreaded() throws Exception {
+    testNPlaneAndPacked(8);
+  }
+
+  // Sometimes fails, always with index 0 (might be due to opportunistic being used as reference
   public void testNPlaneThreaded() throws Exception {
     testNPlane(8);
   }
 
-  public void testNPlaneNonThreaded() throws Exception {
-    testNPlane(1);
+  public void testNPlaneAndPackedNonThreaded() throws Exception {
+    testNPlaneAndPacked(1);
   }
 
   // Sometimes fails, always with index 0
-  public void testPackedOpportunisticReflectionThreaded() throws Exception {
-    testPackedOpportunisticReflection(8);
+  public void testPackedOpportunisticThreaded() throws Exception {
+    testPackedOpportunistic(8);
   }
 
   // Generation of increments fails with -Dtests.seed=89A5D9C1D51AA973
-  public void testPackedOpportunisticReflectionNonThreaded() throws Exception {
-    testPackedOpportunisticReflection(1);
+  public void testPackedOpportunisticNonThreaded() throws Exception {
+    testPackedOpportunistic(1);
   }
 
   private void testNPlane(int threads) throws Exception {
+    final int SIZE = 1000;
+    final int MAX = 1000;
+    final int MAX_UPDATES = SIZE*MAX;
+
+    final PackedInts.Reader maxima = createMaxima(SIZE, MAX);
+    SparseCounterThreaded counterA = new SparseCounterThreaded(
+        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima),
+        MAX, 0, 1.0, -1);
+    SparseCounterThreaded counterB = new SparseCounterThreaded(
+        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima),
+        MAX, 0, 1.0, -1);
+
+    updateAndTest(counterA, counterB, maxima, MAX_UPDATES, threads);
+  }
+
+  private void testNPlaneAndPacked(int threads) throws Exception {
     final int SIZE = 1000;
     final int MAX = 1000;
     final int MAX_UPDATES = SIZE*MAX;
@@ -106,8 +130,8 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
     assertEquals("The value at index 0 should be correct", 1, counterA.get(0));
   }
 
-  private void testPackedOpportunisticReflection(int threads) throws Exception {
-    final int SIZE = 10;
+  private void testPackedOpportunistic(int threads) throws Exception {
+    final int SIZE = 100;
     final int MAX = 1000;
     final int MAX_UPDATES = SIZE*MAX;
 
@@ -137,18 +161,43 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
       return;
     }
 
-    counterA.clear();
-    counterB.clear();
-    final ExecutorService executor = Executors.newFixedThreadPool(threads * 2);
-    int splitSize = increments.size() / threads;
+    final int splitSize = increments.size() / threads;
+    List<Integer> slices = new ArrayList<>(threads);
     for (int i = 0; i < threads; i++) {
-      executor.submit(new UpdateJob(counterA, increments, maxima, i * splitSize, splitSize));
-      executor.submit(new UpdateJob(counterB, increments, maxima, i * splitSize, splitSize));
-      executor.shutdown();
+      slices.add(i);
     }
-    assertWithinMaxima("counterA threaded " + threads, maxima, counterA.counts);
-    assertWithinMaxima("counterB threaded " + threads, maxima, counterB.counts);
-    assertVCEquals("Threaded " + threads, counterB, counterA); // We trust PackedOpportunistic more
+    for (int i = 0 ; i < 2 ; i++) {
+      Collections.shuffle(slices);
+      counterA.clear();
+      for (int slice: slices) {
+        new UpdateJob(counterA, increments, maxima, slice * splitSize, splitSize).call();
+      }
+      assertWithinMaxima("counterA split processed", maxima, counterA.counts);
+
+      Collections.shuffle(slices);
+      counterB.clear();
+      for (int slice: slices) {
+        new UpdateJob(counterB, increments, maxima, slice * splitSize, splitSize).call();
+      }
+      assertWithinMaxima("counterB split processed", maxima, counterB.counts);
+
+      assertVCEquals("Split processed", counterB, counterA);
+    }
+
+    for (int r = 0 ; r < 10 ; r++) {
+      counterA.clear();
+      counterB.clear();
+      final ExecutorService executor = Executors.newFixedThreadPool(threads * 2);
+      for (int i = 0; i < threads; i++) {
+        executor.submit(new UpdateJob(counterA, increments, maxima, i * splitSize, splitSize));
+        executor.submit(new UpdateJob(counterB, increments, maxima, i * splitSize, splitSize));
+      }
+      executor.shutdown();
+      executor.awaitTermination(1, TimeUnit.MINUTES);
+      assertWithinMaxima("counterA threaded " + threads, maxima, counterA.counts);
+      assertWithinMaxima("counterB threaded " + threads, maxima, counterB.counts);
+      assertVCEquals("Threaded " + threads, counterB, counterA);
+    }
   }
 
   private void assertVCEquals(String message, ValueCounter expected, ValueCounter actual) {
@@ -210,7 +259,7 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
   private static void assertWithinMaxima(String message, PackedInts.Reader maxima, PackedInts.Reader counter) {
     for (int i = 0 ; i < maxima.size() ; i++) {
       assertTrue(message + ": counter(" + i + ")=" + counter.get(i)
-              + " is greater than maxima(" + i + ")=" + maxima.get(i),
+          + " is greater than maxima(" + i + ")=" + maxima.get(i),
           counter.get(i) <= maxima.get(i));
     }
   }
@@ -272,7 +321,6 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
         }
       }
       return this;
-    }
-  }
+    }                                        }
 
 }
