@@ -523,8 +523,9 @@ public class SparseDocValuesFacets {
         final long allocateTime = System.nanoTime();
         final int[] globOrdCount = getGlobOrdCountAndUpdatePool(searcher, si, globalMap, schemaField, pool);
         NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getHistogram());
+        // TODO: Consider switching back and forth between threaded and non-threaded
         PackedInts.Mutable innerCounter = new NPlaneMutable(
-            layout, new NPlaneMutable.BPVIntArrayWrapper(globOrdCount, false), NPlaneMutable.DEFAULT_IMPLEMENTATION);
+            layout, new NPlaneMutable.BPVIntArrayWrapper(globOrdCount, false), NPlaneMutable.IMPL.tank);
         vc = new SparseCounterThreaded(SparseKeys.COUNTER_IMPL.nplane, innerCounter, pool.getMaxCountForAny(),
             sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
         pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplane, vc, allocateTime);

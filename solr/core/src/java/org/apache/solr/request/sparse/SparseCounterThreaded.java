@@ -49,28 +49,28 @@ public class SparseCounterThreaded implements ValueCounter {
 
   /**
    * @param counts            a update-thread-safe counter. Must implement {@link org.apache.lucene.util.Incrementable}.
-   * @param maxCountForAny    the maximum amount any count can reach.
+   * @param maxCountGlobal    the maximum amount any count can reach.
    * @param minCountsForSparse count must be >= this in order for sparse counting to be activated.
    * @param fraction          the cut-off point between sparse and non-sparse counting.
-   * @param maxCountTracked   if any count reaches this number, it is not tracked anymore. -1 disables this.
+   * @param maxCountExplicit  if any count reaches this number, it is not tracked anymore. -1 disables this.
    *                          if specified, it is highly recommended to set this to 2^n-1, with 7, 255 and 65535
    *                          being the fastest.
    */
-  public SparseCounterThreaded(SparseKeys.COUNTER_IMPL counterImpl, PackedInts.Mutable counts, long maxCountForAny,
-                               int minCountsForSparse, double fraction, long maxCountTracked) {
+  public SparseCounterThreaded(SparseKeys.COUNTER_IMPL counterImpl, PackedInts.Mutable counts, long maxCountGlobal,
+                               int minCountsForSparse, double fraction, long maxCountExplicit) {
     this.counterImpl = counterImpl;
     this.counts = counts;
     if (!(counts instanceof Incrementable)) {
       throw new UnsupportedOperationException("The given counter must implement Incrementable but was " + counts);
     }
     this.countsInc = (Incrementable)counts;
-    this.maxCountForAny = maxCountForAny;
+    this.maxCountForAny = maxCountGlobal;
     this.minCountsForSparse = minCountsForSparse;
     this.fraction = fraction;
-    this.maxCountTracked = maxCountTracked;
-    if (maxCountTracked != -1 && maxCountTracked != Integer.MAX_VALUE && !countsInc.hasCompareAndSet()) {
+    this.maxCountTracked = maxCountExplicit;
+    if (maxCountExplicit != -1 && maxCountExplicit != Integer.MAX_VALUE && !countsInc.hasCompareAndSet()) {
       throw new IllegalArgumentException("The given counter does not support compareAndGet and maxCountTracked was "
-          + maxCountTracked + ". Explicit maxCountTracked requires compareAndGet: " + counts);
+          + maxCountExplicit + ". Explicit maxCountTracked requires compareAndGet: " + counts);
     }
     if (counts.size() < minCountsForSparse) {
       tracksMax = 0;
@@ -129,9 +129,10 @@ public class SparseCounterThreaded implements ValueCounter {
         countsInc.increment(counter);
         return;
       }
-
       // We want to track changes to counters to maintain the sparse structure
-      final long newValue = countsInc.incrementAndGet(counter);
+
+      final long newValue;
+          newValue = countsInc.incrementAndGet(counter);
       if (newValue == 1) {
         // This is the first update of the counter, so we add it to the tracker
         final int oldTracksPos = tracksPos.getAndIncrement();
@@ -141,6 +142,7 @@ public class SparseCounterThreaded implements ValueCounter {
       }
       return;
     }
+
     // There is an explicit max (facet.sparse.maxtracked). We must avoid blowing through
     // the ceiling
     while (true) {

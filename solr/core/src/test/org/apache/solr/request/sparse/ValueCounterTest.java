@@ -74,10 +74,10 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
 
     final PackedInts.Reader maxima = createMaxima(SIZE, MAX);
     SparseCounterThreaded counterA = new SparseCounterThreaded(
-        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima),
+        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima, NPlaneMutable.IMPL.tank),
         MAX, 0, 1.0, -1);
     SparseCounterThreaded counterB = new SparseCounterThreaded(
-        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima),
+        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima, NPlaneMutable.IMPL.tank),
         MAX, 0, 1.0, -1);
 
     updateAndTest(counterA, counterB, maxima, MAX_UPDATES, threads);
@@ -90,7 +90,7 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
 
     final PackedInts.Reader maxima = createMaxima(SIZE, MAX);
     SparseCounterThreaded counterA = new SparseCounterThreaded(
-        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima),
+        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima, NPlaneMutable.IMPL.tank),
         MAX, 0, 1.0, -1);
     SparseCounterThreaded counterB = new SparseCounterThreaded(
         SparseKeys.COUNTER_IMPL.packed, PackedOpportunistic.create(SIZE, PackedInts.bitsRequired(MAX)),
@@ -106,7 +106,7 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
 
     final PackedInts.Reader maxima = createMaxima(SIZE, MAX);
     SparseCounterThreaded counterA = new SparseCounterThreaded(
-        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima),
+        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima, NPlaneMutable.IMPL.tank),
         MAX, 0, 1.0, -1);
     SparseCounterThreaded counterB = new SparseCounterThreaded(
         SparseKeys.COUNTER_IMPL.packed, PackedOpportunistic.create(SIZE, PackedInts.bitsRequired(MAX)),
@@ -123,7 +123,7 @@ public class ValueCounterTest extends SolrTestCaseJ4 {
     }
 
     SparseCounterThreaded counterA = new SparseCounterThreaded(
-        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima),
+        SparseKeys.COUNTER_IMPL.nplane, new NPlaneMutable(maxima, NPlaneMutable.IMPL.tank),
         100L, 0, 1.0, -1);
 
     counterA.inc(0);
