@@ -158,7 +158,7 @@ public class SparseDocValuesFacets {
       }
 
       final long sparseCollectTime = System.nanoTime();
-      collectCounts(sparseKeys, searcher, docs, schemaField, lookup, startTermIndex, counts);
+      collectCounts(sparseKeys, searcher, docs, schemaField, lookup, startTermIndex, counts, hitCount);
       pool.incCollectTimeRel(sparseCollectTime);
     }
 
@@ -301,7 +301,7 @@ public class SparseDocValuesFacets {
    */
   private static void collectCounts(
       SparseKeys sparseKeys, SolrIndexSearcher searcher, DocSet docs, SchemaField schemaField, Lookup lookup,
-      int startTermIndex, ValueCounter counts) throws IOException {
+      int startTermIndex, ValueCounter counts, int hitCount) throws IOException {
     String fieldName = schemaField.getName();
     final Filter filter = docs.getTopFilter(); // Should be Thread safe (see PerSegmentSingleValuedFaceting)
     List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
@@ -313,7 +313,8 @@ public class SparseDocValuesFacets {
 
     for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
       AtomicReaderContext leaf = leaves.get(subIndex);
-      if (leaf.reader().maxDoc() == 0) {
+      final int leafMaxDoc = leaf.reader().maxDoc();
+      if (leafMaxDoc == 0) {
         continue;
       }
 
@@ -330,15 +331,15 @@ public class SparseDocValuesFacets {
       // Multi threaded counting
       // Determine the number of parts to split the docIDspace into, taking into account the maximum number
       // of threads as well as the minimum size of a part
-      final int parts = Math.max(1, Math.min(sparseKeys.countingThreads,
-          leaf.reader().maxDoc() / sparseKeys.countingThreadsMinDocs));
-      final int blockSize = Math.max(1, leaf.reader().maxDoc() / parts);
+      final int parts = hitCount < sparseKeys.countingThreadsMinDocs ? 1 : // Overall hitCount
+          Math.max(1, Math.min(sparseKeys.countingThreads, leafMaxDoc / sparseKeys.countingThreadsMinDocs)); // Leaf
+      final int blockSize = Math.max(1, leafMaxDoc / parts);
       //System.out.println(String.format("maxDoc=%d, parts=%d, blockSize=%d", leaf.reader().maxDoc(), parts, blockSize));
       for (int i = 0 ; i < parts ; i++) {
         Accumulator accumulator = new Accumulator(
             leaf, i*blockSize, i < parts-1 ? (i+1)*blockSize : Integer.MAX_VALUE,
             sparseKeys, schemaField, lookup, startTermIndex, counts, fieldName, filter, subIndex,
-            accumulators, false); // TODO: Do we need to clone lookup for subsequent (i!=0) slices inside same segment?
+            accumulators, i != 0); // TODO: Do we need to clone lookup for subsequent (i!=0) slices inside same segment?
         try {
           accumulators.put(accumulator);
         } catch (InterruptedException e) {
