@@ -110,7 +110,7 @@ public class SparseDocValuesFacets {
     final int hitCount = docs.size();
 
     // Locate start and end-position in the ordinals if a prefix is given
-    // TODO: This messes up dualplane & nplane counters
+    // TODO: Test this for dualplane & nplane counters
     int startTermIndex, endTermIndex;
     {
       final BytesRef prefixRef;
@@ -404,6 +404,7 @@ public class SparseDocValuesFacets {
     @Override
     public Accumulator call() throws Exception {
       try {
+        final long startTime = System.nanoTime();
         if (cloneLookup) { // Needed for multi-threading inside segments
           lookup = lookup.cloneToThread();
         }
@@ -424,8 +425,14 @@ public class SparseDocValuesFacets {
           final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
           if (singleton != null) {
             // some codecs may optimize SORTED_SET storage for single-valued fields
+            log.info(String.format(Locale.ENGLISH,
+                "*** Accumulator(%s, %d->%d) calling accumSingle singleton after %dms init",
+                fieldName, startDocID, endDocID, (System.nanoTime()-startTime)/1000000));
             accumSingle(counts, startTermIndex, singleton, disi, startDocID, endDocID, subIndex, lookup);
           } else {
+            log.info(String.format(Locale.ENGLISH,
+                "*** Accumulator(%s, %d->%d) calling accumMulti after %dms init",
+                fieldName, startDocID, endDocID, (System.nanoTime()-startTime)/1000000));
             accumMulti(counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, lookup);
           }
         } else {
@@ -433,6 +440,9 @@ public class SparseDocValuesFacets {
           if (sub == null) {
             sub = DocValues.EMPTY_SORTED;
           }
+          log.info(String.format(Locale.ENGLISH,
+              "*** Accumulator(%s, %d->%d) calling accumSingle after %dms init",
+              fieldName, startDocID, endDocID, (System.nanoTime()-startTime)/1000000));
           accumSingle(counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, lookup);
         }
         return this;
@@ -781,10 +791,12 @@ public class SparseDocValuesFacets {
    */
   private static void accumSingle(ValueCounter counts, int startTermIndex, SortedDocValues si, DocIdSetIterator disi,
                                   int startDocID, int endDocID, int subIndex, Lookup lookup) throws IOException {
+    final long startTime = System.nanoTime();
     int doc = disi.nextDoc();
     if (startDocID > 0 && doc != DocIdSetIterator.NO_MORE_DOCS) {
       doc = disi.advance(startDocID);
     }
+    final long advanceTime = System.nanoTime()-startTime;
     while (doc != DocIdSetIterator.NO_MORE_DOCS && doc < endDocID) {
       int term = si.getOrd(doc);
       if (lookup.ordinalMap != null && term >= 0) {
@@ -792,11 +804,12 @@ public class SparseDocValuesFacets {
       }
       int arrIdx = term-startTermIndex;
       if (arrIdx>=0 && arrIdx<counts.size()) {
-        synchronized (SparseDocValuesFacets.class) { // TODO: Not synchronized fails with nplane
-        counts.inc(arrIdx);                         }
+        counts.inc(arrIdx);
       }
       doc = disi.nextDoc();
     }
+    log.info(String.format(Locale.ENGLISH, "*** accumSingle(%d->%d) advanced in %dms, iterated in %dms",
+        startDocID, endDocID, advanceTime/1000000, (System.nanoTime()-startTime-advanceTime)/1000000));
   }
 
   /*
@@ -804,6 +817,7 @@ public class SparseDocValuesFacets {
    */
   private static void accumMulti(ValueCounter counts, int startTermIndex, SortedSetDocValues ssi, DocIdSetIterator disi,
                                  int startDocID, int endDocID, int subIndex, Lookup lookup) throws IOException {
+    final long startTime = System.nanoTime();
     if (ssi == DocValues.EMPTY_SORTED_SET) {
       return; // Nothing to process; return immediately
     }
@@ -812,6 +826,7 @@ public class SparseDocValuesFacets {
     if (startDocID > 0 && doc != DocIdSetIterator.NO_MORE_DOCS) {
       doc = disi.advance(startDocID);
     }
+    final long advanceTime = System.nanoTime()-startTime;
     while (doc != DocIdSetIterator.NO_MORE_DOCS && doc < endDocID) {
       ssi.setDocument(doc);
       doc = disi.nextDoc();
@@ -831,13 +846,14 @@ public class SparseDocValuesFacets {
           term = (int) lookup.ordinalMap.getGlobalOrd(subIndex, term);
         }
         int arrIdx = term - startTermIndex;
-        synchronized (SparseDocValuesFacets.class) { // TODO: Not synchronized fails with nplane
 
         if (arrIdx >= 0 && arrIdx < counts.size()) {
           counts.inc(arrIdx);
-        }}
+        }
       } while ((term = (int) ssi.nextOrd()) >= 0);
     }
+    log.info(String.format(Locale.ENGLISH, "*** accumMulti(%d->%d) advanced in %dms, iterated in %dms",
+        startDocID, endDocID, advanceTime/1000000, (System.nanoTime()-startTime-advanceTime)/1000000));
   }
 
   /**
