@@ -592,7 +592,7 @@ public class SparseDocValuesFacets {
     OrdinalUtils.StatCollectingBPVWrapper stats = globOrdCount instanceof OrdinalUtils.StatCollectingBPVWrapper ?
         (OrdinalUtils.StatCollectingBPVWrapper) globOrdCount : new OrdinalUtils.StatCollectingBPVWrapper(globOrdCount);
     stats.collect();
-    System.out.println(stats);
+//    System.out.println(stats);
     log.info(String.format(Locale.ENGLISH,
         "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms. Histogram: %s",
         stats.maxCount, schemaField.getName(), stats.refCount, stats.entries,
