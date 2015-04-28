@@ -18,6 +18,7 @@ package org.apache.solr.request.sparse;
  */
 
 import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.util.packed.NPlaneMutable;
 import org.apache.solr.SolrTestCaseJ4;
 import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.common.params.FacetParams;
@@ -380,6 +381,48 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
           "[single_dv_7]",
           entries.toString());
     }
+  }
+
+  // 1-off error with -Dtests.seed=6230C3ABDB49B3EC and setting "entries = 0" in StatCollectingBPVWrapper (and reset)
+  public void testOptimizedSegmentNPlaneConstructor() throws Exception {
+    final String FIELD = MULTI_DV_FIELD;
+    final String PREFIX = "multi";
+    final int LIMIT = 10;
+
+    assertU(optimize());
+
+    String vanilla;
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, FIELD);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, false);
+      params.set("indent", true);
+      req.setParams(params);
+      vanilla = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+      assertEquals("Vanilla Solr faceting should give the expected number of results",
+          LIMIT, getEntries(req, "int name..(" + PREFIX + "[^\"]*)").size());
+    }
+
+    String nplane;
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, FIELD);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.nplane.toString());
+      params.set(SparseKeys.MINTAGS, 1);
+      params.set("indent", true);
+      req.setParams(params);
+      nplane = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+      assertEquals("NPlane sparse faceting should give the expected number of results",
+          LIMIT, getEntries(req, "int name..(" + PREFIX + "[^\"]*)").size());
+    }
+    assertEquals("NPlane should match vanilla Solr", vanilla, nplane);
   }
 
   // disabled as it takes a long time to build an index of a size where

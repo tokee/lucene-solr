@@ -18,6 +18,7 @@ package org.apache.solr.request.sparse;
  */
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -39,11 +40,12 @@ import org.apache.lucene.index.MultiDocValues.OrdinalMap;
 import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.index.Term;
+import org.apache.lucene.index.Terms;
+import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.search.DocIdSet;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.Filter;
 import org.apache.lucene.search.TermQuery;
-import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefArray;
 import org.apache.lucene.util.CharsRef;
@@ -339,7 +341,7 @@ public class SparseDocValuesFacets {
         Accumulator accumulator = new Accumulator(
             leaf, i*blockSize, i < parts-1 ? (i+1)*blockSize : Integer.MAX_VALUE,
             sparseKeys, schemaField, lookup, startTermIndex, counts, fieldName, filter, subIndex,
-            accumulators, i != 0); // TODO: Do we need to clone lookup for subsequent (i!=0) slices inside same segment?
+            accumulators, i != 0);
         try {
           accumulators.put(accumulator);
         } catch (InterruptedException e) {
@@ -406,7 +408,7 @@ public class SparseDocValuesFacets {
     public Accumulator call() throws Exception {
       try {
         final long startTime = System.nanoTime();
-        if (cloneLookup) { // Needed for multi-threading inside segments
+        if (cloneLookup) { // TODO: Verify that we really need to do this (hard as the culprit is thread collisions)
           lookup = lookup.cloneToThread();
         }
         // TODO: Check if dis.bits() are available and share them instead of re-issuing a lot of searches
@@ -426,13 +428,13 @@ public class SparseDocValuesFacets {
           final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
           if (singleton != null) {
             // some codecs may optimize SORTED_SET storage for single-valued fields
-            log.info(String.format(Locale.ENGLISH,
-                "*** Accumulator(%s, %d->%d) calling accumSingle singleton after %dms init",
+            log.info(String.format(Locale.ENGLISH, // TODO: Remove this when sparse faceting is considered stable
+                "Accumulator(%s, %d->%d) calling accumSingle singleton after %dms init",
                 fieldName, startDocID, endDocID, (System.nanoTime()-startTime)/1000000));
             accumSingle(counts, startTermIndex, singleton, disi, startDocID, endDocID, subIndex, lookup);
           } else {
-            log.info(String.format(Locale.ENGLISH,
-                "*** Accumulator(%s, %d->%d) calling accumMulti after %dms init",
+            log.info(String.format(Locale.ENGLISH, // TODO: Remove this when sparse faceting is considered stable
+                "Accumulator(%s, %d->%d) calling accumMulti after %dms init",
                 fieldName, startDocID, endDocID, (System.nanoTime()-startTime)/1000000));
             accumMulti(counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, lookup);
           }
@@ -441,8 +443,8 @@ public class SparseDocValuesFacets {
           if (sub == null) {
             sub = DocValues.EMPTY_SORTED;
           }
-          log.info(String.format(Locale.ENGLISH,
-              "*** Accumulator(%s, %d->%d) calling accumSingle after %dms init",
+          log.info(String.format(Locale.ENGLISH, // TODO: Remove this when sparse faceting is considered stable
+              "Accumulator(%s, %d->%d) calling accumSingle after %dms init",
               fieldName, startDocID, endDocID, (System.nanoTime()-startTime)/1000000));
           accumSingle(counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, lookup);
         }
@@ -496,7 +498,6 @@ public class SparseDocValuesFacets {
     return charsRef.toString();
   }
 
-
   /*
    * Determines the maxOrdCount for any term in the given field by looping through all live docIDs and summing the
    * termOrds. This is needed for proper setup of {@link SparseCounterPacked}.
@@ -523,7 +524,7 @@ public class SparseDocValuesFacets {
           pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.array);
     }
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.dualplane) {
-      ensureBasicAndHistogram(searcher, si, globalMap, schemaField, pool);
+      ensureBasic(searcher, si, globalMap, schemaField, pool);
       return pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.dualplane);
     }
     // nplane is very heavy at first call: Its overflow bits needs the maximum counts for all ordinals
@@ -532,11 +533,10 @@ public class SparseDocValuesFacets {
       ValueCounter vc;
       if (!pool.isInitialized() || ((vc = pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplane)) == null)) {
         final long allocateTime = System.nanoTime();
-        final int[] globOrdCount = getGlobOrdCountAndUpdatePool(searcher, si, globalMap, schemaField, pool);
+        NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(searcher, si, globalMap, schemaField, pool);
         NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getHistogram());
         // TODO: Consider switching back and forth between threaded and non-threaded
-        PackedInts.Mutable innerCounter = new NPlaneMutable(
-            layout, new NPlaneMutable.BPVIntArrayWrapper(globOrdCount, false), NPlaneMutable.IMPL.tank);
+        PackedInts.Mutable innerCounter = new NPlaneMutable(layout, bpvs, NPlaneMutable.IMPL.tank);
         vc = new SparseCounterThreaded(SparseKeys.COUNTER_IMPL.nplane, innerCounter, pool.getMaxCountForAny(),
             sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
         pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplane, vc, allocateTime);
@@ -544,56 +544,6 @@ public class SparseDocValuesFacets {
       return vc;
     }
     throw new UnsupportedOperationException("No support yet for the " + sparseKeys.counter + " counter");
-  }
-
-  @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
-  private static int[] getGlobOrdCountAndUpdatePool(
-      SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
-      SchemaField schemaField, SparseCounterPool pool) throws IOException {
-    final int[] globOrdCount = getGlobOrdCount(searcher, si, globalMap, schemaField);
-    calculateAndUpdateBasicAndHistogram(searcher, si, schemaField, pool, globOrdCount);
-    return globOrdCount;
-  }
-
-  @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
-  private static void ensureBasicAndHistogram(SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
-                                              SchemaField schemaField, SparseCounterPool pool) throws IOException {
-    synchronized (pool) {
-      if (pool.getHistogram() != null && pool.isInitialized()) {
-        return;
-      }
-      final int[] globOrdCount = getGlobOrdCount(searcher, si, globalMap, schemaField);
-      calculateAndUpdateBasicAndHistogram(searcher, si, schemaField, pool, globOrdCount);
-    }
-  }
-
-  private static void calculateAndUpdateBasicAndHistogram(
-      SolrIndexSearcher searcher, SortedSetDocValues si, SchemaField schemaField, SparseCounterPool pool,
-      int[] globOrdCount) {
-    if (pool.getHistogram() != null && pool.isInitialized()) {
-      return;
-    }
-    final long startTime = System.nanoTime();
-    int maxCount = -1;
-    long refCount = 0;
-    final long[] histogram = new long[64];
-    for (int ordCount : globOrdCount) {
-      histogram[PackedInts.bitsRequired(ordCount)]++;
-      refCount += ordCount;
-      if (ordCount > maxCount) {
-        maxCount = ordCount;
-      }
-    }
-
-    log.info(String.format(Locale.ENGLISH,
-        "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms. Histogram: %s",
-        maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime() - startTime) / 1000000,
-        join(histogram)));
-    // +1 as everything is shifted by 1 to use index 0 as special counter
-    if (!pool.isInitialized()) {
-      pool.setFieldProperties((int) (si.getValueCount() + 1), maxCount, searcher.maxDoc(), refCount);
-    }
-    pool.setHistogram(histogram);
   }
 
   private static String join(long[] values) {
@@ -608,6 +558,17 @@ public class SparseDocValuesFacets {
   }
 
   @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
+  private static NPlaneMutable.BPVProvider ensureBasicAndGetBPVs(
+      SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
+      SchemaField schemaField, SparseCounterPool pool) throws IOException {
+    NPlaneMutable.BPVProvider globOrdCount = OrdinalUtils.getBPVs(searcher, si, globalMap, schemaField, true);
+    // It would be nice to skip this extra run-through, but nplane needs its histogram
+    ensureBasic(globOrdCount, searcher, si, schemaField, pool);
+    globOrdCount.reset();
+    return globOrdCount;
+  }
+
+  @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
   private static void ensureBasic(
       SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
       SchemaField schemaField, SparseCounterPool pool) throws IOException {
@@ -615,107 +576,29 @@ public class SparseDocValuesFacets {
       if (pool.isInitialized()) {
         return;
       }
-      final int[] globOrdCount = getGlobOrdCount(searcher, si, globalMap, schemaField);
-
-      final long startTime = System.nanoTime();
-      int maxCount = -1;
-      long refCount = 0;
-      for (int count : globOrdCount) {
-        refCount += count;
-        if (count > maxCount) { // This would be faster if we only needed maxBits (just & all the counts)
-          maxCount = count;
-        }
-      }
-      log.info(String.format(
-          "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms " +
-              "(excluding global ord count)",
-          maxCount, schemaField.getName(), refCount, globOrdCount.length, (System.nanoTime() - startTime) / 1000000));
-      // +1 as everything is shifted by 1 to use index 0 as special counter
-      pool.setFieldProperties((int) (si.getValueCount() + 1), maxCount, searcher.maxDoc(), refCount);
+      ensureBasic(OrdinalUtils.getBPVs(searcher, si, globalMap, schemaField, true), searcher, si, schemaField, pool);
     }
   }
 
-  /*
-  Memory and CPU-power heavy extraction of counts for all global ordinals.
-  This should be called as few times as possible.
-   */
-  private static int[] getGlobOrdCount(SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
-                                       SchemaField schemaField) throws IOException {
-    final long startTime = System.nanoTime();
-    int valueCount = (int) si.getValueCount();
-    if (valueCount > 10*1000*1000) { // Counting time will probably not be trivial
-      log.info(
-          "Extracting global ordinal count for field " + schemaField.getName() + " with " + valueCount
-              + " values. Temporary memory overhead will be " + 1L*valueCount*Integer.SIZE/8/1024/1024 + "MB");
-    }
-    final int[] globOrdCount = new int[valueCount+1];
-    List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
-    for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
-      AtomicReaderContext leaf = leaves.get(subIndex);
-      Bits live = leaf.reader().getLiveDocs();
-      if (schemaField.multiValued()) {
-        SortedSetDocValues sub = leaf.reader().getSortedSetDocValues(schemaField.getName());
-        if (sub == null) {
-          sub = DocValues.EMPTY_SORTED_SET;
-        }
-        final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
-        if (singleton != null) {
-          for (int docID = 0 ; docID < leaf.reader().maxDoc() ; docID++) {
-            if (live == null || live.get(docID)) {
-              int segmentOrd = singleton.getOrd(docID);
-              if (segmentOrd >= 0) {
-                long globalOrd = globalMap == null ? segmentOrd : globalMap.getGlobalOrd(subIndex, segmentOrd);
-                if (globalOrd >= 0) {
-                  // Not liking the cast here, but 2^31 is de facto limit for most structures
-                  globOrdCount[((int) globalOrd)]++;
-                }
-              }
-            }
-          }
-        } else {
-          for (int docID = 0 ; docID < leaf.reader().maxDoc() ; docID++) {
-            if (live == null || live.get(docID)) {
-              sub.setDocument(docID);
-              // strange do-while to collect the missing count (first ord is NO_MORE_ORDS)
-              int ord = (int) sub.nextOrd();
-              if (ord < 0) {
-                continue;
-              }
-
-              do {
-                if (globalMap != null) {
-                  ord = (int) globalMap.getGlobalOrd(subIndex, ord);
-                }
-                if (ord >= 0) {
-                  globOrdCount[ord]++;
-                }
-              } while ((ord = (int) sub.nextOrd()) >= 0);
-            }
-          }
-        }
-      } else {
-        SortedDocValues sub = leaf.reader().getSortedDocValues(schemaField.getName());
-        if (sub == null) {
-          sub = DocValues.EMPTY_SORTED;
-        }
-        for (int docID = 0 ; docID < leaf.reader().maxDoc() ; docID++) {
-          if (live == null || live.get(docID)) {
-            int segmentOrd = sub.getOrd(docID);
-            if (segmentOrd >= 0) {
-              long globalOrd = globalMap == null ? segmentOrd : globalMap.getGlobalOrd(subIndex, segmentOrd);
-              if (globalOrd >= 0) {
-                // Not liking the cast here, but 2^31 is de facto limit for most structures
-                globOrdCount[((int) globalOrd)]++;
-              }
-            }
-          }
-        }
+  @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
+  private static void ensureBasic(NPlaneMutable.BPVProvider globOrdCount, SolrIndexSearcher searcher,
+                                  SortedSetDocValues si, SchemaField schemaField, SparseCounterPool pool) {
+    synchronized (pool) {
+      if (pool.isInitialized()) {
+        return;
       }
     }
+    final long startTime = System.nanoTime();
+    OrdinalUtils.StatCollectingBPVWrapper stats = globOrdCount instanceof OrdinalUtils.StatCollectingBPVWrapper ?
+        (OrdinalUtils.StatCollectingBPVWrapper) globOrdCount : new OrdinalUtils.StatCollectingBPVWrapper(globOrdCount);
+    stats.collect();
+    System.out.println(stats);
     log.info(String.format(Locale.ENGLISH,
-        "Extracted global ord count for field %s with %d unique values in %dms",
-        schemaField.getName(), globOrdCount.length, (System.nanoTime() - startTime) / 1000000));
-    return globOrdCount;
+        "Calculated maxCountForAny=%d for field %s with %d references to %d unique values in %dms. Histogram: %s",
+        stats.maxCount, schemaField.getName(), stats.refCount, stats.entries,
+        (System.nanoTime() - startTime) / 1000000, join(stats.histogram)));
+    pool.setFieldProperties((int) (si.getValueCount() + 1), stats.maxCount, searcher.maxDoc(), stats.refCount);
+    pool.setHistogram(stats.histogram);
   }
 
   static int warnedOrdinal = 0;
@@ -809,7 +692,8 @@ public class SparseDocValuesFacets {
       }
       doc = disi.nextDoc();
     }
-    log.info(String.format(Locale.ENGLISH, "*** accumSingle(%d->%d) advanced in %dms, iterated in %dms",
+    // TODO: Remove this when sparse faceting is considered stable
+    log.info(String.format(Locale.ENGLISH, "accumSingle(%d->%d) advanced in %dms, iterated in %dms",
         startDocID, endDocID, advanceTime/1000000, (System.nanoTime()-startTime-advanceTime)/1000000));
   }
 
@@ -853,7 +737,8 @@ public class SparseDocValuesFacets {
         }
       } while ((term = (int) ssi.nextOrd()) >= 0);
     }
-    log.info(String.format(Locale.ENGLISH, "*** accumMulti(%d->%d) advanced in %dms, iterated in %dms",
+    // TODO: Remove this when sparse faceting is considered stable
+    log.info(String.format(Locale.ENGLISH, "accumMulti(%d->%d) advanced in %dms, iterated in %dms",
         startDocID, endDocID, advanceTime/1000000, (System.nanoTime()-startTime-advanceTime)/1000000));
   }
 

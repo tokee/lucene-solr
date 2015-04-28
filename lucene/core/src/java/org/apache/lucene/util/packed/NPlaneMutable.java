@@ -41,6 +41,7 @@ import java.util.Locale;
 // TODO: Deprecate split as spank is always faster & smaller
 // TODO: Implement shift with rank (shank)
 // FIXME: TestNPlaneMutable.testShiftWrongValues() shows that shift is faulty
+// TODO: Create a single-phase constructor that does not need the histogram
 public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 100; // Should probably be a low lower (100 or so)
   public static final int DEFAULT_MAX_PLANES = 64; // No default limit
@@ -60,7 +61,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * The counter for term A needs 2 bits, B needs 1 bit, C needs 4, D 3, E 1 and F3.
    * </p><p>
    * Each plane represents a horizontal slice of bits, with an extra bit-set marking (using !) which values overflows
-   * upto the next plane. In this sample, the planes are
+   * upto the nextBPV plane. In this sample, the planes are
    * <pre>
    * 4: #
    *    B
@@ -220,8 +221,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     for (int planeIndex = 0; planeIndex < planes.length-1; planeIndex++) { // -1: Never set overflow bit on topmost
       final Plane plane = planes[planeIndex];
       maxima.reset();
-      for (int i = 0; i < maxima.size(); i++) {
-        final int bpv = maxima.next();
+      while (maxima.hasNext()) {
+        final int bpv = maxima.nextBPV();
         if (bit == 1 || (bpv - planes[planeIndex - 1].maxBit) > 0) {
           if (bpv - plane.maxBit > 0) {
             plane.setOverflow(overflowIndex[planeIndex]);
@@ -255,13 +256,15 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   // Special histogram where the counts are summed downwards
   private static long[] getZeroBitHistogram(BPVProvider maxima) {
     final long[] histogram = new long[65];
-    for (int i = 0 ; i < maxima.size() ; i++) {
-      int bitsRequired = maxima.next();
+    long totalEntries = 0;
+    while (maxima.hasNext()) {
+      int bitsRequired = maxima.nextBPV();
       for (int br = 1; br <= bitsRequired ; br++) {
         histogram[br]++;
       }
+      totalEntries++;
     }
-    histogram[0] = maxima.size();
+    histogram[0] = totalEntries;
 //    System.out.println("histogram: " + toString(histogram));
     return histogram;
   }
@@ -468,7 +471,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * The bits needed for a counter are divided among 1 or more planes.
    * Each plane holds n bits, where n > 0.
    * Besides the bits themselves, each plane (except the last) holds 1 bit for each value,
-   * signalling if the value overflows onto the next plane.
+   * signalling if the value overflows onto the nextBPV plane.
    * </p><p>
    * Example:
    * There are 5 counters, where the max for the first counter is 10, the max for the second
@@ -632,7 +635,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       return bytes;
     }
 
-    // Using the overflow and overflowCache, calculate the index into the next plane
+    // Using the overflow and overflowCache, calculate the index into the nextBPV plane
     @Override
     public int overflowRank(int index) {
       int startIndex = 0;
@@ -883,7 +886,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
           values.ramBytesUsed() + overflowCache.ramBytesUsed();
     }
 
-    // Using the overflow and overflowCache, calculate the index into the next plane
+    // Using the overflow and overflowCache, calculate the index into the nextBPV plane
     @Override
     public int overflowRank(int index) {
       int startIndex = 0;
@@ -931,19 +934,20 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    */
   public static interface BPVProvider {
     /**
-     * @return total number of counters in the field.
-     */
-    public int size();
-
-    /**
      * @return true if there is more bitsRequired available.
      */
     public boolean hasNext();
 
     /**
-     *  @return the next bitsRequired.
+     *  @return the nextBPV bitsRequired.
      */
-    public int next();
+    public int nextBPV();
+
+    /**
+     * Optional method.
+     * @return the nextBPV raw value.
+     */
+    public long nextValue();
 
     /**
      * Reset the structure for another iteration.
@@ -961,7 +965,6 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       this.alreadyBPV = alreadyBPV;
     }
 
-    @Override
     public int size() {
       return maxima.size();
     }
@@ -972,8 +975,16 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     }
 
     @Override
-    public int next() {
+    public int nextBPV() {
       return alreadyBPV ? (int) maxima.get(pos++) : PackedInts.bitsRequired(maxima.get(pos++));
+    }
+
+    @Override
+    public long nextValue() {
+      if (alreadyBPV) {
+        throw new UnsupportedOperationException("The maxima are represented as BPV internally. The raw value is lost");
+      }
+      return maxima.get(pos++);
     }
 
     @Override
@@ -992,7 +1003,6 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       this.alreadyBPV = alreadyBPV;
     }
 
-    @Override
     public int size() {
       return maxima.length;
     }
@@ -1003,8 +1013,16 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     }
 
     @Override
-    public int next() {
+    public int nextBPV() {
       return alreadyBPV ? maxima[pos++] : PackedInts.bitsRequired(maxima[pos++]);
+    }
+
+    @Override
+    public long nextValue() {
+      if (alreadyBPV) {
+        throw new UnsupportedOperationException("The maxima are represented as BPV internally. The raw value is lost");
+      }
+      return maxima[pos++];
     }
 
     @Override
