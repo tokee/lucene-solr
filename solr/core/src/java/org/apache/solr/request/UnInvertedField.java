@@ -241,12 +241,6 @@ public class UnInvertedField extends DocTermOrds {
     }
 
     final boolean isProbablySparse = pool.isProbablySparse(baseSize, sparseKeys);
-    if (!isProbablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
-      pool.incFallbacks(pool.getNotSparseReason(baseSize, sparseKeys));
-      return termList == null ?
-          getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, pool, field, termList, baseDocs);
-    }
 
     long sparseTotalTime = System.nanoTime();
     use.incrementAndGet();
@@ -387,7 +381,12 @@ public class UnInvertedField extends DocTermOrds {
     final int[] index = this.index;
     // tricky: we add more more element than we need because we will reuse this array later
     // for ordering term ords before converting to term labels.
-    final ValueCounter counts = pool.acquire(sparseKeys);
+
+    // TODO: Add support for threading and other counters
+    final ValueCounter counts = pool.acquire(sparseKeys,
+        sparseKeys.counter == SparseKeys.COUNTER_IMPL.array ||
+            (sparseKeys.counter == SparseKeys.COUNTER_IMPL.auto && !pool.usePacked(sparseKeys)) ?
+            SparseKeys.COUNTER_IMPL.array : SparseKeys.COUNTER_IMPL.packed);
     if (!isProbablySparse) {
       counts.disableSparseTracking();
     }

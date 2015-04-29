@@ -27,17 +27,21 @@ import org.apache.solr.util.LongPriorityQueue;
 public interface ValueCounter {
 
   /**
+   * Increment special counter for missing values.
+   */
+  void incMissing();
+  long getMissing();
+
+  /**
    * Increment the given counter with 1.
    * @param counter the index of the counter to increment.
    */
   void inc(int counter);
 
   /**
-   * Increments the given counter with the given value. If the value will always be 1, use {@link #inc(int)} instead.
-   * @param counter the index of the counter to increment.
-   * @param delta   the value to add to the counter.
+   * @return true if {@link #inc(int)} is thread safe, else false.
    */
-  void inc(int counter, long delta);
+  boolean hasThreadSafeInc();
 
   /**
    * Set the counter to the specific value
@@ -105,6 +109,11 @@ public interface ValueCounter {
   boolean explicitlyDisabled();
 
   /**
+   * @return an empty ValueCounter with the same setup as this, potentially sharing underlying support structures.
+   */
+  ValueCounter createSibling();
+
+  /**
    * Used for (hopefully) efficient iteration of counters with {@link #iterate}.
    */
   public static interface Callback {
@@ -148,12 +157,13 @@ public interface ValueCounter {
      }
 
      /**
-       * A callback that handles "negative counts". If doNegative is true, the value of the counter is subtracted from the corresponding entry in
-      * maxTermCounts. This is used to speed up processing of large facet results,
+       * A callback that handles "negative counts". If doNegative is true, the value of the counter is subtracted from
+      * the corresponding entry in maxTermCounts. This is used to speed up processing of large facet results,
        * @param maxTermCounts 1:1 correspondence with the counter list.
-       * @param min      the starting min value.
-       * @param doNegative if true, the value of a counter is considered to be {@code maxTermCounts[index]-counter[index]}.
-       * @param queue   the destination of the values of the counters.
+       * @param min           the starting min value.
+       * @param doNegative    if true, the value of a counter is considered to be
+      *                       {@code maxTermCounts[index]-counter[index]}.
+       * @param queue         the destination of the values of the counters.
        */
     public TopCallback(int[] maxTermCounts, int min, boolean doNegative, LongPriorityQueue queue) {
       this.maxTermCounts = maxTermCounts;

@@ -74,6 +74,7 @@ import org.apache.solr.common.util.StrUtils;
 import org.apache.solr.handler.component.ResponseBuilder;
 import org.apache.solr.request.sparse.SparseCounterPool;
 import org.apache.solr.request.sparse.SparseCounterPoolController;
+import org.apache.solr.request.sparse.SparseDocValuesFacets;
 import org.apache.solr.request.sparse.SparseKeys;
 import org.apache.solr.request.sparse.ValueCounter;
 import org.apache.solr.schema.BoolField;
@@ -414,7 +415,7 @@ public class SimpleFacets {
         SparseCounterPool pool;
         if (sf.hasDocValues()) {
           pool = poolController.acquire(field, "DocValues", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
-          counts = DocValuesFacets.getCounts(
+          counts = SparseDocValuesFacets.getCounts(
               searcher, base, field, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
         } else if (multiToken || TrieField.getMainValuePrefix(ft) != null) {
           pool = poolController.acquire(field, "No DocValues, multi token", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
@@ -736,14 +737,6 @@ public class SimpleFacets {
 
     int hitCount = docs.size();
     final boolean isProbablySparse = pool.isProbablySparse(hitCount, sparseKeys);
-    if (!isProbablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
-      // Fallback to standard
-      pool.incFallbacks("minCount=" + mincount + ", hits=" + hitCount + "/" + searcher.maxDoc()
-          + ", terms=" + si.getValueCount());
-      return termList == null ?
-          getFieldCacheCounts(searcher, docs, fieldName, offset, limit, mincount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, pool, fieldName, termList, docs);
-    }
 
     final BytesRef prefixRef;
     if (prefix == null) {
@@ -777,7 +770,11 @@ public class SimpleFacets {
       // going to collect counts for.
       //final int[] counts = new int[nTerms];
       // TODO: Figure out maxCountForAny
-      ValueCounter counts = pool.acquire(sparseKeys);
+      // TODO: Add support for threading and other counters
+      ValueCounter counts = pool.acquire(sparseKeys,
+          sparseKeys.counter == SparseKeys.COUNTER_IMPL.array ||
+          (sparseKeys.counter == SparseKeys.COUNTER_IMPL.auto && !pool.usePacked(sparseKeys)) ?
+              SparseKeys.COUNTER_IMPL.array : SparseKeys.COUNTER_IMPL.packed);
       if (!isProbablySparse) {
         counts.disableSparseTracking();
       }

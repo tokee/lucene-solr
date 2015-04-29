@@ -40,6 +40,7 @@ public class SparseCounterInt implements ValueCounter {
   private final int tracksMax; // The maximum amount of trackers (tracker.length)
 
   private int tracksPos;       // The current amount of tracker entries. Setting this to 0 works as a tracker clear
+  private long missing = 0;
 
   private final long maxCountForAny;    // The maximum count that it is possible to reach. Intended to PackedInts
   private final int minCountsForSparse; // The minimum amount of unique tags in order to perform sparse tracking at all
@@ -84,10 +85,23 @@ public class SparseCounterInt implements ValueCounter {
     }
   }
 
+  @Override
+  public ValueCounter createSibling() {
+    SparseCounterInt newCounter = new SparseCounterInt(
+        counts.length, maxCountForAny, minCountsForSparse, fraction, maxTracked);
+    newCounter.setContentKey(getContentKey());
+    return newCounter;
+  }
+
+  @Override
+  public boolean hasThreadSafeInc() {
+    return false;
+  }
+
   /*
-   * Constructs an ID which is unique for the given layout. Used for lookup of cached counters in
-   * {@link SparseCounterPool}.
-   */
+     * Constructs an ID which is unique for the given layout. Used for lookup of cached counters in
+     * {@link SparseCounterPool}.
+     */
   public static String createStructureKey(int counts, long maxCountForAny, int minCountForSparse, double fraction) {
     return "SparseCounterInt(counts" + counts + "maxCountForAny" + maxCountForAny
         + "minCountsForSparse" + minCountForSparse + "fraction" + fraction + "maxTracked=irrelevant)";
@@ -127,8 +141,7 @@ public class SparseCounterInt implements ValueCounter {
    * @param counter the index of the counter to increment.
    * @param value   the value to add to the counter.
    */
-  @Override
-  public final void inc(int counter, long value) {
+  private void inc(int counter, long value) {
     final long count = counts[counter];
     if (maxTracked == -1) {
       counts[counter] = (int) (count + value);
@@ -149,6 +162,16 @@ public class SparseCounterInt implements ValueCounter {
       tracker.set(tracksPos, counter);
       tracksPos++;
     }*/
+  }
+
+  @Override
+  public void incMissing() {
+    missing++;
+  }
+
+  @Override
+  public long getMissing() {
+    return missing;
   }
 
   @Override
@@ -175,6 +198,7 @@ public class SparseCounterInt implements ValueCounter {
     }
     explicitlyDisabled = false;
     tracksPos = 0;
+    missing = 0;
     setContentKey(null);
   }
 

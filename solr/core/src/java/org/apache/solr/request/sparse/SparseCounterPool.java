@@ -17,7 +17,9 @@
 package org.apache.solr.request.sparse;
 
 import org.apache.lucene.util.BytesRefArray;
+import org.apache.lucene.util.packed.DualPlaneMutable;
 import org.apache.lucene.util.packed.PackedInts;
+import org.apache.lucene.util.packed.PackedOpportunistic;
 import org.apache.solr.common.util.NamedList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,6 +73,14 @@ public class SparseCounterPool {
    * cleanup-action before it returns, to avoid thread starvation in the thread pool.
    */
   private final LinkedList<ValueCounter> pool;
+
+  /**
+   * Holds a random instance of an instantiated counter to use as template.
+   * The counter might be in active use or in the pool.
+   * In reality this is only used by counters relying on NPlaneMutable.
+   */
+  private ValueCounter template = null;
+
   /**
    * The maximum amount of ValueCounters to keep in the pool.
    * If the setup is single-shard, the pool might not be fully filled is the background clearer is faster than the overall request rate.
@@ -105,7 +115,9 @@ public class SparseCounterPool {
   private final TimeStat requestClears = new TimeStat("requestClear");
   private final TimeStat backgroundClears = new TimeStat("backgroundClear");
   private final TimeStat packedAllocations = new TimeStat("packedAllocation");
+  private final TimeStat nplaneAllocations = new TimeStat("nplaneAllocation");
   private final TimeStat intAllocations = new TimeStat("intAllocation");
+  private final TimeStat dualPlaneAllocations = new TimeStat("dualPlaneAllocation");
   private final TimeStat collections = new TimeStat("collect");
   private final TimeStat extractions = new TimeStat("extract");
   private final TimeStat resolvings = new TimeStat("resolve");
@@ -114,6 +126,7 @@ public class SparseCounterPool {
   private final TimeStat termsListLookup = new TimeStat("termsListLookup");
   private final TimeStat termLookup = new TimeStat("termLookup", 1);
   private final NumStat termLookupMissing = new NumStat("termLookupMissing");
+  public final TimeStat regexpMatches = new TimeStat("regexpChecks", 1);
 
   // Pool cleaning stats
   private NumStat emptyReuses = new NumStat("emptyReuses");
@@ -122,8 +135,6 @@ public class SparseCounterPool {
   private NumStat emptyFrees = new NumStat("emptyFrees");
 
   // Misc. stats
-  NumStat fallbacks = new NumStat("fallbacks");
-  String lastFallbackReason = "no fallbacks";
   NumStat disables = new NumStat("disables");
   NumStat withinCutoffCount = new NumStat("withinCutoff");
   NumStat exceededCutoffCount = new NumStat("exceededCutoff");
@@ -135,13 +146,16 @@ public class SparseCounterPool {
   NumStat cacheMisses = new NumStat("cacheMisses");
 
   /**
-   * The supervisor is shared between all pools under the same searcher. It normally has a single thread available for background cleaning.
+   * The supervisor is shared between all pools under the same searcher.
+   * It normally has a single thread available for background cleaning.
    */
   protected final ThreadPoolExecutor supervisor;
   private static final String NEEDS_CLEANING = "DIRTY";
 
   // Cached terms for fast ordinal lookup
   private BytesRefArray externalTerms = null;
+  // Optionally defined histogram of the number of counters with the given maxBits
+  private long[] histogram = null;
 
   public SparseCounterPool(ThreadPoolExecutor janitorSupervisor, String field, String description,
                            int maxPoolSize, int minEmptyCounters) {
@@ -156,11 +170,12 @@ public class SparseCounterPool {
   /**
    * The field properties determine the layout of the sparse counters and is part of the sparse/non-sparse estimation.
    * This method must be called before calling {@link #acquire}.  It should only be called once.
-   * @param uniqueValues       the number of unique values in the field. This number must be specified and must be correct.
-   * @param maxCountForAny the maximum value that any individual counter can reach.  If this value is not determined, -1 should be used.
-   *                                           if -1 is specified, this number can be updated at a later time.
-   * @param maxDoc                the maxCount from the searcher.  Must be specified, should be correct.
-   * @param references            the number of references from documents to terms in the facet field.  Must be specified, should be correct.
+   * @param uniqueValues   the number of unique values in the field. This number must be specified and must be correct.
+   * @param maxCountForAny the maximum value that any individual counter can reach.  If this value is not determined,
+   *                       -1 should be used. If -1 is specified, this number can be updated at a later time.
+   * @param maxDoc         the maxCount from the searcher.  Must be specified, should be correct.
+   * @param references     the number of references from documents to terms in the facet field.  Must be specified,
+   *                       should be correct.
    */
   public synchronized void setFieldProperties(int uniqueValues, long maxCountForAny, int maxDoc, long references) {
     if (initialized) {
@@ -176,31 +191,21 @@ public class SparseCounterPool {
   /**
    * Delivers a counter ready for updates. The type of counter will be chosen based on uniqueTerms, maxCountForAny and
    * the general Sparse setup from sparseKeys. This is the recommended way to get sparse counters.
+   * </p><p>
+   * Note: It is possible that this returns null. This can only happen for implementation == nplane.
+   *       In that case, it is the responsibility of the caller to use {@link #addAndReturn instead}.
    * @param sparseKeys setup for the Sparse system as well as the specific call.
-   * @return a counter ready for updates.
+   * @param implementation the counter implementation to acquire.
+   * @return a counter ready for updates or null if a counter could not be created.
    */
-  public ValueCounter acquire(SparseKeys sparseKeys) {
-    if (!initialized) {
-      throw new IllegalStateException("The pool for field '" + field +
-          "' has not been initialized (call setFieldProperties for initialization)");
-    }
-    if (maxCountForAny <= 0 && sparseKeys.packed) {
-      // We have an empty facet. To avoid problems with the packed structure, we set the maxCountForAny to 1
-      maxCountForAny = 1;
-//      throw new IllegalStateException("Attempted to request sparse counter with maxCountForAny=" + maxCountForAny);
-    }
-    String structureKey = createStructureKey(sparseKeys);
-    synchronized (pool) {
-      // Did the structure change since last acquire (index updated)?
-      if (!structureKey.equals(this.structureKey) && !pool.isEmpty()) {
-        pool.clear();
-      }
-      this.structureKey = structureKey;
-    }
-
-    ValueCounter vc = getCounter(sparseKeys.cacheToken);
+  public ValueCounter acquire(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
+    ValueCounter vc = getCounter(sparseKeys, implementation);
     if (vc == null) { // Got nothing, so we allocate a new one
-      return createCounter(sparseKeys);
+      ValueCounter newCounter = createCounter(sparseKeys, implementation);
+      if (template == null) {
+        template = newCounter;
+      }
+      return newCounter;
     }
 
     if (sparseKeys.cacheToken == null) {
@@ -231,31 +236,132 @@ public class SparseCounterPool {
     return vc;
   }
 
-  private String createStructureKey(SparseKeys sparseKeys) {
-    return usePacked(sparseKeys) ?
-        SparseCounterPacked.createStructureKey(
-            uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked) :
-        SparseCounterInt.createStructureKey(uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction);
+  /**
+   * Provides the pool with a new counter created from the outside, registers the counter in the system and returns it.
+   *
+   * @param sparseKeys setup for the Sparse system as well as the specific call.
+   * @param implementation the implementation of the counter to add.
+   * @param newVC the counter to add.
+   * @param allocateStartTime marker set just before collecting needed statistics and allocating the counter.
+   * @return the given counter.
+   */
+  public ValueCounter addAndReturn(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation, ValueCounter newVC,
+                                   long allocateStartTime) {
+    // Checking for existing and potential reset of the structureKey and pool
+    ValueCounter vc = getCounter(sparseKeys, implementation);
+    if (vc != null) {
+      log.warn("addAndReturn: An available counter already existed, but was discarded");
+    }
+    template = newVC;
+    switch (implementation) {
+      case array:
+        intAllocations.incRel(allocateStartTime);
+        break;
+      case packed:
+        packedAllocations.incRel(allocateStartTime);
+        break;
+      case dualplane:
+        dualPlaneAllocations.incRel(allocateStartTime);
+        break;
+      case nplane:
+        nplaneAllocations.incRel(allocateStartTime);
+        break;
+      default: throw new UnsupportedOperationException(
+          "Unable to add statistics for counter implementation " + implementation);
+    }
+    return newVC;
   }
 
-  private boolean usePacked(SparseKeys sparseKeys) {
-    return ((sparseKeys.packed && maxCountForAny != -1 &&
-        PackedInts.bitsRequired(maxCountForAny) <= sparseKeys.packedLimit)) ||
-        maxCountForAny > Integer.MAX_VALUE;
+  private String createStructureKey(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
+    switch (implementation) {
+      case array:
+        return SparseCounterInt.createStructureKey(
+            uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction);
+      case packed:
+        return sparseKeys.countingThreads == 1 ?
+            SparseCounterPacked.createStructureKey(
+                uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked) :
+            SparseCounterThreaded.createStructureKey(
+                uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked,
+                sparseKeys.counter);
+      case dualplane:
+      case nplane: // TODO: Add split/spank/max etc
+        return SparseCounterThreaded.createStructureKey(
+            uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked,
+            sparseKeys.counter);
+      default: throw new UnsupportedOperationException(
+          "Counter implementation '" + implementation + "' is not supported");
+    }
   }
 
-  private ValueCounter createCounter(SparseKeys sparseKeys) {
+  public boolean usePacked(SparseKeys sparseKeys) {
+    // TODO: Add support for the other counters
+    return sparseKeys.counter != SparseKeys.COUNTER_IMPL.array &&
+        (((maxCountForAny != -1 && PackedInts.bitsRequired(maxCountForAny) <= sparseKeys.packedLimit)) ||
+            maxCountForAny > Integer.MAX_VALUE);
+  }
+
+  private ValueCounter createCounter(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
     final long allocateTime = System.nanoTime();
     ValueCounter vc;
-    if (usePacked(sparseKeys)) {
-      vc = new SparseCounterPacked(
-          uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
-      packedAllocations.incRel(allocateTime);
-    } else {
-      vc = new SparseCounterInt(
-          uniqueValues, maxCountForAny == -1 ? Integer.MAX_VALUE : maxCountForAny, sparseKeys.minTags,
-          sparseKeys.fraction, sparseKeys.maxCountsTracked);
-      intAllocations.incRel(allocateTime);
+    switch (implementation) {
+      case array: {
+        vc = new SparseCounterInt(
+            uniqueValues, maxCountForAny == -1 ? Integer.MAX_VALUE : maxCountForAny, sparseKeys.minTags,
+            sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        intAllocations.incRel(allocateTime);
+        break;
+      }
+      case packed: {
+        if (sparseKeys.countingThreads == 1) {
+          vc = new SparseCounterPacked(
+              uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        } else {
+          PackedInts.Mutable counts = PackedOpportunistic.create(uniqueValues, PackedInts.bitsRequired(maxCountForAny));
+          vc = new SparseCounterThreaded(implementation, counts, maxCountForAny, sparseKeys.minTags,
+              sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        }
+        packedAllocations.incRel(allocateTime);
+        break;
+      }
+      case dualplane: {
+        if (getHistogram() == null) {
+          throw new IllegalStateException(
+              "Attempted to allocate dualplane counter, but the required histogram did not exist");
+        }
+        PackedInts.Mutable counts = DualPlaneMutable.create(getHistogram());
+        vc = new SparseCounterThreaded(implementation, counts, maxCountForAny, sparseKeys.minTags,
+            sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        dualPlaneAllocations.incRel(allocateTime);
+        break;
+      }
+      case nplane: {
+        synchronized (pool) {
+          // nplane needs a template in the form of an already existing nplane
+          if (template == null) {
+            return null; // The caller needs to create the counter from scratch
+          }
+          if (!(template instanceof SparseCounterThreaded)) {
+            throw new IllegalStateException(
+                "Logic error: nplane counting was requested and an a template existed, but the template was a "
+                    + template.getClass().getSimpleName() + " where " + SparseCounterThreaded.class.getSimpleName()
+                    + " was required");
+          }
+          SparseCounterThreaded scp = (SparseCounterThreaded)template;
+          if (scp.counterImpl != implementation) {
+            throw new IllegalStateException(
+                "Logic error: nplane counting was requested and an a template existed, but the template contained a "
+                    + "counter with implementation " + scp.counterImpl);
+          }
+
+          ValueCounter counter = scp.createSibling();
+          nplaneAllocations.incRel(allocateTime);
+          return counter;
+        }
+      }
+
+      default: throw new UnsupportedOperationException(
+          "Counter implementation '" + implementation + "' is not supported");
     }
     return vc;
   }
@@ -285,6 +391,9 @@ public class SparseCounterPool {
     }
     synchronized (pool) {
       pool.add(counter);
+      if (template == null) {
+        template = counter;
+      }
     }
     triggerJanitor();
   }
@@ -301,6 +410,9 @@ public class SparseCounterPool {
         return;
       }
       pool.add(counter);
+      if (template == null) {
+        template = counter;
+      }
       structureKey = counter.getStructureKey();
     }
   }
@@ -402,10 +514,10 @@ public class SparseCounterPool {
   public void clear() {
     synchronized (pool) {
       pool.clear();
+      template = null;
       // TODO: Find a clean way to remove non-started tasks from the cleaner
       structureKey = "discardResultsFromBackgroundClears";
 
-      lastFallbackReason = "no fallbacks";
       lastTermsListRequest = "N/A";
       lastTermLookup = "N/A";
 
@@ -418,10 +530,6 @@ public class SparseCounterPool {
     }
   }
 
-  public void incFallbacks(String reason) {
-    fallbacks.inc();
-    lastFallbackReason = reason;
-  }
   public void incWithinCount() {
     withinCutoffCount.inc();
   }
@@ -477,26 +585,34 @@ public class SparseCounterPool {
 //    final int cleanerCoreSize = supervisor.getCorePoolSize();
     return String.format(
         "sparse statistics: field(name=%s, description='%s', uniqTerms=%d, maxDoc=%d, refs=%d, maxCountForAny=%d)," +
-            "%s, %s (last: %s), " + // simpleFacetTotal, fallbacks
+            "%s, " + // simpleFacetTotal, fallbacks
             "%s, %s, %s, " + // collect, extract, resolve
             "%s, %s, " + // disables,  withinCutoff
             "exceededCutoff=%d, SCPool(cached=%d/%d, currentBackgroundClears=%d, %s, " + // emptyReuses
-            "%s, %s, " + // packedAllocations, intAllocations
-
+            "%s, %s, %s, %s, " + // packedAllocations, intAllocations, dualPlaneAllocations, nplaneAllocations
+            "%s, " + // regexpMatches
             "%s, %s, " + // requestClears, backgroundClears
             "cache(hits=%d, misses=%d, %s, %s), " + // filledFrees, emptyFrees
             "terms(%s, last#=%d, %s, %s, last=%s, cached=%s)",  // termsListLookup, termLookup, termLookupMissing
         field, description, uniqueValues, maxDoc, referenceCount, maxCountForAny,
-        simpleFacetTotal, fallbacks, lastFallbackReason,
+        simpleFacetTotal,
         collections, extractions, resolvings,
         disables, withinCutoffCount,
         exceededCutoffCount.get() - disables.get(), poolSize, maxPoolSize, pendingClears, emptyReuses,
-        packedAllocations, intAllocations,
-
+        packedAllocations, intAllocations, dualPlaneAllocations, nplaneAllocations,
+        regexpMatches,
         requestClears, backgroundClears,
         cacheHits.get(), cacheMisses.get(), filledFrees, emptyFrees,
         termsListLookup, count(lastTermsListRequest, ','), termLookup, termLookupMissing, lastTermLookup,
         externalTerms == null ? "no" : Integer.toString(externalTerms.size()));
+  }
+
+  public int getUniqueValues() {
+    return uniqueValues;
+  }
+
+  public void setUniqueValues(int uniqueValues) {
+    this.uniqueValues = uniqueValues;
   }
 
   private int count(String str, char c) {
@@ -532,7 +648,6 @@ public class SparseCounterPool {
     }
     {
       final NamedList<Object> calls = new NamedList<>();
-      calls.add("fallbacks", fallbacks.calls.get() + " (last reason: " + lastFallbackReason + ")");
       disables.debug(calls);
       withinCutoffCount.debug(calls);
       exceededCutoffCount.debug(calls);
@@ -574,6 +689,40 @@ public class SparseCounterPool {
 
   public void setMinEmptyCounters(int minEmptyCounters) {
     this.minEmptyCounters = minEmptyCounters;
+  }
+
+  /**
+   * Locates the best matching counter and return it. Order of priority is<br/>
+   * Filled counter matching the given contentKey (if contentKey is != null)<br/>
+   * Empty counter<br/>
+   * Counter marked {@link #NEEDS_CLEANING}<br/>
+   * Filled counter not matching contentKey.
+   * @param sparseKeys description of the counter needed.
+   * @return a counter removed from the pool if the pool is {@code !pool.isEmpty()}.
+   */
+  private ValueCounter getCounter(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
+    checkConsistency(sparseKeys, implementation);
+    return getCounter(sparseKeys.cacheToken);
+  }
+
+  private void checkConsistency(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
+    if (!initialized) {
+      throw new IllegalStateException("The pool for field '" + field +
+          "' has not been initialized (call setFieldProperties for initialization)");
+    }
+    if (maxCountForAny <= 0 && sparseKeys.counter != SparseKeys.COUNTER_IMPL.array) {
+      // We have an empty facet. To avoid problems with the packed structure, we set the maxCountForAny to 1
+      maxCountForAny = 1;
+    }
+    String structureKey = createStructureKey(sparseKeys, implementation);
+    synchronized (pool) {
+      // Did the structure change since last acquire (index updated)?
+      if (!structureKey.equals(this.structureKey)) {
+        pool.clear();
+        template = null;
+      }
+      this.structureKey = structureKey;
+    }
   }
 
   /**
@@ -678,6 +827,14 @@ public class SparseCounterPool {
     return null;
   }
 
+  public long[] getHistogram() {
+    return histogram;
+  }
+
+  public void setHistogram(long[] histogram) {
+    this.histogram = histogram;
+  }
+
   /**
    * Cleans up the pool if needed.
    */
@@ -712,7 +869,7 @@ public class SparseCounterPool {
   /**
    * Helper class for tracking calls and time spend on a task.
    */
-  private class TimeStat {
+  public class TimeStat {
     public final String name;
     public final int fractionDigits;
     public final NumberFormat numberFormat;

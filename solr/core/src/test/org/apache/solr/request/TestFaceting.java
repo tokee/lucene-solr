@@ -165,7 +165,6 @@ public class TestFaceting extends SolrTestCaseJ4 {
             SparseKeys.SPARSE, "true",
             SparseKeys.MINTAGS, "0",
             SparseKeys.STATS, "true",
-            SparseKeys.FALLBACK_BASE, "false",
             SparseKeys.PACKED, "true"
         )
         , "//lst[@name='many_ws']/int[@name='tag0_1'][.='1']"
