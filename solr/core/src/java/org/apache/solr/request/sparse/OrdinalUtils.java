@@ -137,7 +137,8 @@ public class OrdinalUtils {
         // Bits live = leaf.reader().getLiveDocs();
         Terms terms = leaf.reader().fields().terms(schemaField.getName());
         if (terms != null) {
-          SparseDocValuesFacets.log.info("Creating optimized BitsPerValue provider for " + schemaField.getName());
+          SparseDocValuesFacets.log.info("Single segment index detected. Creating memory optimized BitsPerValue " +
+              "provider for field " + schemaField.getName() + " with " + terms.size() + " terms");
           return new SingleSegmentOrdinalCounts(terms);
         }
       }

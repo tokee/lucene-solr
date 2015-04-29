@@ -190,16 +190,16 @@ public class SparseKeys {
    * Optional. Default is 1.
    */
   // TODO: Consider if these should be taken from a super-pool for the facet or even for the full searcher
-  public static final String COUNTING_THREADS = "facet.counting.threads";
+  public static final String COUNTING_THREADS = "facet.sparse.counting.threads";
   public static final int DEFAULT_COUNTING_THREADS = 1;
 
   /**
    * If the number of documents in a segment gets below this number, counting threading is not performed.
    * </p><p>
-   * Optional. Default is 100.
+   * Optional. Default is 10000.
    */
-  public static final String COUNTING_THREADS_MINDOCS = "facet.counting.threads.mindocs";
-  public static final int DEFAULT_COUNTING_THREADS_MINDOCS = 100;
+  public static final String COUNTING_THREADS_MINDOCS = "facet.sparse.counting.threads.mindocs";
+  public static final int DEFAULT_COUNTING_THREADS_MINDOCS = 10000;
 
   /**
    * Setting this parameter to true will add a special tag with statistics. Only for patch testing!
