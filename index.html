@@ -144,7 +144,7 @@ Maxtracked sets an upper limit for the counts in the facets in the shards (the t
 <p><code>facet.sparse.counting.threads=X</code> is an experimental feature that use multi-threading to update the counter structures. This speeds up faceting for large result sets, where the number of references from documents to terms is in the tens of millions or more.</p>
 
 <h4>
-<a id="5-regexp-based-blacklists-and-whitelists" class="anchor" href="#5-regexp-based-blacklists-and-whitelists" aria-hidden="true"><span class="octicon octicon-link"></span></a>5. Regexp based blacklists and whitelists</h4>
+<a id="6-regexp-based-blacklists-and-whitelists" class="anchor" href="#6-regexp-based-blacklists-and-whitelists" aria-hidden="true"><span class="octicon octicon-link"></span></a>6. Regexp based blacklists and whitelists</h4>
 
 <p>It is possible to filter the facet result based on regular expressions, using either <code>facet.sparse.whitelist</code> or <code>facet.sparse.whitelist</code>. If the user wants only the terms that starts with <em>foo</em> and does not contain any digits, the arguments would be <code>facet.sparse.whitelist=^foo.*&amp;facet.sparse.blacklist=.*[0-9]+.*</code>. For details, read <a href="https://sbdevel.wordpress.com/2015/04/10/facet-filtering/">Facet filtering</a>.</p>
 
