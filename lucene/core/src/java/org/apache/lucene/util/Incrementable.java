@@ -38,16 +38,16 @@ public interface Incrementable {
    * If the value overflows, 0 must be stored at the index.
    * @param index the index for the value to increment.
    */
-  public void increment(int index);
+  void increment(int index);
 
   /**
    * Increment the value at the given index by 1.
    * If the value overflows, 0 must be stored at the index,
    * but the full (overflowed) value must be returned.
    * @param index the index for the value to increment.
-   * @return the value after incrementation;
+   * @return true if the value was 0 before incrementation else false;
    */
-  public long incrementAndGet(int index);
+  boolean isZeroAndIncrement(int index);
 
   /**
    * Atomically sets the value to the given updated value if the current value {@code ==} the expected value.
@@ -80,10 +80,10 @@ public interface Incrementable {
     // This implementation should be in PackedInts.MutableImpl
     // Note the guard against overflow and that the overflowed value is returned
     @Override
-    public long incrementAndGet(int index) {
+    public boolean isZeroAndIncrement(int index) {
       final long value = backend.get(index)+1;
       backend.set(index, value == incOverflow ? 0 : value);
-      return value;
+      return value == 1;
     }
 
     @Override

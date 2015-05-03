@@ -41,10 +41,10 @@ import org.apache.solr.search.SolrIndexSearcher;
  */
 public class OrdinalUtils {
 
-  /*
-    Memory and CPU-power heavy extraction of counts for all global ordinals.
-    This should be called as few times as possible.
-     */
+  /**
+   * Memory and CPU-power heavy extraction of counts for all global ordinals.
+   * This should be called as few times as possible. Consider using {@link #getBPVs} instead.
+   */
   public static int[] getGlobalOrdinalCount(
       SolrIndexSearcher searcher, SortedSetDocValues si, MultiDocValues.OrdinalMap globalMap,
       SchemaField schemaField) throws IOException {
@@ -147,7 +147,7 @@ public class OrdinalUtils {
         getGlobalOrdinalCount(searcher, si, globalMap, schemaField), false);
   }
 
-  // Quite the  hack with the extra value at the end. There is a 1-off error somewhere yet undiscovered that needs it
+  // Quite the hack with the extra value at the end. There is a 1-off error somewhere yet undiscovered that needs it
   public static class SingleSegmentOrdinalCounts implements NPlaneMutable.BPVProvider {
     private final static BytesRef THE_END = new BytesRef("EOD");
     private final static BytesRef THE_END_POLLED = new BytesRef("EOD-EOL");
@@ -231,6 +231,15 @@ public class OrdinalUtils {
     public long maxCount = -1;
     public long refCount = 0;
     public final long[] histogram = new long[64];
+    /*
+    The plusOneHistogram is used by {@link NPlaneMutable} for creating an instance optimized for cheap
+    checks for counter values different from 0.
+    For details, see https://sbdevel.wordpress.com/2015/04/30/alternative-counter-tracking/
+    Decimal  0  1   2    3    4     5     6     7     8
+    Binary   0  1  10   11  100   101   110   111  1000
+    Binary+  0  1  11  101  111  1001  1011  1101  1111
+     */
+    public final long[] plusOneHistogram = new long[64];
 
     public StatCollectingBPVWrapper(NPlaneMutable.BPVProvider source) {
       this.source = source;
@@ -247,6 +256,7 @@ public class OrdinalUtils {
       final int bpv = PackedInts.bitsRequired(ordCount);
       { // Statistics collection
         histogram[bpv]++;
+        plusOneHistogram[ordCount <= 1 ? 1 : PackedInts.bitsRequired(ordCount-1)+1]++;
         refCount += ordCount;
         if (ordCount > maxCount) {
           maxCount = ordCount;
@@ -261,6 +271,7 @@ public class OrdinalUtils {
       { // Statistics collection
         final int bpv = PackedInts.bitsRequired(ordCount);
         histogram[bpv]++;
+        plusOneHistogram[ordCount <= 1 ? 1 : PackedInts.bitsRequired(ordCount-1)+1]++;
         refCount += ordCount;
         if (ordCount > maxCount) {
           maxCount = ordCount;
@@ -292,7 +303,7 @@ public class OrdinalUtils {
     public String toString() {
       return "StatCollectingBPVWrapper(" +
           "entries=" + entries + ", maxCount=" + maxCount + ", refCount=" + refCount +
-          ", histogram=" + Arrays.toString(histogram) + ')';
+          ", histogram=" + Arrays.toString(histogram) + ", plusOneHistogram=" + Arrays.toString(plusOneHistogram) + ')';
     }
   }
 }

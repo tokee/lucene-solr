@@ -156,6 +156,9 @@ public class SparseCounterPool {
   private BytesRefArray externalTerms = null;
   // Optionally defined histogram of the number of counters with the given maxBits
   private long[] histogram = null;
+  // Optionally defined histogram of the number of counters with the given bits needed by {@link NPlaneMutable}
+  // for setups with fast tracking on non-zero counters.
+  private long[] plusOneHistogram = null;
 
   public SparseCounterPool(ThreadPoolExecutor janitorSupervisor, String field, String description,
                            int maxPoolSize, int minEmptyCounters) {
@@ -833,6 +836,10 @@ public class SparseCounterPool {
 
   public void setHistogram(long[] histogram) {
     this.histogram = histogram;
+  }
+
+  public void setPlusOneHistogram(long[] plusOneHistogram) {
+    this.plusOneHistogram = plusOneHistogram;
   }
 
   /**

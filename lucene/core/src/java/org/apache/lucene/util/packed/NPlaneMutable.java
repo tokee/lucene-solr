@@ -30,9 +30,10 @@ import java.util.Locale;
  * Highly experimental structure for holding counters with known maxima.
  * The structure works best with long tail distributed maxima.
  * The order of the maxima are assumed to be random.
- * For sorted maxima, a structure of a little less than half the size is possible.
+ * For sorted maxima, a structure of a little less than half the size is possible,
+ * but that has not been implemented.
  * </p><p>
- * Space saving is prioritized very high, wit performance being secondary.
+ * Space saving is prioritized very high, with performance being secondary.
  * Practical usage of the structure is thus limited.
  * </p><p>
  * Warning: This representation does not support persistence yet.
@@ -46,6 +47,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final int DEFAULT_OVERFLOW_BUCKET_SIZE = 100; // Should probably be a low lower (100 or so)
   public static final int DEFAULT_MAX_PLANES = 64; // No default limit
   public static final double DEFAULT_COLLAPSE_FRACTION = 0.01; // If there's <= 1% counters left, pack them in 1 plane
+
 
   public static enum IMPL {split, spank, tank, shift}
 
@@ -123,6 +125,16 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       newPlanes[i] = planes[i].createSibling();
     }
     return new NPlaneMutable(newPlanes);
+  }
+
+  /**
+   * Returns a long representing 64 values, with each bit being a flag for one value.
+   * If the flag for a value is 1, the corresponding value is not zero.
+   * @param longIndex value-index / 64.
+   * @return 64 flags for non-zero.
+   */
+  public long getNonZeroBits(int longIndex) {
+    return planes[0].getNonZeroBits(longIndex);
   }
 
   /**
@@ -337,11 +349,11 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * @return the incremented value.
    */
   @Override
-  public long incrementAndGet(int index) {
+  public boolean isZeroAndIncrement(int index) {
     // FIXME: This does not guarantee the correct result. What we really need is tracking first update
     long original = get(index);
     increment(index);
-    return original+1;
+    return original == 0;
   }
 
   @Override
@@ -542,6 +554,13 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
      */
     public abstract Plane createSibling();
 
+    /**
+     * Returns a long representing 64 values, with each bit being a flag for one value.
+     * If the flag for a value is 1, the corresponding value is not zero.
+     * @param longIndex value-index / 64.
+     * @return 64 flags for non-zero.
+     */
+    public abstract long getNonZeroBits(int longIndex);
   }
 
   private static class SplitPlane extends Plane {
@@ -666,8 +685,16 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       NPlaneMutable.toString(sb, overflowCache);
       return sb.toString();
     }
+
+    @Override
+    public long getNonZeroBits(int longIndex) {
+      throw new UnsupportedOperationException("Non-zero bits are not fast to calculate for this implementation");
+    }
   }
 
+  /**
+   * Separate storage of value bits and overflow bits, where overflow bits are shared across instances.
+   */
   private static class SplitRankPlane extends Plane {
     private final PackedInts.Mutable values;
     private final Incrementable incValues;
@@ -706,7 +733,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
     @Override
     public boolean inc(int index) {
-      return (incValues.incrementAndGet(index) >>> values.getBitsPerValue()) != 0;
+      return (incValues.isZeroAndIncrement(index) >>> values.getBitsPerValue()) != 0;
 /*      long value = values.get(index);
       value++;
       values.set(index, value & ~(~1L << (values.getBitsPerValue()-1)));
@@ -759,6 +786,15 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     @Override
     public int overflowRank(int index) {
       return overflows.rank(index);
+    }
+
+    @Override
+    public long getNonZeroBits(int longIndex) {
+      if (maxBit != 1) {
+        throw new UnsupportedOperationException(
+            "Non-zero bits can only be returned for plane 1, when maxBit==1. maxBits was " + maxBit);
+      }
+      return values.
     }
 
     public String toString() {
@@ -902,6 +938,11 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
         }
       }
       return rank;
+    }
+
+    @Override
+    public long getNonZeroBits(int longIndex) {
+      throw new UnsupportedOperationException("Non-zero bits are not fast to calculate for this implementation");
     }
 
     public String toString() {

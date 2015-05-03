@@ -599,6 +599,7 @@ public class SparseDocValuesFacets {
         (System.nanoTime() - startTime) / 1000000, join(stats.histogram)));
     pool.setFieldProperties((int) (si.getValueCount() + 1), stats.maxCount, searcher.maxDoc(), stats.refCount);
     pool.setHistogram(stats.histogram);
+    pool.setPlusOneHistogram(stats.plusOneHistogram);
   }
 
   static int warnedOrdinal = 0;
