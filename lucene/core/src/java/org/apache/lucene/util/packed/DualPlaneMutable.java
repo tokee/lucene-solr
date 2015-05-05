@@ -221,13 +221,13 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
         head.set(headPos, newVal);
         tail.set(index, headBit | headPos++);
       }
-      return tailVal == 0 ? STATUS.wasZero : STATUS.none;
+      return tailVal == 0 ? STATUS.wasZero : STATUS.ok;
     }
     // Already defined in head
     final int headIndex = (int) (tailVal & tailValueMask);
     final long realNewVal = head.get(headIndex)+1;
     head.set(headIndex, realNewVal);
-    return STATUS.none;
+    return STATUS.ok;
   }
 
   @Override

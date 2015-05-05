@@ -83,11 +83,14 @@ public class LongTailPerformance {
   }
 
   static void measurePerformance(
-      long[] histogram, int runs, int entry, int instances, int updates, int measurePoints,
+      long[] inHistogram, int runs, int entry, int instances, int updates, int measurePoints,
       int[] caches, int[] maxPlanes, int threads, int[] splits, boolean checkEquivalence, char[] whitelist) {
     System.out.println("Creating pseudo-random maxima from histogram" + heap());
-    final PackedInts.Reader maxima = getMaxima(histogram);
-    histogram = getHistogram(maxima); // Re-calc as the maxima generator rounds up to nearest prime
+    final PackedInts.Reader maxima = getMaxima(inHistogram);
+    NPlaneMutable.StatCollectingBPVWrapper bitStats = new NPlaneMutable.StatCollectingBPVWrapper(
+        new NPlaneMutable.BPVPackedWrapper(maxima, false));
+    bitStats.collect();
+
     List<StatHolder> stats = new ArrayList<>();
     System.out.println("Initializing implementations" + heap());
 //    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
@@ -103,9 +106,12 @@ public class LongTailPerformance {
       }
       for (int mp : maxPlanes) {
         NPlaneMutable.Layout layout = null;
+        NPlaneMutable.Layout layoutZero = null;
         for (int cache : caches) {
           layout = NPlaneMutable.getLayout(new NPlaneMutable.BPVPackedWrapper(maxima, false),
               cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, false);
+          layoutZero = NPlaneMutable.getLayout(new NPlaneMutable.BPVPackedWrapper(maxima, false),
+              cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, true);
           // Disabled split as it is always worse than spank
 //          for (NPlaneMutable.IMPL impl : new NPlaneMutable.IMPL[]{NPlaneMutable.IMPL.split, NPlaneMutable.IMPL.shift}) {
           for (NPlaneMutable.IMPL impl : new NPlaneMutable.IMPL[]{NPlaneMutable.IMPL.shift}) {
@@ -135,19 +141,28 @@ public class LongTailPerformance {
           stats.add(new StatHolder(nplane, id,
               "N-" + NPlaneMutable.IMPL.spank + "(#" + nplane.getPlaneCount() + ")", updates, measurePoints, 1));
         }
+        if (acceptID(whitelist, id++)) {
+          NPlaneMutable nplane = layoutZero == null ?
+              new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), 0, mp,
+                  NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.zethra) :
+              new NPlaneMutable(layoutZero, new NPlaneMutable.BPVPackedWrapper(maxima, false),
+                  NPlaneMutable.IMPL.zethra);
+          stats.add(new StatHolder(nplane, id,
+              "N-" + NPlaneMutable.IMPL.zethra + "(#" + nplane.getPlaneCount() + ")", updates, measurePoints, 1));
+        }
       }
       if (acceptID(whitelist, id++)) {
         stats.add(new StatHolder(
-            DualPlaneMutable.create(histogram, 0.99), id,
+            DualPlaneMutable.create(bitStats.histogram, 0.99), id,
             "Dual-plane", updates, measurePoints, 1));
       }
       if (acceptID(whitelist, id++)) {
         stats.add(new StatHolder(
-            PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.COMPACT), id,
+            PackedInts.getMutable(maxima.size(), maxBit(bitStats.histogram), PackedInts.COMPACT), id,
             "PackedInts.COMPACT", updates, measurePoints, 1));
       }
       for (int split : splits) { // Counters that support threaded updates (currently only tank)
-        for (int candidateBPV = maxBit(histogram); candidateBPV < 64 ; candidateBPV++) {
+        for (int candidateBPV = maxBit(bitStats.histogram); candidateBPV < 64 ; candidateBPV++) {
           if (PackedOpportunistic.isSupported(candidateBPV)) {
             if (acceptID(whitelist, id++)) {
               stats.add(new StatHolder(
@@ -160,7 +175,7 @@ public class LongTailPerformance {
       }
       if (acceptID(whitelist, id++)) {
         stats.add(new StatHolder(
-            PackedInts.getMutable(maxima.size(), maxBit(histogram), PackedInts.FAST), id,
+            PackedInts.getMutable(maxima.size(), maxBit(bitStats.histogram), PackedInts.FAST), id,
             "PackedInts.FAST",
             updates, measurePoints, 1));
       }
@@ -176,11 +191,11 @@ public class LongTailPerformance {
     }
     System.out.println();
 
-    measure(runs, entry, threads, updates, measurePoints, histogram, maxima, stats, checkEquivalence);
+    measure(runs, entry, threads, updates, measurePoints, maxBit(bitStats.histogram), maxima, stats, checkEquivalence);
     // Overall stats
     String caption = String.format(Locale.ENGLISH,
         "Increments/ms of %dM counters with max bit %d, using %d threads",
-        maxima.size() / 1000000, maxBit(histogram), threads);
+        maxima.size() / 1000000, maxBit(bitStats.histogram), threads);
 
     printHTMLTable(caption, updates, measurePoints, stats);
     printGnuplotData(caption, updates, measurePoints, entry, stats);
@@ -246,14 +261,14 @@ public class LongTailPerformance {
     }
   }
 
-  private static void measure(int runs, int entry, int threads, int updates, int measurePoints, long[] histogram,
+  private static void measure(int runs, int entry, int threads, int updates, int measurePoints, int maxBit,
                               PackedInts.Reader maxima, List<StatHolder> stats, boolean checkEquivalence) {
     PackedInts.Mutable valueIncrements = null; // For re-use
     final long sum = sum(maxima); // For generation of increments
     final ExecutorService executor = Executors.newFixedThreadPool(Math.min(threads, stats.size()));
 
     System.out.println(String.format("Performing %d test runs of %dM updates in %dM counters with max bit %d%s",
-        runs, updates / MI, maxima.size() / 1000000, maxBit(histogram), heap()));
+        runs, updates / MI, maxima.size() / 1000000, maxBit, heap()));
 
     // Set up the stats with the current test configuration
     // Run the tests

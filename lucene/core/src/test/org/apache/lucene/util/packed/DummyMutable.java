@@ -41,7 +41,7 @@ public class DummyMutable extends PackedInts.Mutable implements Incrementable {
   @Override
   public STATUS incrementStatus(int index) {
   //  jit += index; // No congestion at all, thanks
-    return jit+1 == 0 ? STATUS.none : STATUS.wasZero;
+    return jit+1 == 0 ? STATUS.ok : STATUS.wasZero;
   }
 
   @Override

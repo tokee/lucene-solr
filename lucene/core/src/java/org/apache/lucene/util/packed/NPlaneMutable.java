@@ -22,7 +22,6 @@ import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.OpenBitSet;
 import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.RankBitSet;
-import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -383,7 +382,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     for (int p = 0; p < planes.length; p++) {
       Plane plane = planes[p];
       try {
-        if (!plane.inc(vIndex)) { // No overflow; exit immediately. Note: There is no check for overflow beyond maxima
+        if (plane.inc(vIndex) != STATUS.overflowed) {
+          // No overflow; exit immediately. Note: There is no check for overflow beyond maxima
           break;
         }
       } catch (ArrayIndexOutOfBoundsException e) {
@@ -405,10 +405,33 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    */
   @Override
   public STATUS incrementStatus(int index) {
-    long original = get(index);
-    increment(index);
-    // TODO: Implement this right without the slow get/set
-    return original == 0 ? STATUS.wasZero : STATUS.none;
+    if (!isZeroTracked) { // Have to do it the slow way
+      long original = get(index);
+      increment(index);
+      return original == 0 ? STATUS.wasZero : STATUS.ok;
+    }
+
+    int vIndex = index;
+    for (int p = 0; p < planes.length; p++) {
+      Plane plane = planes[p];
+      try {
+        final STATUS status = plane.inc(vIndex);
+        if (p == 0 && status == STATUS.wasZero) { // First increment for this counter
+          return STATUS.wasZero;
+        }
+        if (status != STATUS.overflowed) {
+          // No overflow; exit immediately. Note: There is no check for overflow beyond maxima
+          return STATUS.ok;
+        }
+      } catch (ArrayIndexOutOfBoundsException e) {
+        throw new ArrayIndexOutOfBoundsException(String.format(Locale.ENGLISH,
+            "inc(%d) on plane %d from root inc(%d): %s",
+            vIndex, p, index, plane));
+      }
+      // We know there is actual overflow. As this is an inc, we know the overflow is 1
+      vIndex = plane.overflowRank(vIndex);
+    }
+    return STATUS.ok;
   }
 
   @Override
@@ -571,9 +594,9 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
      * Increment the value at the given index by 1.
      * </p><p>
      * @param index the value to increment.
-     * @return true if the value resulted in an overflow.
+     * @return semi-detailed info about the operation.
      */
-    public abstract boolean inc(int index);
+    public abstract STATUS inc(int index);
 
     // max of 2^bpv-1 must be ensured by the caller
     public abstract void set(int index, long value);
@@ -651,11 +674,11 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     }
 
     @Override
-    public boolean inc(int index) {
+    public STATUS inc(int index) {
       long value = values.get(index);
       value++;
       values.set(index, value & ~(~1 << (values.getBitsPerValue()-1)));
-      return (value >>> values.getBitsPerValue()) != 0;
+      return value == 1 ? STATUS.wasZero : (value >>> values.getBitsPerValue()) != 0 ? STATUS.overflowed : STATUS.ok;
     }
 
     @Override
@@ -789,8 +812,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     }
 
     @Override
-    public boolean inc(int index) {
-      return incValues.incrementStatus(index) == STATUS.overflowed;
+    public STATUS inc(int index) {
+      return incValues.incrementStatus(index);
 //      return (incValues.incrementStatus(index) >>> values.getBitsPerValue()) != 0;
 /*      long value = values.get(index);
       value++;
@@ -880,9 +903,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
           (PackedOpportunistic.PackedOpportunistic1) values : null;
     }
     @Override
-    public boolean inc(int index) {
-      return (zeroTracker == null ? incValues.incrementStatus(index) : zeroTracker.incrementCeilStatus(index)) ==
-          STATUS.overflowed;
+    public STATUS inc(int index) {
+      return zeroTracker == null ? incValues.incrementStatus(index) : zeroTracker.incrementCeilStatus(index);
     }
 
     @Override
@@ -947,17 +969,18 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     }
 
     @Override
-    public boolean inc(int index) {
+    public STATUS inc(int index) {
+      long value;
       if (hasOverflow) {
         final long rawValue = values.get(index);
-        long value = rawValue >>> 1;
+        value = rawValue >>> 1;
         value++;
         values.set(index, ((value & VALUE_BITS_MASK) << 1) | (rawValue & 0x1));
-        return (value >>> bpv) != 0;
+      } else {
+        value = values.get(index) + 1;
+        values.set(index, value & VALUE_BITS_MASK);
       }
-      long value = values.get(index)+1;
-      values.set(index, value & VALUE_BITS_MASK);
-      return (value >>> bpv) != 0;
+      return value == 1 ? STATUS.wasZero : (value >>> bpv) != 0 ? STATUS.overflowed : STATUS.ok;
     }
 
     @Override

@@ -252,7 +252,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
   /**
    * Attempt to find the nearest BPV that is acceptable by PackedOpportunistic.
    * @param bitsPerValue the least amount of bits per value acceptable.
-   * @return a valid amount of bits per value or the input is none could be found.
+   * @return a valid amount of bits per value or the input is ok could be found.
    */
   public static int nextValid(int bitsPerValue) {
     for (int bpv = bitsPerValue ; bpv <= 32 ; bpv++) {
@@ -324,7 +324,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 1L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(1L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -342,7 +342,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         }
         final long setNew = newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(1L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -406,7 +406,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 3L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(3L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -469,7 +469,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 7L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(7L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -532,7 +532,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 15L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(15L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -595,7 +595,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 31L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(31L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -658,7 +658,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 63L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(63L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -721,7 +721,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 127L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(127L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -784,7 +784,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 255L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(255L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -847,7 +847,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 511L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(511L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -910,7 +910,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 1023L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(1023L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -973,7 +973,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 4095L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(4095L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -1036,7 +1036,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 65535L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(65535L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -1099,7 +1099,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 2097151L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(2097151L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
@@ -1162,7 +1162,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         final long newValue = ((old >>> shift) & 4294967295L)+1;
         final long setNew = newValue == incOverflow ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(4294967295L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }

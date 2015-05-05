@@ -47,7 +47,7 @@ public interface Incrementable {
    * @return the state of the counter before and after the operation.
    */
   STATUS incrementStatus(int index);
-  enum STATUS {wasZero, none, overflowed} // Mutually exclusive as counters always goes to > 0
+  enum STATUS {wasZero, ok, overflowed} // Mutually exclusive as counters always goes to > 0
 
   /**
    * Atomically sets the value to the given updated value if the current value {@code ==} the expected value.
@@ -81,7 +81,7 @@ public interface Incrementable {
     public STATUS incrementStatus(int index) {
       final long value = backend.get(index)+1;
       backend.set(index, value == incOverflow ? 0 : value);
-      return value == 1 ? STATUS.wasZero : value == incOverflow ? STATUS.overflowed : STATUS.none;
+      return value == 1 ? STATUS.wasZero : value == incOverflow ? STATUS.overflowed : STATUS.ok;
     }
 
     @Override
