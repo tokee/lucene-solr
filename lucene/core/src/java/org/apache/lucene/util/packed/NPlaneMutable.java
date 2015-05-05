@@ -22,6 +22,7 @@ import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.OpenBitSet;
 import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.RankBitSet;
+import sun.reflect.generics.reflectiveObjects.NotImplementedException;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -299,19 +300,39 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
   @Override
   public long get(int index) {
+    if (!isZeroTracked) {
+      long value = 0;
+      int shift = 0;
+      // Move up in the planes until there are no more overflow-bits
+      for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
+        final Plane plane = planes[planeIndex];
+        value |= plane.get(index) << shift;
+        if (planeIndex == planes.length - 1 || !plane.isOverflow(index)) { // Finished
+          break;
+        }
+        shift += plane.bpv;
+        index = plane.overflowRank(index);
+      }
+      return value;
+    }
     long value = 0;
     int shift = 0;
-    // Move up in the planes until there are no more overflow-bits
-    for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
+    final long zeroValue = planes[0].get(index);
+    if (zeroValue == 0 || !planes[0].isOverflow(index)) { // Quick termination?
+      return zeroValue;
+    }
+    // Move up in the planes until there are no more overflow-bits, starting with shift 1 due to zeroCounter
+    index = planes[0].overflowRank(index);
+    for (int planeIndex = 1; planeIndex < planes.length; planeIndex++) {
       final Plane plane = planes[planeIndex];
       value |= plane.get(index) << shift;
-      if (planeIndex == planes.length-1 || !plane.isOverflow(index)) { // Finished
+      if (planeIndex == planes.length - 1 || !plane.isOverflow(index)) { // Finished
         break;
       }
       shift += plane.bpv;
       index = plane.overflowRank(index);
     }
-    return value;
+    return zeroValue + value;
   }
 
   public int getPlaneCount() {
@@ -321,11 +342,29 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   @Override
   public void set(int index, long value) {
 //    System.out.println("\nset(" + index + ", " + value + ")");
-    for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
+    if (!isZeroTracked) {
+      for (int planeIndex = 0; planeIndex < planes.length; planeIndex++) {
+        final Plane plane = planes[planeIndex];
+
+        plane.set(index, value & ~(~1L << (plane.bpv - 1)));
+        if (planeIndex == planes.length - 1 || !plane.isOverflow(index)) {
+          break;
+        }
+        // Overflow-bit is set. We need to go up a level, even if the value is 0, to ensure full reset of the bits
+        value = value >> plane.bpv;
+        index = plane.overflowRank(index);
+      }
+      return;
+    }
+
+    planes[0].set(index, value == 0 ? 0 : 1);
+    value -= value == 0 ? 0 : 1;
+    index = planes[0].overflowRank(index);
+    for (int planeIndex = 1; planeIndex < planes.length; planeIndex++) {
       final Plane plane = planes[planeIndex];
 
-      plane.set(index, value & ~(~1L << (plane.bpv-1)));
-      if (planeIndex == planes.length-1 || !plane.isOverflow(index)) {
+      plane.set(index, value & ~(~1L << (plane.bpv - 1)));
+      if (planeIndex == planes.length - 1 || !plane.isOverflow(index)) {
         break;
       }
       // Overflow-bit is set. We need to go up a level, even if the value is 0, to ensure full reset of the bits

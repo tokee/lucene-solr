@@ -203,7 +203,15 @@ public class TestNPlaneMutable extends LuceneTestCase {
     }
   }
 
-  public void testSmallAdd() {
+  public void testSmallAddSpank() {
+    testSmallAdd(NPlaneMutable.IMPL.spank);
+  }
+
+  public void testSmallAddZethra() {
+    testSmallAdd(NPlaneMutable.IMPL.zethra);
+  }
+
+  private void testSmallAdd(NPlaneMutable.IMPL impl) {
     final int[] MAXIMA = new int[]{10, 1, 16, 2, 3};
     final int MAX = 16;
     final PackedInts.Mutable maxima =
@@ -213,11 +221,13 @@ public class TestNPlaneMutable extends LuceneTestCase {
     }
     System.out.println("maxima: " + toString(maxima));
 
-    PackedInts.Mutable bpm = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank);
+    NPlaneMutable bpm = new NPlaneMutable(maxima, impl);
     bpm.set(1, bpm.get(1)+1);
     assertEquals("Test 1: index 1", 1, bpm.get(1));
     assertEquals("The unmodified counter 0 should be zero", 0 , bpm.get(0));
+//    System.out.println("=================== inc(1)\n" + bpm.toString(true));
     bpm.set(0, bpm.get(0)+1);
+//    System.out.println("=================== inc(0)\n" + bpm.toString(true));
     assertEquals("Test 2: index 0", 1, bpm.get(0));
     bpm.set(0, bpm.get(0)+1);
     bpm.set(0, bpm.get(0)+1);
@@ -233,7 +243,7 @@ public class TestNPlaneMutable extends LuceneTestCase {
 
     long[] full = NPlaneMutable.directHistogramToFullZero(histogram);
     NPlaneMutable.Layout layout = NPlaneMutable.getLayoutWithZeroHistogram(
-        full, 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
+        full, 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, false);
     assertTrue("There should be more than 3 planes", layout.size() > 3);
     long mem = 0;
     for (NPlaneMutable.PseudoPlane plane: layout) {
@@ -250,10 +260,18 @@ public class TestNPlaneMutable extends LuceneTestCase {
 //        layout.size(), mem/M, estimated/M));
   }
 
-  public void testSmallInc() {
+  public void testSmallIncSpank() {
+    testSmallInc(NPlaneMutable.IMPL.spank);
+  }
+  public void testSmallIncZethra() {
+    testSmallInc(NPlaneMutable.IMPL.zethra);
+  }
+
+  public void testSmallInc(NPlaneMutable.IMPL impl) {
     final PackedInts.Mutable maxima = toMutable(10, 1, 16, 2, 3);
     System.out.println("maxima: " + toString(maxima));
-    NPlaneMutable bpm = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank);
+    NPlaneMutable bpm = new NPlaneMutable(maxima, impl);
+    System.out.println(bpm.toString(true));
 
     bpm.increment(1);
     assertEquals("Test 1: index 1", 1, bpm.get(1));
@@ -266,6 +284,19 @@ public class TestNPlaneMutable extends LuceneTestCase {
     bpm.increment(0);
     assertEquals("Test 4: index 0", 4, bpm.get(0));
     bpm.increment(2);
+//    System.out.println("============ expected 2:" + 1);
+//    System.out.println(bpm.toString(true));
+    assertEquals("Test 5: index 2", 1, bpm.get(2));
+    for (int i = 0 ; i < 15 ; i++) {
+      bpm.increment(2);
+//      System.out.println("============ expected 2:" + (1 + 1 + i));
+//      System.out.println(bpm.toString(true));
+      assertEquals("Test 5b: index 2", 1 + 1 + i, bpm.get(2));
+    }
+    assertEquals("Test 6: index 2", 16, bpm.get(2));
+    bpm.increment(4);
+    assertEquals("Test 7: index 4", 1, bpm.get(4));
+    assertEquals("Test 1b: index 1", 1, bpm.get(1));
   }
 
   public void testOverflowCache() {

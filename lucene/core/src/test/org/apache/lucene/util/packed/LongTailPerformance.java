@@ -104,8 +104,8 @@ public class LongTailPerformance {
       for (int mp : maxPlanes) {
         NPlaneMutable.Layout layout = null;
         for (int cache : caches) {
-          layout = NPlaneMutable.getLayout(
-              new NPlaneMutable.BPVPackedWrapper(maxima, false), cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
+          layout = NPlaneMutable.getLayout(new NPlaneMutable.BPVPackedWrapper(maxima, false),
+              cache, mp, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, false);
           // Disabled split as it is always worse than spank
 //          for (NPlaneMutable.IMPL impl : new NPlaneMutable.IMPL[]{NPlaneMutable.IMPL.split, NPlaneMutable.IMPL.shift}) {
           for (NPlaneMutable.IMPL impl : new NPlaneMutable.IMPL[]{NPlaneMutable.IMPL.shift}) {
