@@ -48,7 +48,6 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final int DEFAULT_MAX_PLANES = 64; // No default limit
   public static final double DEFAULT_COLLAPSE_FRACTION = 0.01; // If there's <= 1% counters left, pack them in 1 plane
 
-
   public static enum IMPL {split, spank, tank, shift}
 
   /**
@@ -349,11 +348,11 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * @return the incremented value.
    */
   @Override
-  public boolean isZeroAndIncrement(int index) {
-    // FIXME: This does not guarantee the correct result. What we really need is tracking first update
+  public STATUS incrementStatus(int index) {
     long original = get(index);
     increment(index);
-    return original == 0;
+    // TODO: Implement this right without the slow get/set
+    return original == 0 ? STATUS.wasZero : STATUS.none;
   }
 
   @Override
@@ -698,12 +697,15 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   private static class SplitRankPlane extends Plane {
     private final PackedInts.Mutable values;
     private final Incrementable incValues;
+    private final PackedOpportunistic.PackedOpportunistic1 zeroTracker;
     private final RankBitSet overflows;
 
     public SplitRankPlane(int valueCount, int bpv, boolean hasOverflow, int maxBit, boolean threadGuarded) {
       super(valueCount, bpv, maxBit, hasOverflow);
       values = getPacked(valueCount, bpv, threadGuarded);
       incValues = values instanceof Incrementable ? (Incrementable)values : new IncrementableMutable(values);
+      zeroTracker = values instanceof PackedOpportunistic.PackedOpportunistic1 ?
+          (PackedOpportunistic.PackedOpportunistic1) values : null;
       overflows = new RankBitSet(hasOverflow ? valueCount : 0);
     }
 
@@ -711,6 +713,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       super(values.size(), bpv, maxBit, hasOverflow);
       this.values = values;
       incValues = values instanceof Incrementable ? (Incrementable)values : new IncrementableMutable(values);
+      zeroTracker = values instanceof PackedOpportunistic.PackedOpportunistic1 ?
+          (PackedOpportunistic.PackedOpportunistic1) values : null;
       this.overflows = overflows;
     }
 
@@ -718,11 +722,11 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     public Plane createSibling() {
       return new SplitRankPlane(values, overflows, maxBit, hasOverflow, bpv);
     }
-
     private PackedInts.Mutable getPacked(int valueCount, int bpv, boolean threadGuarded) {
       if (!threadGuarded) {
         return PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
       }
+
       for (int candidateBPV = bpv; candidateBPV < 64 ; candidateBPV++) {
         if (PackedOpportunistic.isSupported(candidateBPV)) {
           return PackedOpportunistic.create(valueCount, candidateBPV);
@@ -733,7 +737,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
     @Override
     public boolean inc(int index) {
-      return (incValues.isZeroAndIncrement(index) >>> values.getBitsPerValue()) != 0;
+      return incValues.incrementStatus(index) == STATUS.overflowed;
+//      return (incValues.incrementStatus(index) >>> values.getBitsPerValue()) != 0;
 /*      long value = values.get(index);
       value++;
       values.set(index, value & ~(~1L << (values.getBitsPerValue()-1)));
@@ -790,11 +795,11 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
     @Override
     public long getNonZeroBits(int longIndex) {
-      if (maxBit != 1) {
+      if (zeroTracker == null) {
         throw new UnsupportedOperationException(
-            "Non-zero bits can only be returned for plane 1, when maxBit==1. maxBits was " + maxBit);
+            "Non-zero bits can only be returned for plane 1 with a zeroTracker");
       }
-      return values.
+      return zeroTracker.getBlock(longIndex);
     }
 
     public String toString() {

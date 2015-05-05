@@ -132,7 +132,7 @@ public class SparseCounterThreaded implements ValueCounter {
       // We want to track changes to counters to maintain the sparse structure
 
       final long newValue;
-          newValue = countsInc.isZeroAndIncrement(counter);
+          newValue = countsInc.incrementStatus(counter);
       if (newValue == 1) {
         // This is the first update of the counter, so we add it to the tracker
         final int oldTracksPos = tracksPos.getAndIncrement();

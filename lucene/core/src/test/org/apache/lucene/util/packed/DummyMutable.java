@@ -39,9 +39,9 @@ public class DummyMutable extends PackedInts.Mutable implements Incrementable {
   }
 
   @Override
-  public boolean isZeroAndIncrement(int index) {
+  public STATUS incrementStatus(int index) {
   //  jit += index; // No congestion at all, thanks
-    return jit+1 == 0;
+    return jit+1 == 0 ? STATUS.none : STATUS.wasZero;
   }
 
   @Override

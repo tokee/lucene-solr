@@ -209,8 +209,9 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
   }
 
   // Faster than {@code set(get(index)+1)}
+ // No guard against overflow
   @Override
-  public boolean isZeroAndIncrement(int index) {
+  public STATUS incrementStatus(int index) {
     final long tailVal = tail.get(index);
     final long newVal = tailVal+1;
     if ((tailVal & headBit) == 0) { // Only defined in tail
@@ -220,17 +221,18 @@ public class DualPlaneMutable extends PackedInts.Mutable implements Incrementabl
         head.set(headPos, newVal);
         tail.set(index, headBit | headPos++);
       }
-    } else { // Already defined in head
-      final int headIndex = (int) (tailVal & tailValueMask);
-      final long realNewVal = head.get(headIndex)+1;
-      head.set(headIndex, realNewVal);
+      return tailVal == 0 ? STATUS.wasZero : STATUS.none;
     }
-    return tailVal == 0;
+    // Already defined in head
+    final int headIndex = (int) (tailVal & tailValueMask);
+    final long realNewVal = head.get(headIndex)+1;
+    head.set(headIndex, realNewVal);
+    return STATUS.none;
   }
 
   @Override
   public void increment(int index) {
-    isZeroAndIncrement(index);
+    incrementStatus(index);
   }
 
   @Override

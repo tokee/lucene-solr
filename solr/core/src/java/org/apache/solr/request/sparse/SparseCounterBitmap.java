@@ -19,7 +19,6 @@ package org.apache.solr.request.sparse;
 
 import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.packed.NPlaneMutable;
-import org.apache.lucene.util.packed.PackedInts;
 
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
@@ -31,6 +30,7 @@ public class SparseCounterBitmap implements ValueCounter {
   private final NPlaneMutable counts;  // One counter/tag
   private final Incrementable countsInc; // Wrapper around or same-reference as counts
   private final AtomicLongArray tracker; // Tracks changes to counts
+  // We could have infinite tracker trackers, but as it is, two layers means 1 top entry covers 64^4 = 16M values
   private final AtomicLongArray trackerTracker; // Tracks changes to tracker
   private AtomicLong nonZeroCounters = new AtomicLong(0);
   private final int tracksMax; // The maximum amount of trackers (tracker.length)
@@ -131,7 +131,7 @@ public class SparseCounterBitmap implements ValueCounter {
       }
       // We want to track changes to counters to maintain the sparse structure
 
-      if(countsInc.isZeroAndIncrement(counter)) {
+      if(countsInc.incrementStatus(counter) == Incrementable.STATUS.wasZero) {
         // This is the first update of the counter, so we add it to the tracker
         updateTracker(counter);
       }
@@ -230,25 +230,31 @@ public class SparseCounterBitmap implements ValueCounter {
       for (int i = 0 ; i < tracker.length() ; i++) { // If only we had access to the inner long[]...
         tracker.set(i, 0);
       }
+      for (int i = 0 ; i < trackerTracker.length() ; i++) {
+        trackerTracker.set(i, 0);
+      }
       return;
     }
     // 0 < nonZero < tracksMax (considered sparse)
 
-    int cleared, tti, ti, i = 0;
+    int cleared = 0;
+    int tti = 0;
+    int ti, i, z;
     while (cleared != nonZero && tti < trackerTracker.length()) {
-      long ttv = trackerTracker.get(tti+);
+      long ttv = trackerTracker.getAndSet(tti, 0);
       while ((ti = Long.numberOfLeadingZeros(ttv)) != 64 && cleared != nonZero) {
-        long tv = tracker.get(tti*64+ti);
+        ttv = 1 << (64-ti);
+        long tv = tracker.getAndSet(tti*64+ti, 0);
         while ((i = Long.numberOfLeadingZeros(tv)) != 64 && cleared != nonZero) {
+          tv = 1 << (64-i);
           long v = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
+          while ((z = Long.numberOfLeadingZeros(v)) != 64 && cleared != nonZero) {
+            v = 1 << (64-z);
+            counts.set(tti*64*64*64 + ti*64*64 + i*64 + z, 0);
+            cleared++;
+          }
         }
-        ttv &= ~1 >>> ti;
       }
-      trackerTracker.set(tti, 0);
-    }
-
-    for (int i = 0 ; i < tracksPos.get() ; i++) {
-      counts.set(tracker[i],  0);
     }
   }
 
@@ -302,16 +308,31 @@ public class SparseCounterBitmap implements ValueCounter {
     }
 
     // Sparse
-    callback.setOrdered(false);
+    callback.setOrdered(minValue > 0); // Might need second run if minValue == 0
     boolean filled = false;
     final int sparseMinValue = Math.max(minValue, 1);
-    for (int t = 0 ; t < tracksPos.get() ; t++) {
-      final int counter = tracker[t];
-      long value = get(counter);
-      if (counter >= start && counter <= end && value >= sparseMinValue) {
-        filled |= callback.handle(counter, value);
+    int tti = 0;
+    int ti, i, z;
+    while (tti < trackerTracker.length()) {
+      long ttv = trackerTracker.get(tti);
+      while ((ti = Long.numberOfLeadingZeros(ttv)) != 64) {
+        ttv = 1 << (64-ti);
+        long tv = tracker.get(tti*64+ti);
+        while ((i = Long.numberOfLeadingZeros(tv)) != 64) {
+          tv = 1 << (64-i);
+          long v = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
+          while ((z = Long.numberOfLeadingZeros(v)) != 64) {
+            v = 1 << (64-z);
+            final int counter = tti*64*64*64 + ti*64*64 + i*64 + z;
+            long value = get(counter);
+            if (counter >= start && counter <= end && value >= sparseMinValue) {
+              filled |= callback.handle(counter, value);
+            }
+          }
+        }
       }
     }
+
     if (minValue == 0 && !filled) { // We need a second iteration to get enough 0-count values to fill the callback
       for (int counter = start ; counter < end ; counter++) {
         final long value = get(counter);
@@ -341,7 +362,7 @@ public class SparseCounterBitmap implements ValueCounter {
 
   @Override
   public String toString() {
-    return "SparseCounterThreaded(counter=" + counts + ", counts=" + counts.size() + ", bpv=" + counts.getBitsPerValue()
+    return "SparseCounterBitmap(counter=" + counts + ", counts=" + counts.size() + ", bpv=" + counts.getBitsPerValue()
         + ", trackers=" + nonZeroCounters + "/" + tracksMax + ", maxCountForAny=" + maxCountForAny
         + ", minCountsForSparse=" + minCountsForSparse + ", fraction=" + fraction + ", explicitly disabled="
         + explicitlyDisabled + ')';
