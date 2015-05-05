@@ -18,7 +18,6 @@ package org.apache.solr.request.sparse;
  */
 
 import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.packed.NPlaneMutable;
 import org.apache.solr.SolrTestCaseJ4;
 import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.common.params.FacetParams;
@@ -27,7 +26,6 @@ import org.apache.solr.request.SolrQueryRequest;
 import org.junit.BeforeClass;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -192,9 +190,17 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     testFacetImplementation(SparseKeys.COUNTER_IMPL.nplane, SINGLE_DV_FIELD, "single_dv_", 2);
   }
 
+  public void testMultiThreadedNPlaneZSingleValueFaceting() throws Exception {
+    testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, SINGLE_DV_FIELD, "single_dv_", 2);
+  }
+
   // Failed consistably with -Dtests.seed=4AF7FD360658E93E or -Dtests.seed=B5814A333F9F734C (seems reproducible)
   public void testMultiThreadedNPlaneMultiValueFaceting() throws Exception {
     testFacetImplementation(SparseKeys.COUNTER_IMPL.nplane, MULTI_DV_FIELD, "multi_", 2);
+  }
+
+  public void testMultiThreadedNPlaneZMultiValueFaceting() throws Exception {
+    testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, MULTI_DV_FIELD, "multi_", 2);
   }
 
   public void testTermsCount() throws Exception {

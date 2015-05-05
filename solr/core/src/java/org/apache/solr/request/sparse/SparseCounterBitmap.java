@@ -160,7 +160,7 @@ public class SparseCounterBitmap implements ValueCounter {
 
   private void updateTracker(int counter) {
     nonZeroCounters.incrementAndGet();
-    final int trackerIndex = counter >>> 12; // /64/64
+    final int trackerIndex = counter >>> 12; //     /64/64
     final int trackerBit = (counter >>> 6) & 63; // /64%64
     while (true) {
       long oldValue = tracker.get(trackerIndex);
@@ -175,8 +175,8 @@ public class SparseCounterBitmap implements ValueCounter {
     }
   }
   private void updateTrackerTracker(int counter) {
-    final int ttIndex = counter >>> 12; // /64/64
-    final int ttBit = (counter >>> 6) & 63; // /64%64
+    final int ttIndex = counter >>> 6; // /64
+    final int ttBit = counter & 63; // /  %64
     while (true) {
       long oldValue = trackerTracker.get(ttIndex);
       long newValue = oldValue & (1 << ttBit);
@@ -243,13 +243,13 @@ public class SparseCounterBitmap implements ValueCounter {
     while (cleared != nonZero && tti < trackerTracker.length()) {
       long ttv = trackerTracker.getAndSet(tti, 0);
       while ((ti = Long.numberOfLeadingZeros(ttv)) != 64 && cleared != nonZero) {
-        ttv = 1 << (64-ti);
+        ttv = 1 << ti;
         long tv = tracker.getAndSet(tti*64+ti, 0);
         while ((i = Long.numberOfLeadingZeros(tv)) != 64 && cleared != nonZero) {
-          tv = 1 << (64-i);
+          tv = 1 << i;
           long v = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
           while ((z = Long.numberOfLeadingZeros(v)) != 64 && cleared != nonZero) {
-            v = 1 << (64-z);
+            v = 1 << z;
             counts.set(tti*64*64*64 + ti*64*64 + i*64 + z, 0);
             cleared++;
           }
@@ -316,13 +316,13 @@ public class SparseCounterBitmap implements ValueCounter {
     while (tti < trackerTracker.length()) {
       long ttv = trackerTracker.get(tti);
       while ((ti = Long.numberOfLeadingZeros(ttv)) != 64) {
-        ttv = 1 << (64-ti);
+        ttv = 1 << ti;
         long tv = tracker.get(tti*64+ti);
         while ((i = Long.numberOfLeadingZeros(tv)) != 64) {
-          tv = 1 << (64-i);
+          tv = 1 << i;
           long v = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
           while ((z = Long.numberOfLeadingZeros(v)) != 64) {
-            v = 1 << (64-z);
+            v = 1 << z;
             final int counter = tti*64*64*64 + ti*64*64 + i*64 + z;
             long value = get(counter);
             if (counter >= start && counter <= end && value >= sparseMinValue) {

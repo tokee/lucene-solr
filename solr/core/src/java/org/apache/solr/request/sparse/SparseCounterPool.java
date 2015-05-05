@@ -269,6 +269,9 @@ public class SparseCounterPool {
       case nplane:
         nplaneAllocations.incRel(allocateStartTime);
         break;
+      case nplanez:
+        nplaneAllocations.incRel(allocateStartTime);
+        break;
       default: throw new UnsupportedOperationException(
           "Unable to add statistics for counter implementation " + implementation);
     }
@@ -290,6 +293,10 @@ public class SparseCounterPool {
       case dualplane:
       case nplane: // TODO: Add split/spank/max etc
         return SparseCounterThreaded.createStructureKey(
+            uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked,
+            sparseKeys.counter);
+      case nplanez:
+        return SparseCounterBitmap.createStructureKey(
             uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked,
             sparseKeys.counter);
       default: throw new UnsupportedOperationException(
@@ -354,6 +361,30 @@ public class SparseCounterPool {
           if (scp.counterImpl != implementation) {
             throw new IllegalStateException(
                 "Logic error: nplane counting was requested and an a template existed, but the template contained a "
+                    + "counter with implementation " + scp.counterImpl);
+          }
+
+          ValueCounter counter = scp.createSibling();
+          nplaneAllocations.incRel(allocateTime);
+          return counter;
+        }
+      }
+      case nplanez: {
+        synchronized (pool) {
+          // nplane needs a template in the form of an already existing nplane
+          if (template == null) {
+            return null; // The caller needs to create the counter from scratch
+          }
+          if (!(template instanceof SparseCounterBitmap)) {
+            throw new IllegalStateException(
+                "Logic error: nplanez counting was requested and an a template existed, but the template was a "
+                    + template.getClass().getSimpleName() + " where " + SparseCounterBitmap.class.getSimpleName()
+                    + " was required");
+          }
+          SparseCounterBitmap scp = (SparseCounterBitmap)template;
+          if (scp.counterImpl != implementation) {
+            throw new IllegalStateException(
+                "Logic error: nplanez counting was requested and an a template existed, but the template contained a "
                     + "counter with implementation " + scp.counterImpl);
           }
 
@@ -840,6 +871,10 @@ public class SparseCounterPool {
 
   public void setPlusOneHistogram(long[] plusOneHistogram) {
     this.plusOneHistogram = plusOneHistogram;
+  }
+
+  public long[] getPlusOneHistogram() {
+    return plusOneHistogram;
   }
 
   /**

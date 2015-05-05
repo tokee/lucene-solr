@@ -154,12 +154,12 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     return getLayoutWithZeroHistogram(
         getZeroBitHistogram(maxima, zeroTracked), overflowBucketSize, maxPlanes, collapseFraction, zeroTracked);
   }
-  public static Layout getLayout(long[] histogram) {
-    return getLayout(histogram, DEFAULT_MAX_PLANES);
+  public static Layout getLayout(long[] histogram, boolean zeroTracked) {
+    return getLayout(histogram, DEFAULT_MAX_PLANES, zeroTracked);
   }
-  public static Layout getLayout(long[] histogram, int maxPlanes) {
+  public static Layout getLayout(long[] histogram, int maxPlanes, boolean zeroTracked) {
     return getLayoutWithZeroHistogram(directHistogramToFullZero(histogram), DEFAULT_OVERFLOW_BUCKET_SIZE, maxPlanes,
-        DEFAULT_COLLAPSE_FRACTION, false);
+        DEFAULT_COLLAPSE_FRACTION, zeroTracked);
   }
   static Layout getLayoutWithZeroHistogram(
       long[] zeroHistogram, int overflowBucketSize, int maxPlanes, double collapseFraction, boolean zeroTracked) {

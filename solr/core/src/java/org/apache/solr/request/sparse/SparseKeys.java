@@ -156,13 +156,16 @@ public class SparseKeys {
    *   <li>nplane:    {@link org.apache.lucene.util.packed.NPlaneMutable}
    *                  very slow first call, 3-5 times slower than array, extremely low memory usage.
    *                  nplane does support {@link #COUNTING_THREADS}.</li>
+   *   <li>nplanez:   {@link org.apache.lucene.util.packed.NPlaneMutable} with experimental zeroTracking.
+   *                  very slow first call, should be faster than nplane, extremely low memory usage.
+   *                  nplanez does support {@link #COUNTING_THREADS}.</li>
    * </ul>
    * </p><p>
    * Optional. Default value is auto.
    */
   public static final String COUNTER = "facet.sparse.counter";
   public static final String DEFAULT_COUNTER = COUNTER_IMPL.auto.toString();
-  public enum COUNTER_IMPL {auto, array, packed, dualplane, nplane}
+  public enum COUNTER_IMPL {auto, array, packed, dualplane, nplane, nplanez}
 
   /**
    * If true and the {@link #PACKED_BITLIMIT} holds, use {@link SparseCounterPacked} for counting.<br/>

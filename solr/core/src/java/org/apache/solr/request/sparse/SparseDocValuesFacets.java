@@ -531,12 +531,26 @@ public class SparseDocValuesFacets {
       if (!pool.isInitialized() || ((vc = pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplane)) == null)) {
         final long allocateTime = System.nanoTime();
         NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(searcher, si, globalMap, schemaField, pool);
-        NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getHistogram());
+        NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getHistogram(), false);
         // TODO: Consider switching back and forth between threaded and non-threaded
         PackedInts.Mutable innerCounter = new NPlaneMutable(layout, bpvs, NPlaneMutable.IMPL.tank);
         vc = new SparseCounterThreaded(SparseKeys.COUNTER_IMPL.nplane, innerCounter, pool.getMaxCountForAny(),
             sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
         pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplane, vc, allocateTime);
+      }
+      return vc;
+    }
+    if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.nplanez) {
+      ValueCounter vc;
+      // TODO: Check that acquiring a nplanex after a nplane erases the old nplane
+      if (!pool.isInitialized() || ((vc = pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez)) == null)) {
+        final long allocateTime = System.nanoTime();
+        NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(searcher, si, globalMap, schemaField, pool);
+        NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getPlusOneHistogram(), true);
+        NPlaneMutable innerCounter = new NPlaneMutable(layout, bpvs, NPlaneMutable.IMPL.zethra);
+        vc = new SparseCounterBitmap(SparseKeys.COUNTER_IMPL.nplanez, innerCounter, pool.getMaxCountForAny(),
+            sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez, vc, allocateTime);
       }
       return vc;
     }
