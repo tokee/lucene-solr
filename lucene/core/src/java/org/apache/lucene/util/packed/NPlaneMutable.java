@@ -237,6 +237,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 //      System.out.println(plane.toString());
 //    }
 
+    // TODO: Make this zeroCount-aware
     final int[] overflowIndex = new int[planes.length];
     int bit = 1;
     for (int planeIndex = 0; planeIndex < planes.length-1; planeIndex++) { // -1: Never set overflow bit on topmost

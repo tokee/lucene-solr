@@ -224,9 +224,9 @@ public class TestNPlaneMutable extends LuceneTestCase {
     NPlaneMutable bpm = new NPlaneMutable(maxima, impl);
     bpm.set(1, bpm.get(1)+1);
     assertEquals("Test 1: index 1", 1, bpm.get(1));
-    assertEquals("The unmodified counter 0 should be zero", 0 , bpm.get(0));
+    assertEquals("The unmodified counter 0 should be zero", 0, bpm.get(0));
 //    System.out.println("=================== inc(1)\n" + bpm.toString(true));
-    bpm.set(0, bpm.get(0)+1);
+    bpm.set(0, bpm.get(0) + 1);
 //    System.out.println("=================== inc(0)\n" + bpm.toString(true));
     assertEquals("Test 2: index 0", 1, bpm.get(0));
     bpm.set(0, bpm.get(0)+1);
@@ -235,6 +235,37 @@ public class TestNPlaneMutable extends LuceneTestCase {
     bpm.set(0, bpm.get(0)+1);
     assertEquals("Test 4: index 0", 4, bpm.get(0));
     bpm.set(2, bpm.get(2)+1);
+  }
+
+  public void testCreateZeroTrackedFromHistogram() {
+    final int[] MAXIMA = new int[]{10, 1, 16, 2, 3};
+    final int MAX = 16;
+    final PackedInts.Mutable maxima =
+        PackedInts.getMutable(MAXIMA.length, PackedInts.bitsRequired(MAX), PackedInts.COMPACT);
+    for (int i = 0 ; i < MAXIMA.length ; i++) {
+      maxima.set(i, MAXIMA[i]);
+    }
+    System.out.println("maxima: " + toString(maxima));
+    NPlaneMutable.StatCollectingBPVWrapper collector = new NPlaneMutable.StatCollectingBPVWrapper(
+        new NPlaneMutable.BPVPackedWrapper(maxima, false));
+    collector.collect();
+
+    NPlaneMutable.Layout layout = NPlaneMutable.getLayout(collector.plusOneHistogram, true);
+    NPlaneMutable mutable = new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false),
+        NPlaneMutable.IMPL.zethra);
+    //mutable = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank);
+
+    for (int i = 0 ; i < MAXIMA.length ; i++) {
+      for (int j = 0 ; j < MAXIMA[i]; j++) {
+        mutable.increment(i);
+        System.out.println("index=" + i + ", increment=" + (i+1) + "/" + MAXIMA[i] + ": "
+            + mutable.get(i) + "\n" + mutable.toString(true));
+      }
+    }
+    // TODO: Overflow for plane 2 is wrong: Index 0 should be marked
+    for (int i = 0 ; i < MAXIMA.length ; i++) {
+        assertEquals("index=" + i, MAXIMA[i], mutable.get(i));
+    }
   }
 
   public void testNPlaneLayout() {

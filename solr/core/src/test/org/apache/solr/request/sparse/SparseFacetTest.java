@@ -225,23 +225,27 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
           TERMS.split(",").length, getEntries(req, "int name..(" + PREFIX + "[^\"]*)").size());
     }
 
-    for (SparseKeys.COUNTER_IMPL impl: SparseKeys.COUNTER_IMPL.values()) {
-      //for (SparseKeys.COUNTER_IMPL impl: Arrays.asList(SparseKeys.COUNTER_IMPL.array)) {
-      SolrQueryRequest req = req("*:*");
-      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
-      params.set(FacetParams.FACET, true);
-      params.set(FacetParams.FACET_FIELD, String.format(Locale.ENGLISH, "{!terms=$%1$s__terms}%1$s", FIELD));
-      params.set(String.format(Locale.ENGLISH, "%s__terms", FIELD), TERMS);
-      params.set(FacetParams.FACET_LIMIT, LIMIT);
-      params.set(SparseKeys.SPARSE, true);
-      params.set(SparseKeys.COUNTER, impl.toString());
-      params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
-      params.set("indent", true);
-      req.setParams(params);
-      String sparse = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
-      assertEquals("Packed sparse faceting should give the expected number of results",
-          TERMS.split(",").length, getEntries(req, "int name..(" + PREFIX + "[^\"]*)").size());
-      assertEquals("Sparse counter implementation " + impl + " should match vanilla", vanilla, sparse);
+    for (double cutoff : new double[]{0.1, 1000}) {
+      for (SparseKeys.COUNTER_IMPL impl : SparseKeys.COUNTER_IMPL.values()) {
+        SolrQueryRequest req = req("*:*");
+        ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+        params.set(FacetParams.FACET, true);
+        params.set(FacetParams.FACET_FIELD, String.format(Locale.ENGLISH, "{!terms=$%1$s__terms}%1$s", FIELD));
+        params.set(String.format(Locale.ENGLISH, "%s__terms", FIELD), TERMS);
+        params.set(FacetParams.FACET_LIMIT, LIMIT);
+        params.set(SparseKeys.SPARSE, true);
+        params.set(SparseKeys.CUTOFF, "" + cutoff);
+        params.set(SparseKeys.COUNTER, impl.toString()); // Force sparse
+        params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+        params.set("indent", true);
+        req.setParams(params);
+        String sparse = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+        assertEquals(
+            "Packed sparse faceting should give the expected number of results for " + impl + " with cutoff " + cutoff,
+            TERMS.split(",").length, getEntries(req, "int name..(" + PREFIX + "[^\"]*)").size());
+        assertEquals("Sparse counter implementation " + impl + " with cutoff " + cutoff + " should match vanilla",
+            vanilla, sparse);
+      }
     }
   }
 

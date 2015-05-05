@@ -253,7 +253,8 @@ public class SparseCounterPool {
     // Checking for existing and potential reset of the structureKey and pool
     ValueCounter vc = getCounter(sparseKeys, implementation);
     if (vc != null) {
-      log.warn("addAndReturn: An available counter already existed, but was discarded");
+      log.info("addAndReturn: An available counter " + vc.getClass().getSimpleName()
+          + " already existed, but was discarded");
     }
     template = newVC;
     switch (implementation) {

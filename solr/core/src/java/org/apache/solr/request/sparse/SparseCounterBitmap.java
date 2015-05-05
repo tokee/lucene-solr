@@ -125,12 +125,12 @@ public class SparseCounterBitmap implements ValueCounter {
     // No explicit max set for the for counters (this is the standard case)
     if (maxCountTracked == -1) {
       if (nonZeroCounters.get() >= tracksMax) {
-       // The tracker has been exceeded or disabled, so we just update the value (very fast)
+       // The tracker has been exceeded or disabled, so we just update the value
         countsInc.increment(counter);
         return;
       }
-      // We want to track changes to counters to maintain the sparse structure
 
+      // We want to track changes to counters to maintain the sparse structure
       if(countsInc.incrementStatus(counter) == Incrementable.STATUS.wasZero) {
         // This is the first update of the counter, so we add it to the tracker
         updateTracker(counter);
