@@ -24,6 +24,7 @@ import org.apache.lucene.util.RamUsageEstimator;
 import org.apache.lucene.util.RankBitSet;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Locale;
 
 /**
@@ -48,7 +49,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final int DEFAULT_MAX_PLANES = 64; // No default limit
   public static final double DEFAULT_COLLAPSE_FRACTION = 0.01; // If there's <= 1% counters left, pack them in 1 plane
 
-  public static enum IMPL {split, spank, tank, shift}
+  public static enum IMPL {split, spank, tank, zethra, shift}
 
   /**
    * Visualizing the counters as vertical pillars of bits (marked with #):
@@ -82,6 +83,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * </p>
    */
   final Plane[] planes;
+  final boolean isZeroTracked;
 
   /**
    * Create a mutable of length {@code maxima.size()} capable of holding values up to the given maxima.
@@ -101,17 +103,22 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
   private NPlaneMutable(Plane[] planes) {
     this.planes = planes;
+    isZeroTracked = planes.length > 0 && planes[0] instanceof SplitRankZeroPlane &&
+        ((SplitRankZeroPlane)planes[0]).zeroTracker != null;
   }
 
   public NPlaneMutable(
       BPVProvider maxima, int overflowBucketSize, int maxPlanes, double collapseFraction, IMPL implementation) {
-    this(getLayout(maxima, overflowBucketSize, maxPlanes, collapseFraction), maxima, implementation);
+    this(getLayout(maxima, overflowBucketSize, maxPlanes, collapseFraction, implementation == IMPL.zethra),
+        maxima, implementation);
   }
   public NPlaneMutable(Layout layout, BPVProvider maxima, IMPL implementation) {
     planes = new Plane[layout.size()];
     for (int i = 0 ; i < layout.size() ; i++) {
       planes[i] = layout.get(i).createPlane(implementation);
     }
+    isZeroTracked = planes.length > 0 && planes[0] instanceof SplitRankZeroPlane &&
+        ((SplitRankZeroPlane)planes[0]).zeroTracker != null;
     populateStaticStructures(maxima);
   }
 
@@ -142,29 +149,31 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * instantiating multiple NPlaneMutables.
    * @return a layout for later instantiation of NPlaneMutables.
    */
-  public static Layout getLayout(BPVProvider maxima, int overflowBucketSize, int maxPlanes, double collapseFraction) {
+  public static Layout getLayout(
+      BPVProvider maxima, int overflowBucketSize, int maxPlanes, double collapseFraction, boolean zeroTracked) {
     return getLayoutWithZeroHistogram(
-        getZeroBitHistogram(maxima), overflowBucketSize, maxPlanes, collapseFraction);
+        getZeroBitHistogram(maxima, zeroTracked), overflowBucketSize, maxPlanes, collapseFraction, zeroTracked);
   }
   public static Layout getLayout(long[] histogram) {
     return getLayout(histogram, DEFAULT_MAX_PLANES);
   }
   public static Layout getLayout(long[] histogram, int maxPlanes) {
-    return getLayoutWithZeroHistogram(
-        directHistogramToFullZero(histogram), DEFAULT_OVERFLOW_BUCKET_SIZE, maxPlanes, DEFAULT_COLLAPSE_FRACTION);
+    return getLayoutWithZeroHistogram(directHistogramToFullZero(histogram), DEFAULT_OVERFLOW_BUCKET_SIZE, maxPlanes,
+        DEFAULT_COLLAPSE_FRACTION, false);
   }
   static Layout getLayoutWithZeroHistogram(
-      long[] zeroHistogram, int overflowBucketSize, int maxPlanes, double collapseFraction) {
+      long[] zeroHistogram, int overflowBucketSize, int maxPlanes, double collapseFraction, boolean zeroTracked) {
     int maxBit = getMaxBit(zeroHistogram);
 
     Layout layout = new Layout();
     int bit = 1; // All values require at least 1 bit
     while (bit <= maxBit) { // What if maxBit == 64?
       int extraBitsCount = 0;
-      if (((double)zeroHistogram[bit]/zeroHistogram[0] <= collapseFraction) ||
-          layout.size() == maxPlanes-1) {
+      if (bit == 1 && zeroTracked) {
+        extraBitsCount = 0; // First plane must be 1 bit for zeroTracked to work
+      } else if (((double)zeroHistogram[bit]/zeroHistogram[0] <= collapseFraction) || layout.size() == maxPlanes-1) {
         extraBitsCount = maxBit-bit;
-      } else{
+      } else {
         for (int extraBit = 1; extraBit < maxBit - bit; extraBit++) {
           if (zeroHistogram[bit + extraBit] * 2 < zeroHistogram[bit]) {
             break;
@@ -203,7 +212,8 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       IMPL impl) {
     long[] full = directHistogramToFullZero(histogram);
     long mem = 0;
-    for (PseudoPlane pp: getLayoutWithZeroHistogram(full, overflowBucketSize, maxPlanes, collapseFraction)) {
+    for (PseudoPlane pp: getLayoutWithZeroHistogram(
+        full, overflowBucketSize, maxPlanes, collapseFraction, impl == IMPL.zethra)) {
       mem += pp.estimateBytesNeeded(extraInstance, impl);
     }
     return mem;
@@ -265,11 +275,18 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
   // histogram[0] = total count
   // Special histogram where the counts are summed downwards
-  private static long[] getZeroBitHistogram(BPVProvider maxima) {
+  private static long[] getZeroBitHistogram(BPVProvider maxima, boolean zeroTracked) {
     final long[] histogram = new long[65];
     long totalEntries = 0;
     while (maxima.hasNext()) {
-      int bitsRequired = maxima.nextBPV();
+      int bitsRequired;
+      if (zeroTracked) {
+        long ordCount = maxima.nextValue();
+        bitsRequired = ordCount <= 1 ? 1 : PackedInts.bitsRequired(ordCount-1)+1;
+      } else {
+        bitsRequired = maxima.nextBPV();
+      }
+
       for (int br = 1; br <= bitsRequired ; br++) {
         histogram[br]++;
       }
@@ -434,10 +451,11 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
     public Plane createPlane(IMPL impl) {
       switch (impl) {
-        case split: return new SplitPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
-        case spank: return new SplitRankPlane(valueCount, bpv, hasOverflows, maxBit, false);
-        case tank: return new SplitRankPlane(valueCount, bpv, hasOverflows, maxBit, true);
-        case shift: return new ShiftPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
+        case split:  return new SplitPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
+        case spank:  return new SplitRankPlane(valueCount, bpv, hasOverflows, maxBit, false);
+        case tank:   return new SplitRankPlane(valueCount, bpv, hasOverflows, maxBit, true);
+        case zethra: return new SplitRankZeroPlane(valueCount, bpv, hasOverflows, maxBit, true);
+        case shift:  return new ShiftPlane(valueCount, bpv, hasOverflows, overflowBucketSize, maxBit);
         default: throw new UnsupportedOperationException("No Plane implementation available for " + impl);
       }
     }
@@ -458,6 +476,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
           return bytes;
         }
         case spank:
+        case zethra:
         case tank: {
           long bytes = RamUsageEstimator.alignObjectSize(
               3 * RamUsageEstimator.NUM_BYTES_OBJECT_REF + 2 * RamUsageEstimator.NUM_BYTES_INT) + // Plane object
@@ -695,17 +714,14 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    * Separate storage of value bits and overflow bits, where overflow bits are shared across instances.
    */
   private static class SplitRankPlane extends Plane {
-    private final PackedInts.Mutable values;
-    private final Incrementable incValues;
-    private final PackedOpportunistic.PackedOpportunistic1 zeroTracker;
-    private final RankBitSet overflows;
+    protected final PackedInts.Mutable values;
+    protected final Incrementable incValues;
+    protected final RankBitSet overflows;
 
     public SplitRankPlane(int valueCount, int bpv, boolean hasOverflow, int maxBit, boolean threadGuarded) {
       super(valueCount, bpv, maxBit, hasOverflow);
       values = getPacked(valueCount, bpv, threadGuarded);
       incValues = values instanceof Incrementable ? (Incrementable)values : new IncrementableMutable(values);
-      zeroTracker = values instanceof PackedOpportunistic.PackedOpportunistic1 ?
-          (PackedOpportunistic.PackedOpportunistic1) values : null;
       overflows = new RankBitSet(hasOverflow ? valueCount : 0);
     }
 
@@ -713,8 +729,6 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       super(values.size(), bpv, maxBit, hasOverflow);
       this.values = values;
       incValues = values instanceof Incrementable ? (Incrementable)values : new IncrementableMutable(values);
-      zeroTracker = values instanceof PackedOpportunistic.PackedOpportunistic1 ?
-          (PackedOpportunistic.PackedOpportunistic1) values : null;
       this.overflows = overflows;
     }
 
@@ -722,7 +736,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     public Plane createSibling() {
       return new SplitRankPlane(values, overflows, maxBit, hasOverflow, bpv);
     }
-    private PackedInts.Mutable getPacked(int valueCount, int bpv, boolean threadGuarded) {
+    protected PackedInts.Mutable getPacked(int valueCount, int bpv, boolean threadGuarded) {
       if (!threadGuarded) {
         return PackedInts.getMutable(valueCount, bpv, PackedInts.COMPACT);
       }
@@ -795,11 +809,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
     @Override
     public long getNonZeroBits(int longIndex) {
-      if (zeroTracker == null) {
-        throw new UnsupportedOperationException(
-            "Non-zero bits can only be returned for plane 1 with a zeroTracker");
-      }
-      return zeroTracker.getBlock(longIndex);
+        throw new UnsupportedOperationException("Non-zero bits can only be returned for plane 1 with a zeroTracker");
     }
 
     public String toString() {
@@ -812,6 +822,52 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       sb.append("Overflow:   ");
       NPlaneMutable.toString(sb, overflows);
       return sb.toString();
+    }
+  }
+
+  private static class SplitRankZeroPlane extends SplitRankPlane {
+    protected final PackedOpportunistic.PackedOpportunistic1 zeroTracker; // Only defined for first plane
+
+    public SplitRankZeroPlane(int valueCount, int bpv, boolean hasOverflow, int maxBit, boolean threadGuarded) {
+      super(valueCount, bpv, hasOverflow, maxBit, threadGuarded);
+      zeroTracker = values instanceof PackedOpportunistic.PackedOpportunistic1 ?
+          (PackedOpportunistic.PackedOpportunistic1) values : null;
+    }
+
+    private SplitRankZeroPlane(
+        PackedInts.Mutable values, RankBitSet overflows, int maxBit, boolean hasOverflow, int bpv) {
+      super(values, overflows, maxBit, hasOverflow, bpv);
+      zeroTracker = values instanceof PackedOpportunistic.PackedOpportunistic1 ?
+          (PackedOpportunistic.PackedOpportunistic1) values : null;
+    }
+    @Override
+    public boolean inc(int index) {
+      return (zeroTracker == null ? incValues.incrementStatus(index) : zeroTracker.incrementCeilStatus(index)) ==
+          STATUS.overflowed;
+    }
+
+    @Override
+    public Plane createSibling() {
+      return new SplitRankZeroPlane(values, overflows, maxBit, hasOverflow, bpv);
+    }
+
+    @Override
+    protected PackedInts.Mutable getPacked(int valueCount, int bpv, boolean threadGuarded) {
+      // Always use the thread safe as that is the only one that has a zeroTracked inner counter
+      for (int candidateBPV = bpv; candidateBPV < 64 ; candidateBPV++) {
+        if (PackedOpportunistic.isSupported(candidateBPV)) {
+          return PackedOpportunistic.create(valueCount, candidateBPV);
+        }
+      }
+      throw new IllegalArgumentException("Unable to create PackedOpportunistic with BitsPerValue="  + bpv);
+    }
+    @Override
+    public long getNonZeroBits(int longIndex) {
+      if (zeroTracker == null) {
+        throw new UnsupportedOperationException(
+            "Non-zero bits can only be returned for plane 1 with a zeroTracker");
+      }
+      return zeroTracker.getBlock(longIndex);
     }
   }
 
@@ -1095,35 +1151,98 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   }
 
   public static PackedInts.Mutable newFromTemplate(PackedInts.Mutable original) {
-    if (original instanceof Packed64) {
-      return new Packed64(original.size(), original.getBitsPerValue());
-    }
-    if (original instanceof Packed64SingleBlock) {
-      return Packed64SingleBlock.create(original.size(), original.getBitsPerValue());
-    }
-    if (original instanceof Packed8ThreeBlocks) {
-      return new Packed8ThreeBlocks(original.size());
-    }
-    if (original instanceof Packed16ThreeBlocks) {
-      return new Packed16ThreeBlocks(original.size());
-    }
-    if (original instanceof Direct8) {
-      return new Direct8(original.size());
-    }
-    if (original instanceof Direct16) {
-      return new Direct16(original.size());
-    }
-    if (original instanceof Direct32) {
-      return new Direct32(original.size());
-    }
+    // TODO: Add dualplane
     if (original instanceof PackedOpportunistic) {
       return PackedOpportunistic.create(original.size(), original.getBitsPerValue());
     }
     if (original instanceof NPlaneMutable) {
       return ((NPlaneMutable)original).createSibling();
     }
-    // TODO: Add dualplane
-    throw new UnsupportedOperationException(
-        "The PackedInts.Mutable " + original.getClass().getSimpleName() + " is not supported");
+    // Packed64, Packed64SingleBlock, Packed64SingleBlock, Packed8ThreeBlocks, Packed16ThreeBlocks,
+    // Direct8, Direct16, Direct32
+    return PackedInts.getMutable(original.size(), original.getBitsPerValue(), original.getFormat());
+  }
+
+  public static class StatCollectingBPVWrapper implements BPVProvider {
+    private final BPVProvider source;
+
+    public long entries = 0;
+    public long maxCount = -1;
+    public long refCount = 0;
+    public final long[] histogram = new long[64];
+    /*
+    The plusOneHistogram is used by {@link NPlaneMutable} for creating an instance optimized for cheap
+    checks for counter values different from 0.
+    For details, see https://sbdevel.wordpress.com/2015/04/30/alternative-counter-tracking/
+    Decimal  0  1   2    3    4     5     6     7     8
+    Binary   0  1  10   11  100   101   110   111  1000
+    Binary+  0  1  11  101  111  1001  1011  1101  1111
+     */
+    public final long[] plusOneHistogram = new long[64];
+
+    public StatCollectingBPVWrapper(BPVProvider source) {
+      this.source = source;
+    }
+
+    @Override
+    public boolean hasNext() {
+      return source.hasNext();
+    }
+
+    @Override
+    public int nextBPV() {
+      final long ordCount = (int) source.nextValue();
+      final int bpv = PackedInts.bitsRequired(ordCount);
+      { // Statistics collection
+        histogram[bpv]++;
+        plusOneHistogram[ordCount <= 1 ? 1 : PackedInts.bitsRequired(ordCount-1)+1]++;
+        refCount += ordCount;
+        if (ordCount > maxCount) {
+          maxCount = ordCount;
+        }
+        entries++;
+      }
+      return bpv;
+    }
+    @Override
+    public long nextValue() {
+      final long ordCount = (int) source.nextValue();
+      { // Statistics collection
+        final int bpv = PackedInts.bitsRequired(ordCount);
+        histogram[bpv]++;
+        plusOneHistogram[ordCount <= 1 ? 1 : PackedInts.bitsRequired(ordCount-1)+1]++;
+        refCount += ordCount;
+        if (ordCount > maxCount) {
+          maxCount = ordCount;
+        }
+        entries++;
+      }
+      return ordCount;
+    }
+
+    @Override
+    public void reset() {
+      source.reset();
+      entries = 0;
+      maxCount = -1;
+      refCount = 0;
+      Arrays.fill(histogram, 0);
+    }
+
+    /**
+     * Convenience method if the only purpose is to collect statistics.
+     */
+    public void collect() {
+      while (hasNext()) {
+        nextValue();
+      }
+    }
+
+    @Override
+    public String toString() {
+      return "StatCollectingBPVWrapper(" +
+          "entries=" + entries + ", maxCount=" + maxCount + ", refCount=" + refCount +
+          ", histogram=" + Arrays.toString(histogram) + ", plusOneHistogram=" + Arrays.toString(plusOneHistogram) + ')';
+    }
   }
 }

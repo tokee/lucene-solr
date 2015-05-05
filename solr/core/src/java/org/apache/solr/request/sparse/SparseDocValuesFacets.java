@@ -18,7 +18,6 @@ package org.apache.solr.request.sparse;
  */
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -40,8 +39,6 @@ import org.apache.lucene.index.MultiDocValues.OrdinalMap;
 import org.apache.lucene.index.SortedDocValues;
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.index.Term;
-import org.apache.lucene.index.Terms;
-import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.search.DocIdSet;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.Filter;
@@ -589,8 +586,8 @@ public class SparseDocValuesFacets {
       }
     }
     final long startTime = System.nanoTime();
-    OrdinalUtils.StatCollectingBPVWrapper stats = globOrdCount instanceof OrdinalUtils.StatCollectingBPVWrapper ?
-        (OrdinalUtils.StatCollectingBPVWrapper) globOrdCount : new OrdinalUtils.StatCollectingBPVWrapper(globOrdCount);
+    NPlaneMutable.StatCollectingBPVWrapper stats = globOrdCount instanceof NPlaneMutable.StatCollectingBPVWrapper ?
+        (NPlaneMutable.StatCollectingBPVWrapper) globOrdCount : new NPlaneMutable.StatCollectingBPVWrapper(globOrdCount);
     stats.collect();
 //    System.out.println(stats);
     log.info(String.format(Locale.ENGLISH,

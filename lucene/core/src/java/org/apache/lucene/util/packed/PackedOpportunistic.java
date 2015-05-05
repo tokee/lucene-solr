@@ -329,6 +329,22 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         LockSupport.parkNanos(1);
       }
     }
+
+    // Instead of overflowing, the value staus at the ceiling
+    public STATUS incrementCeilStatus(int index) {
+      final int o = index >>> 6;
+      final int shift = index & 63; // b
+      while (true) {
+        final long old = blocks.get(o);
+        final long newValue = ((old >>> shift) & 1L)+1;
+        final long setNew = newValue == incOverflow ? newValue-1 : newValue << shift;
+        if (blocks.compareAndSet(o, old, (old & ~(1L << shift)) | setNew)) {
+          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.none;
+        }
+        LockSupport.parkNanos(1);
+      }
+    }
+
   }
 
   static class PackedOpportunistic2 extends PackedOpportunistic {
