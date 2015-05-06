@@ -242,6 +242,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     int bit = 1;
     for (int planeIndex = 0; planeIndex < planes.length-1; planeIndex++) { // -1: Never set overflow bit on topmost
       final Plane plane = planes[planeIndex];
+      // TODO: Change this to be single pass by moving hasNext outside of the plane loop
       maxima.reset();
       while (maxima.hasNext()) {
         final int bpv = maxima.nextBPV();
