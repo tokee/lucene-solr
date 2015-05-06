@@ -245,21 +245,23 @@ public class TestNPlaneMutable extends LuceneTestCase {
     for (int i = 0 ; i < MAXIMA.length ; i++) {
       maxima.set(i, MAXIMA[i]);
     }
-    System.out.println("maxima: " + toString(maxima));
+//    System.out.println("maxima: " + toString(maxima));
     NPlaneMutable.StatCollectingBPVWrapper collector = new NPlaneMutable.StatCollectingBPVWrapper(
         new NPlaneMutable.BPVPackedWrapper(maxima, false));
     collector.collect();
+//    System.out.println("maxima zeroBits: " + toString(collector.plusOneHistogram));
 
     NPlaneMutable.Layout layout = NPlaneMutable.getLayout(collector.plusOneHistogram, true);
     NPlaneMutable mutable = new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false),
         NPlaneMutable.IMPL.zethra);
+//    System.out.println(mutable.toString(true) + "\n");
     //mutable = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank);
 
     for (int i = 0 ; i < MAXIMA.length ; i++) {
       for (int j = 0 ; j < MAXIMA[i]; j++) {
         mutable.increment(i);
-        System.out.println("index=" + i + ", increment=" + (i+1) + "/" + MAXIMA[i] + ": "
-            + mutable.get(i) + "\n" + mutable.toString(true));
+//        System.out.println("index=" + i + ", increment=" + (i+1) + "/" + MAXIMA[i] + ": "
+//            + mutable.get(i) + "\n" + mutable.toString(true));
       }
     }
     // TODO: Overflow for plane 2 is wrong: Index 0 should be marked
@@ -401,8 +403,8 @@ public class TestNPlaneMutable extends LuceneTestCase {
   public void testBytesEstimation() {
     System.out.println(String.format(Locale.ENGLISH, "ltbpm=%d/%d/%dMB",
         NPlaneMutable.estimateBytesNeeded(LongTailPerformance.links20150209, NPlaneMutable.IMPL.spank) / M,
-        640280533L*(NPlaneMutable.getMaxBit(LongTailPerformance.links20150209)+1)/8/M,
-        640280533L*4/M));
+        640280533L * (NPlaneMutable.getMaxBit(LongTailPerformance.links20150209) + 1) / 8 / M,
+        640280533L * 4 / M));
   }
 
   public void disabledtestAssignRealLargeSample() {
@@ -469,6 +471,17 @@ public class TestNPlaneMutable extends LuceneTestCase {
         sb.append(", ");
       }
       sb.append(Long.toString(maxima.get(i)));
+    }
+    return sb.toString();
+  }
+
+  private String toString(long[] bpvs) {
+    StringBuilder sb = new StringBuilder();
+    for (long bpv : bpvs) {
+      if (sb.length() > 0) {
+        sb.append(", ");
+      }
+      sb.append(Long.toString(bpv));
     }
     return sb.toString();
   }

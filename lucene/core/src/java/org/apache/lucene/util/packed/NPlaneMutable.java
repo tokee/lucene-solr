@@ -231,38 +231,30 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     return full;
   }
 
-  private void populateStaticStructures(BPVProvider maxima) {
-//    System.out.println("Populating " + planes.length + " planes with overflow data. Initial empty layout:");
-//    for (Plane plane: planes) {
-//      System.out.println(plane.toString());
-//    }
-
-    // TODO: Make this zeroCount-aware
+  private void populateStaticStructures(BPVProvider sourceMaxima) {
     final int[] overflowIndex = new int[planes.length];
-    int bit = 1;
-    for (int planeIndex = 0; planeIndex < planes.length-1; planeIndex++) { // -1: Never set overflow bit on topmost
-      final Plane plane = planes[planeIndex];
-      // TODO: Change this to be single pass by moving hasNext outside of the plane loop
-      maxima.reset();
-      while (maxima.hasNext()) {
-        final int bpv = maxima.nextBPV();
+    final BPVZeroWrapper maxima = new BPVZeroWrapper(sourceMaxima);
+
+    // Which loop is in which depends on how fast maxima iteration is. Here we assume slow maxima
+    maxima.reset();
+    while (maxima.hasNext()) {
+      final int bpv = isZeroTracked ? maxima.nextZeroBPV() : maxima.nextBPV();
+      int bit = 1;
+      for (int planeIndex = 0; planeIndex < planes.length-1; planeIndex++) { // -1: Never set overflow bit on topmost
+        final Plane plane = planes[planeIndex];
         if (bit == 1 || (bpv - planes[planeIndex - 1].maxBit) > 0) {
           if (bpv - plane.maxBit > 0) {
             plane.setOverflow(overflowIndex[planeIndex]);
           }
           overflowIndex[planeIndex]++;
         }
+        bit += plane.bpv;
       }
-      bit += plane.bpv;
     }
+
     for (Plane plane: planes) {
       plane.finalizeOverflow();
     }
-
-//    System.out.println("Finished populating " + planes.length + " planes with overflow data. Overflow flagged layout:");
-//    for (Plane plane: planes) {
-//      System.out.println(plane.toString());
-//    }
   }
 
   public static int getMaxBit(long[] histogram) {
@@ -1225,6 +1217,39 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     // Packed64, Packed64SingleBlock, Packed64SingleBlock, Packed8ThreeBlocks, Packed16ThreeBlocks,
     // Direct8, Direct16, Direct32
     return PackedInts.getMutable(original.size(), original.getBitsPerValue(), original.getFormat());
+  }
+
+  public static class BPVZeroWrapper implements BPVProvider {
+    private final BPVProvider source;
+
+    public BPVZeroWrapper(BPVProvider source) {
+      this.source = source;
+    }
+
+    public int nextZeroBPV() {
+      final long ordCount = (int) source.nextValue();
+      return ordCount <= 1 ? 1 : PackedInts.bitsRequired(ordCount-1)+1;
+    }
+
+    @Override
+    public boolean hasNext() {
+      return source.hasNext();
+    }
+
+    @Override
+    public int nextBPV() {
+      return source.nextBPV();
+    }
+
+    @Override
+    public long nextValue() {
+      return source.nextValue();
+    }
+
+    @Override
+    public void reset() {
+      source.reset();
+    }
   }
 
   public static class StatCollectingBPVWrapper implements BPVProvider {
