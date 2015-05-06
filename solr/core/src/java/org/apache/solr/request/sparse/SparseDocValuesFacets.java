@@ -548,6 +548,7 @@ public class SparseDocValuesFacets {
         NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(searcher, si, globalMap, schemaField, pool);
         NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getPlusOneHistogram(), true);
         NPlaneMutable innerCounter = new NPlaneMutable(layout, bpvs, NPlaneMutable.IMPL.zethra);
+        System.out.println(innerCounter.toString(true));
         vc = new SparseCounterBitmap(SparseKeys.COUNTER_IMPL.nplanez, innerCounter, pool.getMaxCountForAny(),
             sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
         pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez, vc, allocateTime);
@@ -611,6 +612,17 @@ public class SparseDocValuesFacets {
     pool.setFieldProperties((int) (si.getValueCount() + 1), stats.maxCount, searcher.maxDoc(), stats.refCount);
     pool.setHistogram(stats.histogram);
     pool.setPlusOneHistogram(stats.plusOneHistogram);
+
+    System.out.print("********** " + schemaField.getName() + "\nRaw values: ");
+    stats.reset();
+    while (stats.hasNext()) {
+      System.out.print(stats.nextValue() + " ");
+    }
+    System.out.print("\nHistogram+: ");
+    for (long l: stats.plusOneHistogram) {
+      System.out.print(l + " ");
+    }
+    System.out.println();
   }
 
   static int warnedOrdinal = 0;

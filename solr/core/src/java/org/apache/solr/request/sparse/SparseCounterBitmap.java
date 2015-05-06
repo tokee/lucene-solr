@@ -126,8 +126,22 @@ public class SparseCounterBitmap implements ValueCounter {
     if (maxCountTracked == -1) {
       if (nonZeroCounters.get() >= tracksMax) {
        // The tracker has been exceeded or disabled, so we just update the value
-        countsInc.increment(counter);
-        return;
+        try {
+          long old = counts.get(counter);
+          System.out.print("--- inc(" + counter + ") " + old + " ->");
+          countsInc.increment(counter);
+          System.out.println(" " + counts.get(counter));
+          System.out.println(counts.toString(true));
+          if (old+1 != counts.get(counter)) {
+            throw new IllegalStateException("old=" + old + ", new=" + counts.get(counter));
+          }
+          return;
+        } catch (NullPointerException e) {
+          NullPointerException npe = new NullPointerException(
+              "Exception incrementing counter " + counter + " non-tracked. Current value: " + counts.get(counter));
+          npe.initCause(e);
+          throw npe;
+        }
       }
 
       // We want to track changes to counters to maintain the sparse structure
@@ -244,7 +258,7 @@ public class SparseCounterBitmap implements ValueCounter {
       long ttv = trackerTracker.getAndSet(tti, 0);
       while ((ti = Long.numberOfLeadingZeros(ttv)) != 64 && cleared != nonZero) {
         ttv = 1 << ti;
-        long tv = tracker.getAndSet(tti*64+ti, 0);
+        long tv = tracker.getAndSet(tti * 64 + ti, 0);
         while ((i = Long.numberOfLeadingZeros(tv)) != 64 && cleared != nonZero) {
           tv = 1 << i;
           long v = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
@@ -317,7 +331,7 @@ public class SparseCounterBitmap implements ValueCounter {
       long ttv = trackerTracker.get(tti);
       while ((ti = Long.numberOfLeadingZeros(ttv)) != 64) {
         ttv = 1 << ti;
-        long tv = tracker.get(tti*64+ti);
+        long tv = tracker.get(tti * 64 + ti);
         while ((i = Long.numberOfLeadingZeros(tv)) != 64) {
           tv = 1 << i;
           long v = counts.getNonZeroBits(tti*64*64 + ti*64 + i);

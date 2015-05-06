@@ -18,7 +18,6 @@ package org.apache.solr.request.sparse;
  */
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 
@@ -58,8 +57,8 @@ public class OrdinalUtils {
     final int[] globOrdCount = new int[valueCount+1]; // TODO: Why do we need the +1?
     List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
     for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
-      AtomicReaderContext leaf = leaves.get(subIndex);
-      Bits live = leaf.reader().getLiveDocs();
+      final AtomicReaderContext leaf = leaves.get(subIndex);
+      final Bits live = leaf.reader().getLiveDocs();
       if (schemaField.multiValued()) {
         SortedSetDocValues sub = leaf.reader().getSortedSetDocValues(schemaField.getName());
         if (sub == null) {
