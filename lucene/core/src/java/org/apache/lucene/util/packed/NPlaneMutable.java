@@ -901,14 +901,14 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
     public SplitRankZeroPlane(int valueCount, int bpv, boolean hasOverflow, int maxBit, boolean threadGuarded) {
       super(valueCount, bpv, hasOverflow, maxBit, threadGuarded);
-      zeroTracker = values instanceof PackedOpportunistic.PackedOpportunistic1 ?
+      zeroTracker = (values instanceof PackedOpportunistic.PackedOpportunistic1) && maxBit == 1 ?
           (PackedOpportunistic.PackedOpportunistic1) values : null;
     }
 
     private SplitRankZeroPlane(
         PackedInts.Mutable values, RankBitSet overflows, int maxBit, boolean hasOverflow, int bpv) {
       super(values, overflows, maxBit, hasOverflow, bpv);
-      zeroTracker = values instanceof PackedOpportunistic.PackedOpportunistic1 ?
+      zeroTracker = (values instanceof PackedOpportunistic.PackedOpportunistic1) && maxBit == 1 ?
           (PackedOpportunistic.PackedOpportunistic1) values : null;
     }
     @Override

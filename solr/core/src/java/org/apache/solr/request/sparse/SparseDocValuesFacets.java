@@ -319,7 +319,7 @@ public class SparseDocValuesFacets {
 
       if (accumulators == null) { // In-thread counting
         try {
-          new Accumulator(leaf, 0, Integer.MAX_VALUE, sparseKeys, schemaField, lookup, startTermIndex, counts,
+          new Accumulator(leaf, 0, leafMaxDoc, sparseKeys, schemaField, lookup, startTermIndex, counts,
               fieldName, filter, subIndex, null, false).call();
           continue;
         } catch (Exception e) {
@@ -336,7 +336,7 @@ public class SparseDocValuesFacets {
       //System.out.println(String.format("maxDoc=%d, parts=%d, blockSize=%d", leaf.reader().maxDoc(), parts, blockSize));
       for (int i = 0 ; i < parts ; i++) {
         Accumulator accumulator = new Accumulator(
-            leaf, i*blockSize, i < parts-1 ? (i+1)*blockSize : Integer.MAX_VALUE,
+            leaf, i*blockSize, i < parts-1 ? (i+1)*blockSize : leafMaxDoc,
             sparseKeys, schemaField, lookup, startTermIndex, counts, fieldName, filter, subIndex,
             accumulators, i != 0);
         try {

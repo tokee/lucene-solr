@@ -121,29 +121,37 @@ public class SparseCounterBitmap implements ValueCounter {
   // This implementation has the potential of adding multiple identical entries to the
   // tracking structure for high contention multi-threading.
   // This only affects performance, not validity of the end result.
-  public final void inc(int counter) { // TODO: Making this synchronized makes SparseFacetTest.testMultiThreadedNPlaneZSingleValue pass
+ // TODO: Making this synchronized makes SparseFacetTest.testMultiThreadedNPlaneZSingleValue pass. Why?
+  public final void inc(int counter) {
     // No explicit max set for the for counters (this is the standard case)
     if (maxCountTracked == -1) {
       if (nonZeroCounters.get() >= tracksMax) {
        // The tracker has been exceeded or disabled, so we just update the value
         try {
-          long old = counts.get(counter);
+        long old = counts.get(counter);
+        try {
           System.out.print("--- #" + ++incC + " inc(" + counter + ") " + old + " ->");
           countsInc.increment(counter);
-          System.out.println(" " + counts.get(counter));
+        } catch (NullPointerException e) {
+          System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! NullPointerException incrementing counter "
+              + counter + " non-tracked. Current value: " + counts.get(counter));
+          e.printStackTrace();
+        }
+          long newC = counts.get(counter);
+          System.out.println(" " + newC);
           System.out.println(counts.toString(true));
-          if (old+1 != counts.get(counter)) {
-            throw new IllegalStateException("old=" + old + ", new=" + counts.get(counter));
+          if (old >= newC) {
+            System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! inc(" + counter + ") old=" + old + ", new="
+                + newC);
           }
           return;
         } catch (NullPointerException e) {
-          NullPointerException npe = new NullPointerException(
-              "Exception incrementing counter " + counter + " non-tracked. Current value: " + counts.get(counter));
-          npe.initCause(e);
-          throw npe;
+          System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! NullPointerException reading counter "
+              + counter + " non-tracked.");
         }
       }
 
+      System.out.println("*** With tracking inc " + counter);
       // We want to track changes to counters to maintain the sparse structure
       if(countsInc.incrementStatus(counter) == Incrementable.STATUS.wasZero) {
         // This is the first update of the counter, so we add it to the tracker

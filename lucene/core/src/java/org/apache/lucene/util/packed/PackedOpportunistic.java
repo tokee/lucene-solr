@@ -342,7 +342,7 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
         }
         final long setNew = newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(1L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
+          return newValue == 1 ? STATUS.wasZero : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
