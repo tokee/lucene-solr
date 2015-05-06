@@ -112,7 +112,7 @@ public class SparseCounterBitmap implements ValueCounter {
     return SparseCounterBitmap.createStructureKey(counts.size(), maxCountForAny,
         minCountsForSparse, fraction, maxCountTracked, counterImpl);
   }
-
+  int incC = 0;
   /**
    * Increments the given counter.
    * @param counter the index of the counter to increment.
@@ -121,14 +121,14 @@ public class SparseCounterBitmap implements ValueCounter {
   // This implementation has the potential of adding multiple identical entries to the
   // tracking structure for high contention multi-threading.
   // This only affects performance, not validity of the end result.
-  public final void inc(int counter) {
+  public final void inc(int counter) { // TODO: Making this synchronized makes SparseFacetTest.testMultiThreadedNPlaneZSingleValue pass
     // No explicit max set for the for counters (this is the standard case)
     if (maxCountTracked == -1) {
       if (nonZeroCounters.get() >= tracksMax) {
        // The tracker has been exceeded or disabled, so we just update the value
         try {
           long old = counts.get(counter);
-          System.out.print("--- inc(" + counter + ") " + old + " ->");
+          System.out.print("--- #" + ++incC + " inc(" + counter + ") " + old + " ->");
           countsInc.increment(counter);
           System.out.println(" " + counts.get(counter));
           System.out.println(counts.toString(true));

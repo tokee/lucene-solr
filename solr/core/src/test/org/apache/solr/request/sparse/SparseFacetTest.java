@@ -199,6 +199,9 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     testFacetImplementation(SparseKeys.COUNTER_IMPL.nplane, MULTI_DV_FIELD, "multi_", 2);
   }
 
+  public void testSingleThreadedNPlaneZMultiValueFaceting() throws Exception {
+    testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, MULTI_DV_FIELD, "multi_", 1);
+  }
   public void testMultiThreadedNPlaneZMultiValueFaceting() throws Exception {
     testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, MULTI_DV_FIELD, "multi_", 2);
   }
