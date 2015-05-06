@@ -220,8 +220,10 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   }
 
   static long[] directHistogramToFullZero(long[] histogram) {
-    long[] full = new long[histogram.length+1];
-    System.arraycopy(histogram, 0, full, 1, histogram.length);
+//    long[] full = new long[histogram.length+1];
+    long[] full = new long[histogram.length];
+//    System.arraycopy(histogram, 0, full, 1, histogram.length);
+    System.arraycopy(histogram, 0, full, 0, histogram.length);
     full[0] = 0;
     for (int i = 1 ; i < full.length ; i++) {
       for (int j = i-1 ; j >= 0 ; j--) {
@@ -380,13 +382,18 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
           // No overflow; exit immediately. Note: There is no check for overflow beyond maxima
           break;
         }
+        vIndex = plane.overflowRank(vIndex);
       } catch (ArrayIndexOutOfBoundsException e) {
         throw new ArrayIndexOutOfBoundsException(String.format(Locale.ENGLISH,
             "inc(%d) on plane %d from root inc(%d): %s",
             vIndex, p, index, plane));
+      } catch (NullPointerException e) {
+        NullPointerException nex = new NullPointerException(
+            "Exception incrementing plane " + (p+1) + "/" + planes.length);
+        nex.initCause(e);
+        throw nex;
       }
       // We know there is actual overflow. As this is an inc, we know the overflow is 1
-      vIndex = plane.overflowRank(vIndex);
     }
   }
 
@@ -478,7 +485,6 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     } else {
       sb.append(super.toString());
     }
-
     return sb.toString();
   }
 
@@ -860,7 +866,16 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
     @Override
     public int overflowRank(int index) {
-      return overflows.rank(index);
+      if (overflows != null) {
+        try {
+          return overflows.rank(index);
+        } catch (NullPointerException e) {
+          throw new NullPointerException("Exceeded overflow bits for plane " + this.getClass().getSimpleName() + " with"
+              + " maxBit=" + maxBit + " and #overflow-bits=" + overflows.size() + " when requesting index " + index);
+        }
+      }
+      throw new NullPointerException("No overflow bits for plane " + this.getClass().getSimpleName()
+          + "with maxBit=" + maxBit);
     }
 
     @Override
