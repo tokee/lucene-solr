@@ -237,6 +237,32 @@ public class TestNPlaneMutable extends LuceneTestCase {
     bpm.set(2, bpm.get(2)+1);
   }
 
+  public void testSpecificFillPattern() {
+    final int[] MAXIMA = new int[]{8, 4, 12, 10, 8, 10, 15, 12, 7, 14, 0};
+    final int[] INCREMENTS = new int[]{5, 6, 0, 8, 9, 8, 9, 6, 9, 2, 8, 7, 6, 5, 6, 2, 7, 1, 6, 4, 3};
+    final int MAX = 15;
+    final PackedInts.Mutable maxima =
+        PackedInts.getMutable(MAXIMA.length, PackedInts.bitsRequired(MAX), PackedInts.COMPACT);
+    for (int i = 0 ; i < MAXIMA.length ; i++) {
+      maxima.set(i, MAXIMA[i]);
+    }
+//    System.out.println("maxima: " + toString(maxima));
+    NPlaneMutable.StatCollectingBPVWrapper collector = new NPlaneMutable.StatCollectingBPVWrapper(
+        new NPlaneMutable.BPVPackedWrapper(maxima, false));
+    collector.collect();
+//    System.out.println("maxima zeroBits: " + toString(collector.plusOneHistogram));
+
+    NPlaneMutable.Layout layout = NPlaneMutable.getLayout(collector.plusOneHistogram, true);
+    NPlaneMutable mutable = new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false),
+        NPlaneMutable.IMPL.zethra);
+//    System.out.println(mutable.toString(true) + "\n");
+    //mutable = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank);
+
+    for (int inc: INCREMENTS) {
+      mutable.increment(inc);
+    }
+  }
+
   public void testCreateZeroTrackedFromHistogram() {
     final int[] MAXIMA = new int[]{10, 1, 16, 2, 3};
     final int MAX = 16;
