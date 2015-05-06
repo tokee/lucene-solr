@@ -1331,6 +1331,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
       maxCount = -1;
       refCount = 0;
       Arrays.fill(histogram, 0);
+      Arrays.fill(plusOneHistogram, 0);
     }
 
     /**
