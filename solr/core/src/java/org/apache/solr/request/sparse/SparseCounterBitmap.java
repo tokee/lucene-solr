@@ -19,6 +19,7 @@ package org.apache.solr.request.sparse;
 
 import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.packed.NPlaneMutable;
+import org.apache.solr.util.SystemIdResolver;
 
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
@@ -121,7 +122,6 @@ public class SparseCounterBitmap implements ValueCounter {
   // This implementation has the potential of adding multiple identical entries to the
   // tracking structure for high contention multi-threading.
   // This only affects performance, not validity of the end result.
- // TODO: Making this synchronized makes SparseFacetTest.testMultiThreadedNPlaneZSingleValue pass. Why?
   public final void inc(int counter) {
     // No explicit max set for the for counters (this is the standard case)
     if (maxCountTracked == -1) {
@@ -135,7 +135,7 @@ public class SparseCounterBitmap implements ValueCounter {
         } catch (NullPointerException e) {
           System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! NullPointerException incrementing counter "
               + counter + " non-tracked. Current value: " + counts.get(counter));
-          e.printStackTrace();
+          e.printStackTrace(System.out);
         }
           long newC = counts.get(counter);
           System.out.println(" " + newC);
