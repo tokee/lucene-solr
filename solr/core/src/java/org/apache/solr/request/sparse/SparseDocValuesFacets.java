@@ -28,6 +28,8 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -80,8 +82,16 @@ public class SparseDocValuesFacets {
 
   // TODO: Make the number of threads adjustable
   // TODO: Promote this to a general executor for heavy lifting
-  // TODO: Create daemon Threads for clean shutdown
-  static final ExecutorService executor = Executors.newFixedThreadPool(20);
+  static final ExecutorService executor = Executors.newFixedThreadPool(20, new ThreadFactory() {
+    AtomicLong constructed = new AtomicLong();
+    @Override
+    public Thread newThread(Runnable r) {
+      Thread thread = new Thread(r);
+      thread.setDaemon(true);
+      thread.setName("SparseFaceting_" + constructed.getAndIncrement());
+      return thread;
+    }
+  });
 
   private SparseDocValuesFacets() {}
 
@@ -548,7 +558,7 @@ public class SparseDocValuesFacets {
         NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(searcher, si, globalMap, schemaField, pool);
         NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getPlusOneHistogram(), true);
         NPlaneMutable innerCounter = new NPlaneMutable(layout, bpvs, NPlaneMutable.IMPL.zethra);
-        System.out.println(innerCounter.toString(true));
+//        System.out.println(innerCounter.toString(true));
         vc = new SparseCounterBitmap(SparseKeys.COUNTER_IMPL.nplanez, innerCounter, pool.getMaxCountForAny(),
             sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
         pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez, vc, allocateTime);
@@ -613,7 +623,7 @@ public class SparseDocValuesFacets {
     pool.setHistogram(stats.histogram);
     pool.setPlusOneHistogram(stats.plusOneHistogram);
 
-    System.out.print("********** " + schemaField.getName() + "\nRaw values: ");
+/*    System.out.print("********** " + schemaField.getName() + "\nRaw values: ");
     stats.reset();
     while (stats.hasNext()) {
       System.out.print(stats.nextValue() + " ");
@@ -622,7 +632,7 @@ public class SparseDocValuesFacets {
     for (long l: stats.plusOneHistogram) {
       System.out.print(l + " ");
     }
-    System.out.println();
+    System.out.println();*/
   }
 
   static int warnedOrdinal = 0;

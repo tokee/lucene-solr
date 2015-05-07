@@ -19,7 +19,6 @@ package org.apache.solr.request.sparse;
 
 import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.packed.NPlaneMutable;
-import org.apache.solr.util.SystemIdResolver;
 
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
@@ -34,6 +33,7 @@ public class SparseCounterBitmap implements ValueCounter {
   // We could have infinite tracker trackers, but as it is, two layers means 1 top entry covers 64^4 = 16M values
   private final AtomicLongArray trackerTracker; // Tracks changes to tracker
   private AtomicLong nonZeroCounters = new AtomicLong(0);
+  private boolean incremented = false; // Has this been incremented at all?
   private final int tracksMax; // The maximum amount of trackers (tracker.length)
   public final SparseKeys.COUNTER_IMPL counterImpl; // Used for key generation
 
@@ -123,35 +123,15 @@ public class SparseCounterBitmap implements ValueCounter {
   // tracking structure for high contention multi-threading.
   // This only affects performance, not validity of the end result.
   public final void inc(int counter) {
+    incremented = true;  // Very congested here. There might be a cache flush delay
     // No explicit max set for the for counters (this is the standard case)
     if (maxCountTracked == -1) {
       if (nonZeroCounters.get() >= tracksMax) {
        // The tracker has been exceeded or disabled, so we just update the value
-        try {
-        long old = counts.get(counter);
-        try {
-          System.out.print("--- #" + ++incC + " inc(" + counter + ") " + old + " ->");
           countsInc.increment(counter);
-        } catch (NullPointerException e) {
-          System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! NullPointerException incrementing counter "
-              + counter + " non-tracked. Current value: " + counts.get(counter));
-          e.printStackTrace(System.out);
-        }
-          long newC = counts.get(counter);
-          System.out.println(" " + newC);
-          System.out.println(counts.toString(true));
-          if (old >= newC) {
-            System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! inc(" + counter + ") old=" + old + ", new="
-                + newC);
-          }
           return;
-        } catch (NullPointerException e) {
-          System.out.println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! NullPointerException reading counter "
-              + counter + " non-tracked.");
-        }
       }
 
-      System.out.println("*** With tracking inc " + counter);
       // We want to track changes to counters to maintain the sparse structure
       if(countsInc.incrementStatus(counter) == Incrementable.STATUS.wasZero) {
         // This is the first update of the counter, so we add it to the tracker
@@ -240,20 +220,24 @@ public class SparseCounterBitmap implements ValueCounter {
    */
   @Override
   public void clear() {
-    final int nonZero = (int) nonZeroCounters.get();
+    final int nonZero = (int) nonZeroCounters.getAndSet(0);
+    final boolean hasBeenIncremented = incremented;
+
+    incremented = false;
     explicitlyDisabled = false;
-    nonZeroCounters.set(0);
     missing.set(0);
     setContentKey(null);
-    if (nonZero == 0) {
+    if (!hasBeenIncremented) {
       return;
-    } else if (nonZero >= tracksMax) {
+    } else if (nonZero >= tracksMax || tracker == null) {
       counts.clear();
-      for (int i = 0 ; i < tracker.length() ; i++) { // If only we had access to the inner long[]...
-        tracker.set(i, 0);
-      }
-      for (int i = 0 ; i < trackerTracker.length() ; i++) {
-        trackerTracker.set(i, 0);
+      if (tracker != null) {
+        for (int i = 0 ; i < tracker.length() ; i++) { // If only we had access to the inner long[]...
+          tracker.set(i, 0);
+        }
+        for (int i = 0 ; i < trackerTracker.length() ; i++) {
+          trackerTracker.set(i, 0);
+        }
       }
       return;
     }
@@ -353,6 +337,7 @@ public class SparseCounterBitmap implements ValueCounter {
           }
         }
       }
+      tti++;
     }
 
     if (minValue == 0 && !filled) { // We need a second iteration to get enough 0-count values to fill the callback

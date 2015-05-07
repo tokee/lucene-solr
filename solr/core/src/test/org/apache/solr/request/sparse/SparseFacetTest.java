@@ -206,6 +206,10 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, MULTI_DV_FIELD, "multi_", 2);
   }
 
+  public void testMultiThreadedNPlaneZMultiValueSparseFaceting() throws Exception {
+    testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, MULTI_DV_FIELD, "multi_", 2, "id:062");
+  }
+
   public void testTermsCount() throws Exception {
     final String FIELD = MULTI_DV_FIELD;
     final String TERMS = "multi_1,multi_2";
@@ -254,14 +258,19 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
 
   public void testFacetImplementation(
       SparseKeys.COUNTER_IMPL implementation, String field, String resultPrefix, int threads) throws Exception {
+    testFacetImplementation(implementation, field, resultPrefix, threads, "*:*");
+  }
+    public void testFacetImplementation(SparseKeys.COUNTER_IMPL implementation, String field, String resultPrefix,
+                                        int threads, String query) throws Exception {
     final int RUNS = 10; // To raise the chance of triggering a race condition bug
     final int LIMIT = 10;
 
-    for (int minTags: new int[]{1000000, 1}) { // non-sparse, sparse
-      for (int run = 1; run <= RUNS; run++) {
+    for (int run = 1; run <= RUNS; run++) {
+      for (int minTags: new int[]{1, 1000000}) { // non-sparse, sparse
         String dry;
         { // Dry run
-          SolrQueryRequest req = req("*:*");
+//          System.out.println(">>> dry run " + run);
+          SolrQueryRequest req = req(query);
           ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
           params.set(FacetParams.FACET, true);
           params.set(FacetParams.FACET_FIELD, field);
@@ -277,9 +286,10 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
               LIMIT, getEntries(req, "int name..(" + resultPrefix + "[^\"]*)").size());
         }
 
+//        System.out.println(">>> single run " + run);
         String special;
         { // Special impl non-threaded
-          SolrQueryRequest req = req("*:*");
+          SolrQueryRequest req = req(query);
           ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
           params.set(FacetParams.FACET, true);
           params.set(FacetParams.FACET_FIELD, field);
@@ -295,18 +305,21 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
               dry, special);
         }
 
+//        System.out.println(">>> multi " + threads + " run " + run);
         String specialT;
         if (threads > 1) { // Special impl threaded
-          SolrQueryRequest req = req("*:*");
+          SolrQueryRequest req = req(query);
           ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
           params.set(FacetParams.FACET, true);
           params.set(FacetParams.FACET_FIELD, field);
           params.set(FacetParams.FACET_LIMIT, LIMIT);
+          params.set(FacetParams.FACET_MINCOUNT, 1);
           params.set(SparseKeys.SPARSE, true);
           params.set(SparseKeys.COUNTER, implementation.toString());
           params.set(SparseKeys.COUNTING_THREADS, threads);
           params.set(SparseKeys.COUNTING_THREADS_MINDOCS, 2);
           params.set(SparseKeys.MINTAGS, minTags);
+          params.set(SparseKeys.CUTOFF, 10000);
           params.set("indent", true);
           req.setParams(params);
           specialT = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
