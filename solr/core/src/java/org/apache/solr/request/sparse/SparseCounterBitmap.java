@@ -113,7 +113,7 @@ public class SparseCounterBitmap implements ValueCounter {
     return SparseCounterBitmap.createStructureKey(counts.size(), maxCountForAny,
         minCountsForSparse, fraction, maxCountTracked, counterImpl);
   }
-  int incC = 0;
+
   /**
    * Increments the given counter.
    * @param counter the index of the counter to increment.
@@ -123,7 +123,7 @@ public class SparseCounterBitmap implements ValueCounter {
   // tracking structure for high contention multi-threading.
   // This only affects performance, not validity of the end result.
   public final void inc(int counter) {
-    incremented = true;  // Very congested here. There might be a cache flush delay
+    incremented = true;  // Very congested here. This might imply a CPU cache flush delay
     // No explicit max set for the for counters (this is the standard case)
     if (maxCountTracked == -1) {
       if (nonZeroCounters.get() >= tracksMax) {

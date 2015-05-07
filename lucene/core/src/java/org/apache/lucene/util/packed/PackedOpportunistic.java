@@ -322,9 +322,10 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
       while (true) {
         final long old = blocks.get(o);
         final long newValue = ((old >>> shift) & 1L)+1;
-        final long setNew = newValue == incOverflow ? 0 : newValue << shift;
+        final long setNew = newValue == 2 ? 0 : newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(1L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
+          //return newValue == 1 ? STATUS.wasZero : newValue == incOverflow ? STATUS.overflowed : STATUS.ok;
+          return newValue == 1 ? STATUS.wasZero : STATUS.overflowed ;
         }
         LockSupport.parkNanos(1);
       }
@@ -337,12 +338,13 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
       while (true) {
         final long old = blocks.get(o);
         final long newValue = ((old >>> shift) & 1L)+1;
-        if (newValue == incOverflow) {
+        if (newValue == 2) { // incOverflow == 2^1 == 2
           return STATUS.overflowed;
         }
         final long setNew = newValue << shift;
         if (blocks.compareAndSet(o, old, (old & ~(1L << shift)) | setNew)) {
-          return newValue == 1 ? STATUS.wasZero : STATUS.ok;
+          return STATUS.wasZero;
+          //return newValue == 1 ? STATUS.wasZero : STATUS.ok;
         }
         LockSupport.parkNanos(1);
       }
