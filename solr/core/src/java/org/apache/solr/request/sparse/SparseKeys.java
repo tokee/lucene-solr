@@ -218,6 +218,16 @@ public class SparseKeys {
   public static final String STATS_RESET = "facet.sparse.stats.reset";
 
   /**
+   * If true, detailed performance statistics will be logged at INFO level in the Solr log.
+   * </p><p>
+   * TODO: Remove this option and the corresponding code when sparse faceting is stabilized
+   * </p><p>
+   * Optional. Default is false;
+   */
+  public static final String LOG_EXTENDED = "facet.sparse.log.extended";
+  public static final boolean LOG_EXTENDED_DEFAULT = false;
+
+  /**
    * The maximum amount of pools to hold in the {@link org.apache.solr.request.sparse.SparseCounterPoolController}.
    * Each pool is associated with an unique field in the index.
    * Optional. Default is unlimited.
@@ -277,6 +287,7 @@ public class SparseKeys {
   final public double fraction;
   final public double cutOff;
   final public long maxCountsTracked;
+  final public boolean logExtended;
 
   final public COUNTER_IMPL counter;
   final public int countingThreads;
@@ -313,6 +324,7 @@ public class SparseKeys {
     cutOff = params.getFieldDouble(field, CUTOFF, CUTOFF_DEFAULT);
 
     maxCountsTracked = Long.parseLong(params.getFieldParam(field, MAXTRACKED, Long.toString(MAXTRACKED_DEFAULT)));
+    logExtended = params.getFieldBool(field, LOG_EXTENDED, LOG_EXTENDED_DEFAULT);
 
     countingThreads = params.getFieldInt(field, COUNTING_THREADS, DEFAULT_COUNTING_THREADS);
     countingThreadsMinDocs = params.getFieldInt(field, COUNTING_THREADS_MINDOCS, DEFAULT_COUNTING_THREADS_MINDOCS);
