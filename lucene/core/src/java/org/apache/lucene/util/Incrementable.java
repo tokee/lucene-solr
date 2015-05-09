@@ -47,7 +47,13 @@ public interface Incrementable {
    * @return the state of the counter before and after the operation.
    */
   STATUS incrementStatus(int index);
-  enum STATUS {wasZero, ok, overflowed} // Mutually exclusive as counters always goes to > 0
+  enum STATUS { // All are mutually exclusive as counters always goes to > 0
+    // TODO: Add blockWasZero if it really saves time (nplanez is candidate for time win)
+//    blockWasZero, // The whole logical block (normally 64 counters) was zero before increment. Optional
+    wasZero,      // The counter was zero before increment
+    ok,           // Increment from non-zero without overflow
+    overflowed    // Overflow occurred due to the increment
+  }
 
   /**
    * Atomically sets the value to the given updated value if the current value {@code ==} the expected value.

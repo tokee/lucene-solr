@@ -153,7 +153,9 @@ public class SparseDocValuesFacets {
     }
 
     // Providers ready. Check that the pool has enough information and construct a counter
+    long acquireTime = -System.nanoTime();
     final ValueCounter counts = acquireCounter(sparseKeys, searcher, lookup.si, lookup.ordinalMap, schemaField, pool);
+    acquireTime += System.nanoTime();
 
     // Calculate counts for all relevant terms if the counter structure is empty
     // The counter structure is always empty for single-shard searches and first phase of multi-shard searches
@@ -174,14 +176,15 @@ public class SparseDocValuesFacets {
     if (termList != null) {
       // Specific terms were requested. This is used with fine-counting of facet values in distributed faceting
       try {
-        if (sparseKeys.logExtended) {
-          log.info("Phase 2 sparse faceting termCounts for " + hitCount + " hits in " + fieldName + " with method="
-              + sparseKeys.counter + " finished in " + (System.nanoTime()-fullStartTime)/M + "ms");
-        }
         return extractSpecificCounts(searcher, pool, lookup.si, fieldName, docs, counts, termList);
       } finally  {
         pool.release(counts, sparseKeys);
         pool.incTermsListTotalTimeRel(fullStartTime);
+        if (sparseKeys.logExtended) {
+          log.info(String.format(Locale.ENGLISH,
+              "Phase 2 sparse termCounts for %d hits in %s with method=%s finished in %dms (acquire counter=%dms)",
+              hitCount, fieldName, sparseKeys.counter, (System.nanoTime()-fullStartTime)/M, acquireTime/M));
+        }
       }
     }
 
@@ -268,8 +271,9 @@ public class SparseDocValuesFacets {
 
     pool.incSimpleFacetTotalTimeRel(fullStartTime);
     if (sparseKeys.logExtended) {
-      log.info("Phase 1 sparse faceting " + hitCount + " hits in " + fieldName + " with method=" + sparseKeys.counter
-          + " finished in " + (System.nanoTime()-fullStartTime)/M + "ms");
+      log.info(String.format(Locale.ENGLISH,
+          "Phase 1 sparse faceting for %d hits in %s with method=%s finished in %dms (acquire counter=%dms)",
+      hitCount, fieldName, sparseKeys.counter, (System.nanoTime()-fullStartTime)/M, acquireTime/M));
     }
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
   }
