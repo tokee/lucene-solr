@@ -165,6 +165,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
       params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.dualplane.toString());
       params.set(SparseKeys.COUNTING_THREADS, 2);
       params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+      params.set(SparseKeys.LOG_EXTENDED, true);
       params.set("indent", true);
       req.setParams(params);
       try {
@@ -244,6 +245,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
         params.set(SparseKeys.CUTOFF, "" + cutoff);
         params.set(SparseKeys.COUNTER, impl.toString()); // Force sparse
         params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+        params.set(SparseKeys.LOG_EXTENDED, true);
         params.set("indent", true);
         req.setParams(params);
         String sparse = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
@@ -302,6 +304,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
           params.set(SparseKeys.COUNTER, implementation.toString());
           params.set(SparseKeys.MINTAGS, minTags);
           params.set(SparseKeys.CUTOFF, 10000);
+          params.set(SparseKeys.LOG_EXTENDED, true);
           params.set("indent", true);
           req.setParams(params);
           special = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
@@ -324,6 +327,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
           params.set(SparseKeys.COUNTING_THREADS_MINDOCS, 2);
           params.set(SparseKeys.MINTAGS, minTags);
           params.set(SparseKeys.CUTOFF, 10000);
+          params.set(SparseKeys.LOG_EXTENDED, true);
           params.set("indent", true);
 //          params.set("debug", "timing");
           req.setParams(params);

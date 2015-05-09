@@ -135,6 +135,7 @@ public class SparseCounterBitmap implements ValueCounter {
       // We want to track changes to counters to maintain the sparse structure
       if(countsInc.incrementStatus(counter) == Incrementable.STATUS.wasZero) {
         // This is the first update of the counter, so we add it to the tracker
+        // TODO: Further optimize with blockWasZero as we only tracks blocks here
         updateTracker(counter);
       }
       return;
@@ -161,7 +162,7 @@ public class SparseCounterBitmap implements ValueCounter {
   }
 
   private void updateTracker(int counter) {
-    nonZeroCounters.incrementAndGet();
+    nonZeroCounters.incrementAndGet(); // Hot spot that we could mitigate with blockWasZero
     final int trackerIndex = counter >>> 12; //     /64/64
     final int trackerBit = (counter >>> 6) & 63; // /64%64
     while (true) {

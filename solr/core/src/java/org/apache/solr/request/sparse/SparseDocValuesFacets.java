@@ -153,7 +153,9 @@ public class SparseDocValuesFacets {
     }
 
     // Providers ready. Check that the pool has enough information and construct a counter
+    long acquireTime = -System.nanoTime();
     final ValueCounter counts = acquireCounter(sparseKeys, searcher, lookup.si, lookup.ordinalMap, schemaField, pool);
+    acquireTime += System.nanoTime();
 
     // Calculate counts for all relevant terms if the counter structure is empty
     // The counter structure is always empty for single-shard searches and first phase of multi-shard searches
@@ -178,6 +180,11 @@ public class SparseDocValuesFacets {
       } finally  {
         pool.release(counts, sparseKeys);
         pool.incTermsListTotalTimeRel(fullStartTime);
+        if (sparseKeys.logExtended) {
+          log.info(String.format(Locale.ENGLISH,
+              "Phase 2 sparse termCounts for %d hits in %s with method=%s finished in %dms (acquire counter=%dms)",
+              hitCount, fieldName, sparseKeys.counter, (System.nanoTime()-fullStartTime)/M, acquireTime/M));
+        }
       }
     }
 
@@ -263,6 +270,11 @@ public class SparseDocValuesFacets {
     pool.release(counts, sparseKeys);
 
     pool.incSimpleFacetTotalTimeRel(fullStartTime);
+    if (sparseKeys.logExtended) {
+      log.info(String.format(Locale.ENGLISH,
+          "Phase 1 sparse faceting for %d hits in %s with method=%s finished in %dms (acquire counter=%dms)",
+      hitCount, fieldName, sparseKeys.counter, (System.nanoTime()-fullStartTime)/M, acquireTime/M));
+    }
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
   }
 
@@ -435,25 +447,19 @@ public class SparseDocValuesFacets {
           final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
           if (singleton != null) {
             // some codecs may optimize SORTED_SET storage for single-valued fields
-            log.info(String.format(Locale.ENGLISH, // TODO: Remove this when sparse faceting is considered stable
-                "Accumulator(%s, %d->%d) calling accumSingle singleton after %dms init",
-                fieldName, startDocID, endDocID, (System.nanoTime()-startTime)/1000000));
-            accumSingle(counts, startTermIndex, singleton, disi, startDocID, endDocID, subIndex, lookup);
+            accumSingle(sparseKeys, counts, startTermIndex, singleton, disi, startDocID, endDocID, subIndex, lookup,
+                System.nanoTime()-startTime);
           } else {
-            log.info(String.format(Locale.ENGLISH, // TODO: Remove this when sparse faceting is considered stable
-                "Accumulator(%s, %d->%d) calling accumMulti after %dms init",
-                fieldName, startDocID, endDocID, (System.nanoTime()-startTime)/1000000));
-            accumMulti(counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, lookup);
+            accumMulti(sparseKeys, counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, lookup,
+                System.nanoTime()-startTime);
           }
         } else {
           SortedDocValues sub = leaf.reader().getSortedDocValues(fieldName);
           if (sub == null) {
             sub = DocValues.EMPTY_SORTED;
           }
-          log.info(String.format(Locale.ENGLISH, // TODO: Remove this when sparse faceting is considered stable
-              "Accumulator(%s, %d->%d) calling accumSingle after %dms init",
-              fieldName, startDocID, endDocID, (System.nanoTime()-startTime)/1000000));
-          accumSingle(counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, lookup);
+          accumSingle(sparseKeys, counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex, lookup,
+              System.nanoTime()-startTime);
         }
         return this;
       } finally {
@@ -707,35 +713,47 @@ public class SparseDocValuesFacets {
   /*
   Iterate single-value DocValues and update the counters based on delivered ordinals.
    */
-  private static void accumSingle(ValueCounter counts, int startTermIndex, SortedDocValues si, DocIdSetIterator disi,
-                                  int startDocID, int endDocID, int subIndex, Lookup lookup) throws IOException {
+  private static void accumSingle(
+      SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedDocValues si, DocIdSetIterator disi,
+      int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS) throws IOException {
     final long startTime = System.nanoTime();
     int doc = disi.nextDoc();
     if (startDocID > 0 && doc != DocIdSetIterator.NO_MORE_DOCS) {
       doc = disi.advance(startDocID);
     }
     final long advanceTime = System.nanoTime()-startTime;
+    long docs = 0;
+    long increments = 0;
     while (doc != DocIdSetIterator.NO_MORE_DOCS && doc < endDocID) {
+      docs++;
       int term = si.getOrd(doc);
       if (lookup.ordinalMap != null && term >= 0) {
         term = (int) lookup.ordinalMap.getGlobalOrd(subIndex, term);
       }
       int arrIdx = term-startTermIndex;
       if (arrIdx>=0 && arrIdx<counts.size()) {
+        increments++;
         counts.inc(arrIdx);
       }
       doc = disi.nextDoc();
     }
     // TODO: Remove this when sparse faceting is considered stable
-    log.info(String.format(Locale.ENGLISH, "accumSingle(%d->%d) advanced in %dms, iterated in %dms",
-        startDocID, endDocID, advanceTime/1000000, (System.nanoTime()-startTime-advanceTime)/1000000));
+    if (sparseKeys.logExtended) {
+      final long incNS = (System.nanoTime() - startTime - advanceTime);
+      log.info(String.format(Locale.ENGLISH,
+          "accumSingle(%d->%d) impl=%s, init=%dms, iteration=%dms, docHits=%d, increments=%d, time=%dms (%d incs/ms)",
+          startDocID, endDocID, sparseKeys.counter, initNS / M, advanceTime / M, docs, increments, incNS / M,
+          incNS == 0 ? 0 : increments * M / incNS));
+    }
   }
+  private static final long M = 1000000;
 
   /*
   Iterate multi-value DocValues and update the counters based on delivered ordinals.
    */
-  private static void accumMulti(ValueCounter counts, int startTermIndex, SortedSetDocValues ssi, DocIdSetIterator disi,
-                                 int startDocID, int endDocID, int subIndex, Lookup lookup) throws IOException {
+  private static void accumMulti(
+      SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedSetDocValues ssi, DocIdSetIterator disi,
+      int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS) throws IOException {
     final long startTime = System.nanoTime();
     if (ssi == DocValues.EMPTY_SORTED_SET) {
       return; // Nothing to process; return immediately
@@ -746,7 +764,11 @@ public class SparseDocValuesFacets {
       doc = disi.advance(startDocID);
     }
     final long advanceTime = System.nanoTime()-startTime;
+
+    long docs = 0;
+    long increments = 0;
     while (doc != DocIdSetIterator.NO_MORE_DOCS && doc < endDocID) {
+      docs++;
       ssi.setDocument(doc);
       doc = disi.nextDoc();
 
@@ -767,13 +789,19 @@ public class SparseDocValuesFacets {
         int arrIdx = term - startTermIndex;
 
         if (arrIdx >= 0 && arrIdx < counts.size()) {
+          increments++;
           counts.inc(arrIdx);
         }
       } while ((term = (int) ssi.nextOrd()) >= 0);
     }
     // TODO: Remove this when sparse faceting is considered stable
-    log.info(String.format(Locale.ENGLISH, "accumMulti(%d->%d) advanced in %dms, iterated in %dms",
-        startDocID, endDocID, advanceTime/1000000, (System.nanoTime()-startTime-advanceTime)/1000000));
+    if (sparseKeys.logExtended) {
+      final long incNS = (System.nanoTime() - startTime - advanceTime);
+      log.info(String.format(Locale.ENGLISH,
+          "accumMulti(%d->%d) impl=%s, init=%dms, iteration=%dms, docHits=%d, increments=%d, time=%dms (%d incs/ms)",
+          startDocID, endDocID, sparseKeys.counter, initNS / M, advanceTime / M, docs, increments, incNS / M,
+          incNS == 0 ? 0 : increments * M / incNS));
+    }
   }
 
   /**
