@@ -182,8 +182,9 @@ public class SparseDocValuesFacets {
         pool.incTermsListTotalTimeRel(fullStartTime);
         if (sparseKeys.logExtended) {
           log.info(String.format(Locale.ENGLISH,
-              "Phase 2 sparse termCounts for %d hits in %s with method=%s finished in %dms (acquire counter=%dms)",
-              hitCount, fieldName, sparseKeys.counter, (System.nanoTime()-fullStartTime)/M, acquireTime/M));
+              "Phase 2 sparse term counts of %s: method=%s, threads=%d, hits=%d, time=%dms (acquire counter=%dms)",
+              fieldName, sparseKeys.counter, sparseKeys.countingThreads, hitCount,
+              (System.nanoTime()-fullStartTime)/M, acquireTime/M));
         }
       }
     }
@@ -272,8 +273,9 @@ public class SparseDocValuesFacets {
     pool.incSimpleFacetTotalTimeRel(fullStartTime);
     if (sparseKeys.logExtended) {
       log.info(String.format(Locale.ENGLISH,
-          "Phase 1 sparse faceting for %d hits in %s with method=%s finished in %dms (acquire counter=%dms)",
-      hitCount, fieldName, sparseKeys.counter, (System.nanoTime()-fullStartTime)/M, acquireTime/M));
+          "Phase 1 sparse faceting of %s: method=%s, threads=%d, hits=%d, time=%dms (acquire counter=%dms)",
+          fieldName, sparseKeys.counter, sparseKeys.countingThreads, hitCount,
+          (System.nanoTime()-fullStartTime)/M, acquireTime/M));
     }
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
   }
@@ -585,6 +587,7 @@ public class SparseDocValuesFacets {
     return sb.toString();
   }
 
+  // TODO: synchronize ensurebasic to giard against parallel runs
   @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
   private static NPlaneMutable.BPVProvider ensureBasicAndGetBPVs(
       SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
@@ -721,7 +724,7 @@ public class SparseDocValuesFacets {
     if (startDocID > 0 && doc != DocIdSetIterator.NO_MORE_DOCS) {
       doc = disi.advance(startDocID);
     }
-    final long advanceTime = System.nanoTime()-startTime;
+    final long advanceNS = System.nanoTime()-startTime;
     long docs = 0;
     long increments = 0;
     while (doc != DocIdSetIterator.NO_MORE_DOCS && doc < endDocID) {
@@ -739,11 +742,13 @@ public class SparseDocValuesFacets {
     }
     // TODO: Remove this when sparse faceting is considered stable
     if (sparseKeys.logExtended) {
-      final long incNS = (System.nanoTime() - startTime - advanceTime);
+      final long incNS = (System.nanoTime() - startTime - advanceNS);
       log.info(String.format(Locale.ENGLISH,
-          "accumSingle(%d->%d) impl=%s, init=%dms, iteration=%dms, docHits=%d, increments=%d, time=%dms (%d incs/ms)",
-          startDocID, endDocID, sparseKeys.counter, initNS / M, advanceTime / M, docs, increments, incNS / M,
-          incNS == 0 ? 0 : increments * M / incNS));
+          "accumSingle(%d->%d) impl=%s, init=%dms, advance=%dms, docHits=%d, increments=%d (%d incs/doc)," +
+              " incTime=%dms (%d incs/ms, %d docs/ms)",
+          startDocID, endDocID, sparseKeys.counter, initNS / M, advanceNS / M, docs, increments,
+          docs == 0 ? 0 : increments/docs, incNS / M, incNS == 0 ? 0 : increments * M / incNS,
+          incNS == 0 ? 0 : docs * M / incNS));
     }
   }
   private static final long M = 1000000;
@@ -763,7 +768,7 @@ public class SparseDocValuesFacets {
     if (startDocID > 0 && doc != DocIdSetIterator.NO_MORE_DOCS) {
       doc = disi.advance(startDocID);
     }
-    final long advanceTime = System.nanoTime()-startTime;
+    final long advanceNS = System.nanoTime()-startTime;
 
     long docs = 0;
     long increments = 0;
@@ -796,11 +801,13 @@ public class SparseDocValuesFacets {
     }
     // TODO: Remove this when sparse faceting is considered stable
     if (sparseKeys.logExtended) {
-      final long incNS = (System.nanoTime() - startTime - advanceTime);
+      final long incNS = (System.nanoTime() - startTime - advanceNS);
       log.info(String.format(Locale.ENGLISH,
-          "accumMulti(%d->%d) impl=%s, init=%dms, iteration=%dms, docHits=%d, increments=%d, time=%dms (%d incs/ms)",
-          startDocID, endDocID, sparseKeys.counter, initNS / M, advanceTime / M, docs, increments, incNS / M,
-          incNS == 0 ? 0 : increments * M / incNS));
+          "accumMulti(%d->%d) impl=%s, init=%dms, advance=%dms, docHits=%d, increments=%d (%d incs/doc)," +
+              " incTime=%dms (%d incs/ms, %d docs/ms)",
+          startDocID, endDocID, sparseKeys.counter, initNS / M, advanceNS / M, docs, increments,
+          docs == 0 ? 0 : increments/docs, incNS / M, incNS == 0 ? 0 : increments * M / incNS,
+          incNS == 0 ? 0 : docs * M / incNS));
     }
   }
 
