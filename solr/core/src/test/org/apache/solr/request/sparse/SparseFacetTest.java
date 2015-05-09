@@ -205,7 +205,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
   public void testMultiThreadedNPlaneZMultiValueFaceting() throws Exception {
     testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, MULTI_DV_FIELD, "multi_", 2);
   }
-
+           // Possible fail with -Dtests.seed=319BCB8974E7AA81
   public void testMultiThreadedNPlaneZMultiValueSparseFaceting() throws Exception {
     testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, MULTI_DV_FIELD, "multi_", 2, "id:062", 1);
   }
@@ -309,7 +309,6 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
                   + " with minTags=" + minTags + " should match expected in run " + run,
               dry, special);
         }
-
 //        System.out.println(">>> multi " + threads + " run " + run);
         String specialT;
         if (threads > 1) { // Special impl threaded
@@ -326,6 +325,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
           params.set(SparseKeys.MINTAGS, minTags);
           params.set(SparseKeys.CUTOFF, 10000);
           params.set("indent", true);
+//          params.set("debug", "timing");
           req.setParams(params);
           specialT = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
           assertEquals(
