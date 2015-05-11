@@ -116,7 +116,10 @@ public class SparseDocValuesFacets {
     }
 
     // Checks whether we can logically skip faceting
+
+    long hitCountTime = -System.nanoTime();
     final int hitCount = docs.size();
+    hitCountTime += System.nanoTime();
 
     // Locate start and end-position in the ordinals if a prefix is given
     // TODO: Test this for dualplane & nplane counters
@@ -161,6 +164,7 @@ public class SparseDocValuesFacets {
     // The counter structure is always empty for single-shard searches and first phase of multi-shard searches
     // Depending on pool cache setup, it might already be full and directly usable in second phase of
     // multi-shard searches
+    long collectTime = System.nanoTime();
     if (counts.getContentKey() == null) {
       if (!pool.isProbablySparse(hitCount, sparseKeys)) {
         // It is guessed that the result set will be to large to be sparse so
@@ -168,13 +172,14 @@ public class SparseDocValuesFacets {
         counts.disableSparseTracking();
       }
 
-      final long sparseCollectTime = System.nanoTime();
       collectCounts(sparseKeys, searcher, docs, schemaField, lookup, startTermIndex, counts, hitCount);
-      pool.incCollectTimeRel(sparseCollectTime);
+      pool.incCollectTimeRel(collectTime);
     }
+    collectTime = System.nanoTime() - collectTime;
 
     if (termList != null) {
       // Specific terms were requested. This is used with fine-counting of facet values in distributed faceting
+      long fineCountStart = System.nanoTime();
       try {
         return extractSpecificCounts(searcher, pool, lookup.si, fieldName, docs, counts, termList);
       } finally  {
@@ -182,9 +187,10 @@ public class SparseDocValuesFacets {
         pool.incTermsListTotalTimeRel(fullStartTime);
         if (sparseKeys.logExtended) {
           log.info(String.format(Locale.ENGLISH,
-              "Phase 2 sparse term counts of %s: method=%s, threads=%d, hits=%d, time=%dms (acquire counter=%dms)",
-              fieldName, sparseKeys.counter, sparseKeys.countingThreads, hitCount,
-              (System.nanoTime()-fullStartTime)/M, acquireTime/M));
+              "Phase 2 sparse term counts of %s: method=%s, threads=%d, hits=%d, time=%dms "
+                  + "(hitCount=%dms, acquire=%dms, collect=%dms, fineCount=%dms)",
+              fieldName, sparseKeys.counter, sparseKeys.countingThreads, hitCount, (System.nanoTime()-fullStartTime)/M,
+              hitCountTime/M, acquireTime/M, collectTime/M, (System.nanoTime()-fineCountStart)/M));
         }
       }
     }
@@ -198,6 +204,8 @@ public class SparseDocValuesFacets {
     final FieldType ft = schemaField.getType();
     final NamedList<Integer> res = new NamedList<>();
     final CharsRef charsRef = new CharsRef(10);
+    long extractTime = System.nanoTime();
+    long termResolveTime;
     if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
       int maxsize = limit>0 ? offset+limit : Integer.MAX_VALUE-1;
       maxsize = Math.min(maxsize, nTerms);
@@ -205,7 +213,6 @@ public class SparseDocValuesFacets {
 
 //        int min=mincount-1;  // the smallest value in the top 'N' values
 
-      final long sparseExtractTime = System.nanoTime();
       try {
         if (counts.iterate(startTermIndex==-1?1:0, nTerms, minCount, false,
             sparseKeys.blacklists.isEmpty() && sparseKeys.whitelists.isEmpty() ?
@@ -221,13 +228,14 @@ public class SparseDocValuesFacets {
             "Logic error: Out of bounds with startTermIndex=%d, nTerms=%d, minCount=%d and counts=%s",
             startTermIndex, nTerms, minCount, counts));
       }
-      pool.incExtractTimeRel(sparseExtractTime);
+      pool.incExtractTimeRel(extractTime);
+      extractTime = System.nanoTime()-extractTime;
 
       // if we are deep paging, we don't have to order the highest "offset" counts.
       int collectCount = Math.max(0, queue.size() - off);
       assert collectCount <= lim;
 
-      final long termResolveTime = System.nanoTime();
+      termResolveTime = System.nanoTime();
       // the start and end indexes of our list "sorted" (starting with the highest value)
       int sortedIdxStart = queue.size() - (collectCount - 1);
       int sortedIdxEnd = queue.size() + 1;
@@ -244,9 +252,9 @@ public class SparseDocValuesFacets {
         res.add(charsRef.toString(), c);*/
       }
       pool.incTermResolveTimeRel(termResolveTime);
-
+      termResolveTime = System.nanoTime()-termResolveTime;
     } else {
-      final long termResolveTime = System.nanoTime();
+      termResolveTime = System.nanoTime();
       // add results in index order
       int i=(startTermIndex==-1)?1:0;
       if (minCount<=0) {
@@ -267,15 +275,17 @@ public class SparseDocValuesFacets {
         res.add(charsRef.toString(), c);*/
       }
       pool.incTermResolveTimeRel(termResolveTime);
+      termResolveTime = System.nanoTime()-termResolveTime;
     }
     pool.release(counts, sparseKeys);
 
     pool.incSimpleFacetTotalTimeRel(fullStartTime);
     if (sparseKeys.logExtended) {
       log.info(String.format(Locale.ENGLISH,
-          "Phase 1 sparse faceting of %s: method=%s, threads=%d, hits=%d, time=%dms (acquire counter=%dms)",
-          fieldName, sparseKeys.counter, sparseKeys.countingThreads, hitCount,
-          (System.nanoTime()-fullStartTime)/M, acquireTime/M));
+          "Phase 1 sparse faceting of %s: method=%s, threads=%d, hits=%d, time=%dms "
+              + "(hitCount=%dms, acquire=%dms, collect=%dms, extract=%dms, resolve=%dms)",
+          fieldName, sparseKeys.counter, sparseKeys.countingThreads, hitCount, (System.nanoTime()-fullStartTime)/M,
+          hitCountTime/M, acquireTime/M, collectTime/M, extractTime/M, termResolveTime/M));
     }
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
   }
