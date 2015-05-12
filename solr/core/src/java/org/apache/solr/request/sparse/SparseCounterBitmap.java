@@ -80,8 +80,9 @@ public class SparseCounterBitmap implements ValueCounter {
       trackerTracker = null;
     } else {
       tracksMax = (int) (counts.size() * fraction);
-      tracker = new AtomicLongArray(counts.size()/64/64+1);
-      trackerTracker = new AtomicLongArray(counts.size()/64/64/64+1); //
+      trackerTracker = new AtomicLongArray(counts.size()/64/64/64+1); // Why the +1?
+      // FIXME: An occasional (q:"d-mol" at SB test installation) ArrayIndexOutOfBounds seems workarounded by the +64
+      tracker = new AtomicLongArray(counts.size()/64/64+64+1);           // Why the +1?
     }
   }
 
