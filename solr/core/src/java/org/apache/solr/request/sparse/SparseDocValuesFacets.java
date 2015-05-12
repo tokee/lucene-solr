@@ -85,8 +85,8 @@ public class SparseDocValuesFacets {
   static final ExecutorService executor = Executors.newFixedThreadPool(20, new ThreadFactory() {
     AtomicLong constructed = new AtomicLong();
     @Override
-    public Thread newThread(Runnable r) {
-      Thread thread = new Thread(r);
+    public Thread newThread(Runnable runnable) {
+      Thread thread = new Thread(runnable);
       thread.setDaemon(true);
       thread.setName("SparseFaceting_" + constructed.getAndIncrement());
       return thread;
@@ -187,7 +187,8 @@ public class SparseDocValuesFacets {
         pool.release(counts, sparseKeys);
         pool.incTermsListTotalTimeRel(fullStartTime);
         final long totalTimeNS = Math.max(1, System.nanoTime()-fullStartTime);
-        if (sparseKeys.logExtended) {
+        // Maybe this should be on debug instead
+        if (log.isInfoEnabled()) {
           log.info(String.format(Locale.ENGLISH,
               "Phase 2 sparse term counts of %s: method=%s, threads=%d, hits=%d, refs=%d, time=%dms "
                   + "(hitCount=%dms, acquire=%dms, collect=%dms, fineCount=%dms), hits/ms=%d, refs/ms=%d",
@@ -209,6 +210,7 @@ public class SparseDocValuesFacets {
     final CharsRef charsRef = new CharsRef(10);
     long extractTime = System.nanoTime();
     long termResolveTime;
+    boolean optimizedExtract;
     if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
       int maxsize = limit>0 ? offset+limit : Integer.MAX_VALUE-1;
       maxsize = Math.min(maxsize, nTerms);
@@ -217,11 +219,11 @@ public class SparseDocValuesFacets {
 //        int min=mincount-1;  // the smallest value in the top 'N' values
 
       try {
-        if (counts.iterate(startTermIndex==-1?1:0, nTerms, minCount, false,
+        optimizedExtract = counts.iterate(startTermIndex==-1?1:0, nTerms, minCount, false,
             sparseKeys.blacklists.isEmpty() && sparseKeys.whitelists.isEmpty() ?
                 new ValueCounter.TopCallback(minCount-1, queue) :
-                new PatternMatchingCallback(minCount-1, queue, maxsize, sparseKeys, pool, lookup.si, ft, charsRef)
-        )) {
+                new PatternMatchingCallback(minCount-1, queue, maxsize, sparseKeys, pool, lookup.si, ft, charsRef));
+        if (optimizedExtract) {
           pool.incWithinCount();
         } else {
           pool.incExceededCount();
@@ -257,6 +259,7 @@ public class SparseDocValuesFacets {
       pool.incTermResolveTimeRel(termResolveTime);
       termResolveTime = System.nanoTime()-termResolveTime;
     } else {
+      optimizedExtract = false;
       termResolveTime = System.nanoTime();
       // add results in index order
       int i=(startTermIndex==-1)?1:0;
@@ -283,14 +286,16 @@ public class SparseDocValuesFacets {
     pool.release(counts, sparseKeys);
 
     pool.incSimpleFacetTotalTimeRel(fullStartTime);
-    if (sparseKeys.logExtended) {
+    // Maybe this should be on debug instead
+    if (log.isInfoEnabled()) {
       final long totalTimeNS = Math.max(1, System.nanoTime()-fullStartTime);
       log.info(String.format(Locale.ENGLISH,
           "Phase 1 sparse faceting of %s: method=%s, threads=%d, hits=%d, refs=%d, time=%dms "
-              + "(hitCount=%dms, acquire=%dms, collect=%dms, extract=%dms, resolve=%dms), hits/ms=%d, refs/ms=%d",
+              + "(hitCount=%dms, acquire=%dms, collect=%dms, extract=%dms (sparse=%b), resolve=%dms), hits/ms=%d, " +
+              "refs/ms=%d",
           fieldName, sparseKeys.counter, sparseKeys.countingThreads, hitCount, refCount.get(), totalTimeNS/M,
-          hitCountTime/M, acquireTime/M, collectTime/M, extractTime/M, termResolveTime/M,
-          hitCount*M/totalTimeNS, refCount.get()*M/totalTimeNS));
+          hitCountTime/M, acquireTime/M, collectTime/M, extractTime/M, optimizedExtract,
+          termResolveTime/M, hitCount*M/totalTimeNS, refCount.get()*M/totalTimeNS));
     }
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
   }
@@ -698,37 +703,6 @@ public class SparseDocValuesFacets {
     pool.incTermsListLookupRel(termList, !terms.isEmpty() ? terms.get(terms.size()-1) : "",
         existingTerms, terms.size()-existingTerms, startTime);
     return res;
-  }
-
-  // TODO: Find a better solution for caching as this map will grow with each index update
-  // TODO: Do not use maxDoc as key! Couple this to the underlying reader
-  private static final Map<Integer, Long> maxCounts = new HashMap<Integer, Long>();
-  // This is expensive so we remember the result
-  private static long getMaxCountForAnyTag(SortedSetDocValues si, int maxDoc) {
-    synchronized (maxCounts) {
-      if (maxCounts.containsKey(maxDoc)) {
-        return maxCounts.get(maxDoc);
-      }
-    }
-    // TODO: We assume int as max to same space. We should switch to long if maxDoc*valueCount > Integer.MAX_VALUE
-    final int[] counters = new int[(int) si.getValueCount()];
-    long ord;
-    for (int d = 0 ; d < maxDoc ; d++) {
-      si.setDocument(d);
-      while ((ord = si.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
-        counters[((int) ord)]++;
-      }
-    }
-    long max = 0;
-    for (int i = 0 ; i < counters.length ; i++) {
-      if (counters[i] > max) {
-        max = counters[i];
-      }
-    }
-    synchronized (maxCounts) {
-      maxCounts.put(maxDoc, max);
-    }
-    return max;
   }
 
   /*

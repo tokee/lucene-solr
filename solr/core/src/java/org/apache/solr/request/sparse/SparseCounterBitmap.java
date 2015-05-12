@@ -20,13 +20,15 @@ package org.apache.solr.request.sparse;
 import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.packed.NPlaneMutable;
 
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicLongArray;
 
 /**
- * Sparse counter whick uses a bitmap for tracking updated values..
+ * Sparse counter which uses a bitmap for tracking updated values..
  */
 public class SparseCounterBitmap implements ValueCounter {
+
   private final NPlaneMutable counts;  // One counter/tag
   private final Incrementable countsInc; // Wrapper around or same-reference as counts
   private final AtomicLongArray tracker; // Tracks changes to counts
@@ -247,13 +249,13 @@ public class SparseCounterBitmap implements ValueCounter {
     int cleared = 0;
     out:
     for (int tti = 0 ; tti < trackerTracker.length() ; tti++) {
-      long ttBitset = trackerTracker.get(tti);
+      long ttBitset = trackerTracker.getAndSet(tti, 0);
       while (ttBitset != 0) {
         final long tt = ttBitset & -ttBitset;
         final int ti = Long.bitCount(tt-1);
         ttBitset ^= tt;
 
-        long tBitset = tracker.get(tti * 64 + ti);
+        long tBitset = tracker.getAndSet(tti * 64 + ti, 0);
         while (tBitset != 0) {
           final long t = tBitset & -tBitset;
           final int i = Long.bitCount(t-1);
@@ -351,7 +353,6 @@ public class SparseCounterBitmap implements ValueCounter {
     boolean filled = false;
     final int sparseMinValue = Math.max(minValue, 1);
     for (int tti = 0 ; tti < trackerTracker.length() ; tti++) {
-
       long ttBitset = trackerTracker.get(tti);
       while (ttBitset != 0) {
         final long tt = ttBitset & -ttBitset;
@@ -379,7 +380,8 @@ public class SparseCounterBitmap implements ValueCounter {
         }
       }
     }
-
+//    log.info(String.format(Locale.ENGLISH, "iterate(ttc=%d, tc=%d, c=%d, filled=%b, ms=%d)",
+//        ttc, tc, c, filled, (System.nanoTime()-startTime)/1000000));
     /*
         callback.setOrdered(minValue > 0); // Might need second run if minValue == 0
     boolean filled = false;
