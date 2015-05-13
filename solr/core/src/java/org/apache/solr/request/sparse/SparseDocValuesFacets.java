@@ -610,16 +610,17 @@ public class SparseDocValuesFacets {
     return sb.toString();
   }
 
-  // TODO: synchronize ensurebasic to giard against parallel runs
   @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
   private static NPlaneMutable.BPVProvider ensureBasicAndGetBPVs(
       SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
       SchemaField schemaField, SparseCounterPool pool) throws IOException {
-    NPlaneMutable.BPVProvider globOrdCount = OrdinalUtils.getBPVs(searcher, si, globalMap, schemaField, true);
-    // It would be nice to skip this extra run-through, but nplane needs its histogram
-    ensureBasic(globOrdCount, searcher, si, schemaField, pool);
-    globOrdCount.reset();
-    return globOrdCount;
+    synchronized (pool) {
+      NPlaneMutable.BPVProvider globOrdCount = OrdinalUtils.getBPVs(searcher, si, globalMap, schemaField, true);
+      // It would be nice to skip this extra run-through, but nplane needs its histogram
+      ensureBasic(globOrdCount, searcher, si, schemaField, pool);
+      globOrdCount.reset();
+      return globOrdCount;
+    }
   }
 
   @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
