@@ -569,32 +569,36 @@ public class SparseDocValuesFacets {
     // to be calculated.
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.nplane) {
       ValueCounter vc;
-      if (!pool.isInitialized() || ((vc = pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplane)) == null)) {
-        final long allocateTime = System.nanoTime();
-        NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(searcher, si, globalMap, schemaField, pool);
-        NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getHistogram(), false);
-        // TODO: Consider switching back and forth between threaded and non-threaded
-        PackedInts.Mutable innerCounter = new NPlaneMutable(layout, bpvs, NPlaneMutable.IMPL.tank);
-        vc = new SparseCounterThreaded(SparseKeys.COUNTER_IMPL.nplane, innerCounter, pool.getMaxCountForAny(),
-            sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
-        pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplane, vc, allocateTime);
+      synchronized (pool) { // Need to synchronize to avoid overlapping BPV-resolving
+        if (!pool.isInitialized() || ((vc = pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplane)) == null)) {
+          final long allocateTime = System.nanoTime();
+          NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(searcher, si, globalMap, schemaField, pool);
+          NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getHistogram(), false);
+          // TODO: Consider switching back and forth between threaded and non-threaded
+          PackedInts.Mutable innerCounter = new NPlaneMutable(layout, bpvs, NPlaneMutable.IMPL.tank);
+          vc = new SparseCounterThreaded(SparseKeys.COUNTER_IMPL.nplane, innerCounter, pool.getMaxCountForAny(),
+              sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
+          pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplane, vc, allocateTime);
+        }
+        return vc;
       }
-      return vc;
     }
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.nplanez) {
       ValueCounter vc;
       // TODO: Check that acquiring a nplanex after a nplane erases the old nplane
-      if (!pool.isInitialized() || ((vc = pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez)) == null)) {
-        final long allocateTime = System.nanoTime();
-        NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(searcher, si, globalMap, schemaField, pool);
-        NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getPlusOneHistogram(), true);
-        NPlaneMutable innerCounter = new NPlaneMutable(layout, bpvs, NPlaneMutable.IMPL.zethra);
+      synchronized (pool) { // Need to synchronize to avoid overlapping BPV-resolving
+        if (!pool.isInitialized() || ((vc = pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez)) == null)) {
+          final long allocateTime = System.nanoTime();
+          NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(searcher, si, globalMap, schemaField, pool);
+          NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getPlusOneHistogram(), true);
+          NPlaneMutable innerCounter = new NPlaneMutable(layout, bpvs, NPlaneMutable.IMPL.zethra);
 //        System.out.println(innerCounter.toString(true));
-        vc = new SparseCounterBitmap(SparseKeys.COUNTER_IMPL.nplanez, innerCounter, pool.getMaxCountForAny(),
-            sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
-        pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez, vc, allocateTime);
+          vc = new SparseCounterBitmap(SparseKeys.COUNTER_IMPL.nplanez, innerCounter, pool.getMaxCountForAny(),
+              sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
+          pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez, vc, allocateTime);
+        }
+        return vc;
       }
-      return vc;
     }
     throw new UnsupportedOperationException("No support yet for the " + sparseKeys.counter + " counter");
   }
@@ -610,17 +614,15 @@ public class SparseDocValuesFacets {
     return sb.toString();
   }
 
-  @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
+  // Not synchronized as that must be handled outside to avoid duplicate work
   private static NPlaneMutable.BPVProvider ensureBasicAndGetBPVs(
       SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
       SchemaField schemaField, SparseCounterPool pool) throws IOException {
-    synchronized (pool) {
-      NPlaneMutable.BPVProvider globOrdCount = OrdinalUtils.getBPVs(searcher, si, globalMap, schemaField, true);
-      // It would be nice to skip this extra run-through, but nplane needs its histogram
-      ensureBasic(globOrdCount, searcher, si, schemaField, pool);
-      globOrdCount.reset();
-      return globOrdCount;
-    }
+    NPlaneMutable.BPVProvider globOrdCount = OrdinalUtils.getBPVs(searcher, si, globalMap, schemaField, true);
+    // It would be nice to skip this extra run-through, but nplane needs its histogram
+    ensureBasic(globOrdCount, searcher, si, schemaField, pool);
+    globOrdCount.reset();
+    return globOrdCount;
   }
 
   @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
