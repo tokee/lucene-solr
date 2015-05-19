@@ -165,8 +165,9 @@ public class SparseDocValuesFacets {
     // The counter structure is always empty for single-shard searches and first phase of multi-shard searches
     // Depending on pool cache setup, it might already be full and directly usable in second phase of
     // multi-shard searches
-    long collectTime = System.nanoTime();
-    if (counts.getContentKey() == null) {
+    final boolean alreadyFilled = counts.getContentKey() != null;
+    long collectTime = alreadyFilled ? 0 : -System.nanoTime();
+    if (!alreadyFilled) {
       if (!pool.isProbablySparse(hitCount, sparseKeys)) {
         // It is guessed that the result set will be to large to be sparse so
         // the sparse tracker is disabled up front to speed up the collection phase
@@ -175,8 +176,8 @@ public class SparseDocValuesFacets {
 
       collectCounts(sparseKeys, searcher, docs, schemaField, lookup, startTermIndex, counts, hitCount, refCount);
       pool.incCollectTimeRel(collectTime);
+      collectTime += System.nanoTime();
     }
-    collectTime = System.nanoTime() - collectTime;
 
     if (termList != null) {
       // Specific terms were requested. This is used with fine-counting of facet values in distributed faceting
@@ -191,10 +192,10 @@ public class SparseDocValuesFacets {
         if (log.isInfoEnabled()) {
           log.info(String.format(Locale.ENGLISH,
               "Phase 2 sparse term counts of %s: method=%s, threads=%d, hits=%d, refs=%d, time=%dms "
-                  + "(hitCount=%dms, acquire=%dms, collect=%dms, fineCount=%dms), hits/ms=%d, refs/ms=%d",
+                  + "(hitCount=%dms, acquire=%dms, collect=%s, fineCount=%dms), hits/ms=%d, refs/ms=%d",
               fieldName, sparseKeys.counter, sparseKeys.countingThreads, hitCount, refCount.get(), totalTimeNS/M,
-              hitCountTime/M, acquireTime/M, collectTime/M, (System.nanoTime()-fineCountStart)/M,
-              hitCount*M/totalTimeNS, refCount.get()*M/totalTimeNS));
+              hitCountTime/M, acquireTime/M, alreadyFilled ? "0ms (reused)" : collectTime/M + "ms",
+              (System.nanoTime()-fineCountStart)/M, hitCount*M/totalTimeNS, refCount.get()*M/totalTimeNS));
         }
       }
     }
@@ -282,6 +283,7 @@ public class SparseDocValuesFacets {
       }
       pool.incTermResolveTimeRel(termResolveTime);
       termResolveTime = System.nanoTime()-termResolveTime;
+      extractTime = 0; // Only resolving is relevant here
     }
     pool.release(counts, sparseKeys);
 
@@ -291,11 +293,11 @@ public class SparseDocValuesFacets {
       final long totalTimeNS = Math.max(1, System.nanoTime()-fullStartTime);
       log.info(String.format(Locale.ENGLISH,
           "Phase 1 sparse faceting of %s: method=%s, threads=%d, hits=%d, refs=%d, time=%dms "
-              + "(hitCount=%dms, acquire=%dms, collect=%dms, extract=%dms (sparse=%b), resolve=%dms), hits/ms=%d, " +
+              + "(hitCount=%dms, acquire=%dms, collect=%s, extract=%dms (sparse=%b), resolve=%dms), hits/ms=%d, " +
               "refs/ms=%d",
           fieldName, sparseKeys.counter, sparseKeys.countingThreads, hitCount, refCount.get(), totalTimeNS/M,
-          hitCountTime/M, acquireTime/M, collectTime/M, extractTime/M, optimizedExtract,
-          termResolveTime/M, hitCount*M/totalTimeNS, refCount.get()*M/totalTimeNS));
+          hitCountTime/M, acquireTime/M, alreadyFilled ? "0ms (reused)" : collectTime/M + "ms", extractTime/M,
+          optimizedExtract, termResolveTime/M, hitCount*M/totalTimeNS, refCount.get()*M/totalTimeNS));
     }
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
   }
