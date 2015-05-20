@@ -27,6 +27,7 @@ import java.util.Locale;
 @Slow
 public class TestDualPlaneMutable extends LuceneTestCase {
   final static int M = 1048576;
+  final static double MD = 1048576;
 
   public void testLinksEstimate() { // 519*M
     testEstimate("8/9 shard links", getLinksHistogram(), false);
@@ -99,6 +100,13 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     dumpImplementationMemUsages("TEG histogram generator", tegHistogram);
   }
 
+  public void testShard6Sample() {
+    dumpImplementationMemUsages("Domain", SHARD6_DOMAIN);
+    //dumpImplementationMemUsages("Host", SHARD6_HOST);
+    dumpImplementationMemUsages("URL", SHARD6_URL);
+    dumpImplementationMemUsages("Links", SHARD6_LINKS);
+  }
+
   public void testVerifyDualPlaneMemoryEstimation() {
     final long[] histogram = LongTailPerformance.reduce(LongTailPerformance.links20150209, 2);
 
@@ -126,10 +134,16 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     }
     final long intC = valueCount*4;
     final long packC = valueCount * LongTailPerformance.maxBit(histogram) / 8;
-    final long nplaneSplit = NPlaneMutable.estimateBytesNeeded(histogram, NPlaneMutable.IMPL.split);
+    final long nplaneSplit = NPlaneMutable.estimateBytesNeeded(
+        shift(histogram), NPlaneMutable.IMPL.split);
     final long nplaneSplitRank = NPlaneMutable.estimateBytesNeeded(
-        histogram, 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, false, NPlaneMutable.IMPL.spank);
-    final long nplaneExtra = NPlaneMutable.estimateBytesNeeded(histogram, NPlaneMutable.IMPL.spank, true);
+        shift(histogram), 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, false, NPlaneMutable.IMPL.spank);
+    final long nplaneExtra = NPlaneMutable.estimateBytesNeeded(
+        shift(histogram), NPlaneMutable.IMPL.spank, true);
+    final long nplanez = NPlaneMutable.estimateBytesNeeded(
+        shift(zshift(histogram)), 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, false, NPlaneMutable.IMPL.zethra);
+    final long nplanezExtra = NPlaneMutable.estimateBytesNeeded(
+        shift(zshift(histogram)), NPlaneMutable.IMPL.zethra, true);
     final long ltmC = DualPlaneMutable.estimateBytesNeeded(histogram, (int) valueCount);
     long lowest = 0; // TODO: Something is wrong as this is not lowest
     for (int i = 0 ; i < histogram[i] ; i++) {
@@ -137,13 +151,41 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     }
 
     System.out.println(source + ": " + valueCount + " counters, max bit " + LongTailPerformance.maxBit(histogram));
-    System.out.println(String.format(Locale.ENGLISH, "Solr default int[]:    %4dMB", intC/ M));
-    System.out.println(String.format(Locale.ENGLISH, "Sparse PackedInts:     %4dMB", packC/ M));
-    System.out.println(String.format(Locale.ENGLISH, "Long Tail Dual:        %4dMB", ltmC / M));
-    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes:      %4dMB", nplaneSplit / M));
-    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes rank: %4dMB", nplaneSplitRank / M));
-    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes+:     %4dMB", nplaneExtra / M));
-    System.out.println(String.format(Locale.ENGLISH, "Lowest possible:       %4dMB", lowest / M));
+    System.out.println(String.format(Locale.ENGLISH, "Solr default int[]:    %6.1fMB", intC/ MD));
+    System.out.println(String.format(Locale.ENGLISH, "Sparse PackedInts:     %6.1fMB (%3.0f%%)",
+        packC/ MD, percent(packC, intC)));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Dual:        %6.1fMB (%3.0f%%)",
+        ltmC / MD, percent(ltmC, intC)));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes:      %6.1fMB (%3.0f%%)",
+        nplaneSplit / MD, percent(nplaneSplit, intC)));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes rank: %6.1fMB (%3.0f%%)",
+        nplaneSplitRank / MD, percent(nplaneSplitRank, intC)));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes rank+:%6.1fMB (%3.0f%%)",
+        nplaneExtra / MD, percent(nplaneExtra, intC)));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes z:    %6.1fMB (%3.0f%%)",
+        nplanez / MD, percent(nplanez, intC)));
+    System.out.println(String.format(Locale.ENGLISH, "Long Tail Planes z+:   %6.1fMB (%3.0f%%)",
+        nplanezExtra / MD, percent(nplanezExtra, intC)));
+    System.out.println(String.format(Locale.ENGLISH, "Lowest possible:       %6.1fMB (%3.0f%%)",
+        lowest / MD, percent(lowest, intC)));
+  }
+
+  private long[] shift(long[] histogram) {
+    long[] shifted = new long[histogram.length+1];
+    System.arraycopy(histogram, 0, shifted, 1, histogram.length);
+    return shifted;
+  }
+
+  // Simulated a histogram for zethra by shifting everything 1 bit up, except for the first bit
+  private long[] zshift(long[] histogram) {
+    long[] shifted = new long[histogram.length+1];
+    System.arraycopy(histogram, 1, shifted, 2, histogram.length-1);
+    shifted[0] = histogram[0];
+    return shifted;
+  }
+
+  private double percent(long part, long whole) {
+    return 1d*part/whole*100;
   }
 
   public void testNonViability() {
@@ -224,6 +266,107 @@ public class TestDualPlaneMutable extends LuceneTestCase {
     }
     return histogram;
   }
+
+  // Shard 6 is a concrete shard from Statsbiblioteket's Net Archive Search.
+  // The histograms were extracted using Solr's admin front end
+  private static final long[] SHARD6_DOMAIN = LongTailPerformance.pad(
+        232727,
+        124839,
+        108075,
+        119290,
+        131614,
+        127795,
+        103500,
+        76844,
+        57418,
+        38717,
+        19604,
+        11015,
+        7389,
+        4767,
+        2935,
+        1480,
+        481,
+        108,
+        41,
+        12,
+        15,
+        7,
+        2
+  );
+
+  private static final long[] SHARD6_HOST = LongTailPerformance.pad(
+        348933,
+        180757,
+        154806,
+        161135,
+        169519,
+        158391,
+        123606,
+        88758,
+        65095,
+        42188,
+        21737,
+        12449,
+        8280,
+        5068,
+        2840,
+        1332,
+        435,
+        114,
+        37,
+        20,
+        9,
+        5,
+        1
+  );
+
+  private static final long[] SHARD6_URL = LongTailPerformance.pad(
+      185104216,
+      13361906,
+      3403077,
+      1366794,
+      676098,
+      288754,
+      103843,
+      26299,
+      12127, // 256
+      3828,
+      1088,
+      221,
+      112,
+      53,
+      28,
+      6,
+      2 // 65536
+  );
+
+  private static final long[] SHARD6_LINKS = LongTailPerformance.pad(
+        417838181,
+        75252641,
+        47529438,
+        31196941,
+        19419995,
+        11085062,
+        6121392,
+        3192389,
+        1868218,  // 256
+        1005943,
+        596703,
+        329919,
+        175078,
+        81742,
+        39653,
+        13675,
+        4263,     // 65,536
+        1596,
+        679,
+        285,
+        53,
+        5,
+        4,
+        2         // 8,388,608
+  );
 
   private long[] getURLShard1Histogram() { // Taken from URL from shard 1 in netarchive.dk
     // 228M uniques
