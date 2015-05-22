@@ -50,13 +50,15 @@ public class LeaderInitiatedRecoveryThread extends Thread {
   protected String shardId;
   protected ZkCoreNodeProps nodeProps;
   protected int maxTries;
+  protected String leaderCoreNodeName;
   
   public LeaderInitiatedRecoveryThread(ZkController zkController, 
                                        CoreContainer cc, 
                                        String collection, 
                                        String shardId, 
                                        ZkCoreNodeProps nodeProps,
-                                       int maxTries)
+                                       int maxTries,
+                                       String leaderCoreNodeName)
   {
     super("LeaderInitiatedRecoveryThread-"+nodeProps.getCoreName());
     this.zkController = zkController;
@@ -65,6 +67,7 @@ public class LeaderInitiatedRecoveryThread extends Thread {
     this.shardId = shardId;    
     this.nodeProps = nodeProps;
     this.maxTries = maxTries;
+    this.leaderCoreNodeName = leaderCoreNodeName;
     
     setDaemon(true);
   }
@@ -103,7 +106,7 @@ public class LeaderInitiatedRecoveryThread extends Thread {
     recoverRequestCmd.setAction(CoreAdminAction.REQUESTRECOVERY);
     recoverRequestCmd.setCoreName(coreNeedingRecovery);
     
-    while (continueTrying && ++tries < maxTries) {
+    while (continueTrying && ++tries <= maxTries) {
       if (tries > 1) {
         log.warn("Asking core={} coreNodeName={} on " + recoveryUrl +
             " to recover; unsuccessful after "+tries+" of "+maxTries+" attempts so far ...", coreNeedingRecovery, replicaCoreNodeName);
@@ -170,9 +173,27 @@ public class LeaderInitiatedRecoveryThread extends Thread {
           break;
         }
 
+        // stop trying if I'm no longer the leader
+        if (leaderCoreNodeName != null && collection != null) {
+          String leaderCoreNodeNameFromZk = null;
+          try {
+            leaderCoreNodeNameFromZk = zkController.getZkStateReader().getLeaderRetry(collection, shardId, 1000).getName();
+          } catch (Exception exc) {
+            log.error("Failed to determine if " + leaderCoreNodeName + " is still the leader for " + collection +
+                " " + shardId + " before starting leader-initiated recovery thread for " + replicaUrl + " due to: " + exc);
+          }
+          if (!leaderCoreNodeName.equals(leaderCoreNodeNameFromZk)) {
+            log.warn("Stop trying to send recovery command to downed replica core=" + coreNeedingRecovery +
+                ",coreNodeName=" + replicaCoreNodeName + " on " + replicaNodeName + " because " +
+                leaderCoreNodeName + " is no longer the leader! New leader is " + leaderCoreNodeNameFromZk);
+            continueTrying = false;
+            break;
+          }
+        }
+
         // additional safeguard against the replica trying to be in the active state
         // before acknowledging the leader initiated recovery command
-        if (continueTrying && collection != null && shardId != null) {
+        if (collection != null && shardId != null) {
           try {
             // call out to ZooKeeper to get the leader-initiated recovery state
             String lirState = 
@@ -197,20 +218,25 @@ public class LeaderInitiatedRecoveryThread extends Thread {
               List<ZkCoreNodeProps> replicaProps = 
                   zkStateReader.getReplicaProps(collection, shardId, leaderCoreNodeName);
               if (replicaProps != null && replicaProps.size() > 0) {
-                String replicaState = replicaProps.get(0).getState();
-                if (ZkStateReader.ACTIVE.equals(replicaState)) {
-                  // replica published its state as "active", 
-                  // which is bad if lirState is still "down"
-                  if (ZkStateReader.DOWN.equals(lirState)) {
-                    // OK, so the replica thinks it is active, but it never ack'd the leader initiated recovery
-                    // so its state cannot be trusted and it needs to be told to recover again ... and we keep looping here
-                    log.warn("Replica core={} coreNodeName={} set to active but the leader thinks it should be in recovery;"
-                        + " forcing it back to down state to re-run the leader-initiated recovery process; props: "+replicaProps.get(0), coreNeedingRecovery, replicaCoreNodeName);
-                    zkController.ensureReplicaInLeaderInitiatedRecovery(collection, 
-                        shardId, replicaUrl, nodeProps, true); // force republish state to "down"
+                for (ZkCoreNodeProps prop : replicaProps) {
+                  if (replicaCoreNodeName.equals(((Replica) prop.getNodeProps()).getName())) {
+                    String replicaState = prop.getState();
+                    if (ZkStateReader.ACTIVE.equals(replicaState)) {
+                      // replica published its state as "active",
+                      // which is bad if lirState is still "down"
+                      if (ZkStateReader.DOWN.equals(lirState)) {
+                        // OK, so the replica thinks it is active, but it never ack'd the leader initiated recovery
+                        // so its state cannot be trusted and it needs to be told to recover again ... and we keep looping here
+                        log.warn("Replica core={} coreNodeName={} set to active but the leader thinks it should be in recovery;"
+                            + " forcing it back to down state to re-run the leader-initiated recovery process; props: "+replicaProps.get(0), coreNeedingRecovery, replicaCoreNodeName);
+                        zkController.ensureReplicaInLeaderInitiatedRecovery(collection,
+                            shardId, replicaUrl, nodeProps, true); // force republish state to "down"
+                      }
+                    }
+                    break;
                   }
-                }                    
-              }                    
+                }
+              }
             }                  
           } catch (Exception ignoreMe) {
             log.warn("Failed to determine state of core={} coreNodeName={} due to: "+ignoreMe, coreNeedingRecovery, replicaCoreNodeName);

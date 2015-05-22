@@ -23,21 +23,24 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.lucene.analysis.Analyzer;
 import org.apache.lucene.analysis.MockAnalyzer;
+import org.apache.lucene.analysis.TokenStream;
 import org.apache.lucene.document.BinaryDocValuesField;
 import org.apache.lucene.document.Document;
-import org.apache.lucene.document.Field;
 import org.apache.lucene.document.Field.Store;
+import org.apache.lucene.document.Field;
+import org.apache.lucene.document.FieldType;
 import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.document.SortedDocValuesField;
 import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.document.TextField;
+import org.apache.lucene.index.FieldInfo.DocValuesType;
 import org.apache.lucene.search.FieldCache;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.SuppressCodecs;
+import org.apache.lucene.util.LuceneTestCase;
 
 /**
  * 
@@ -234,6 +237,7 @@ public class TestDocValuesIndexing extends LuceneTestCase {
     doc.add(new SortedDocValuesField("foo", new BytesRef("hello")));
     try {
       w.addDocument(doc);
+      fail("didn't hit expected exception");
     } catch (IllegalArgumentException iae) {
       // expected
     }
@@ -256,6 +260,7 @@ public class TestDocValuesIndexing extends LuceneTestCase {
     doc.add(new SortedDocValuesField("foo", new BytesRef("hello")));
     try {
       w.addDocument(doc);
+      fail("didn't hit expected exception");
     } catch (IllegalArgumentException iae) {
       // expected
     }
@@ -424,6 +429,7 @@ public class TestDocValuesIndexing extends LuceneTestCase {
     doc.add(new SortedDocValuesField("foo", new BytesRef("hello")));
     try {
       w.addDocument(doc);
+      fail("did not get expected exception");
     } catch (IllegalArgumentException iae) {
       // expected
     }
@@ -460,8 +466,84 @@ public class TestDocValuesIndexing extends LuceneTestCase {
     iwc.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
     w = new IndexWriter(dir, iwc);
     doc = new Document();
-    doc.add(new SortedDocValuesField("foo", new BytesRef("hello")));
     w.addDocument(doc);
+    w.close();
+    dir.close();
+  }
+
+  public void testMixedTypesAfterReopenAppend1() throws Exception {
+    Directory dir = newDirectory();
+    IndexWriter w = new IndexWriter(dir, newIndexWriterConfig(new MockAnalyzer(random())));
+    Document doc = new Document();
+    doc.add(new NumericDocValuesField("foo", 0));
+    w.addDocument(doc);
+    w.close();
+
+    w = new IndexWriter(dir, newIndexWriterConfig(new MockAnalyzer(random())));
+    doc = new Document();
+    doc.add(new SortedDocValuesField("foo", new BytesRef("hello")));
+    try {
+      w.addDocument(doc);
+      fail("did not get expected exception");
+    } catch (IllegalArgumentException iae) {
+      // expected
+    }
+    w.close();
+    dir.close();
+  }
+
+  public void testMixedTypesAfterReopenAppend2() throws IOException {
+    assumeTrue("codec does not support SORTED_SET", defaultCodecSupportsSortedSet());
+    Directory dir = newDirectory();
+    IndexWriter w = new IndexWriter(dir, newIndexWriterConfig(new MockAnalyzer(random()))) ;
+    Document doc = new Document();
+    doc.add(new SortedSetDocValuesField("foo", new BytesRef("foo")));
+    w.addDocument(doc);
+    w.close();
+
+    doc = new Document();
+    w = new IndexWriter(dir, newIndexWriterConfig(new MockAnalyzer(random())));
+    doc.add(new StringField("foo", "bar", Field.Store.NO));
+    doc.add(new BinaryDocValuesField("foo", new BytesRef("foo")));
+    try {
+      // NOTE: this case follows a different code path inside
+      // DefaultIndexingChain/FieldInfos, because the field (foo)
+      // is first added without DocValues:
+      w.addDocument(doc);
+      fail("did not get expected exception");
+    } catch (IllegalArgumentException iae) {
+      // expected
+    }
+    w.forceMerge(1);
+    w.close();
+    dir.close();
+  }
+
+  public void testMixedTypesAfterReopenAppend3() throws IOException {
+    assumeTrue("codec does not support SORTED_SET", defaultCodecSupportsSortedSet());
+    Directory dir = newDirectory();
+    IndexWriter w = new IndexWriter(dir, newIndexWriterConfig(new MockAnalyzer(random()))) ;
+    Document doc = new Document();
+    doc.add(new SortedSetDocValuesField("foo", new BytesRef("foo")));
+    w.addDocument(doc);
+    w.close();
+
+    doc = new Document();
+    w = new IndexWriter(dir, newIndexWriterConfig(new MockAnalyzer(random())));
+    doc.add(new StringField("foo", "bar", Field.Store.NO));
+    doc.add(new BinaryDocValuesField("foo", new BytesRef("foo")));
+    try {
+      // NOTE: this case follows a different code path inside
+      // DefaultIndexingChain/FieldInfos, because the field (foo)
+      // is first added without DocValues:
+      w.addDocument(doc);
+      fail("did not get expected exception");
+    } catch (IllegalArgumentException iae) {
+      // expected
+    }
+    // Also add another document so there is a segment to write here:
+    w.addDocument(new Document());
+    w.forceMerge(1);
     w.close();
     dir.close();
   }
@@ -532,6 +614,7 @@ public class TestDocValuesIndexing extends LuceneTestCase {
 
     try {
       w.addIndexes(new Directory[] {dir2});
+      fail("didn't hit expected exception");
     } catch (IllegalArgumentException iae) {
       // expected
     }
@@ -539,6 +622,7 @@ public class TestDocValuesIndexing extends LuceneTestCase {
     IndexReader r = DirectoryReader.open(dir2);
     try {
       w.addIndexes(new IndexReader[] {r});
+      fail("didn't hit expected exception");
     } catch (IllegalArgumentException iae) {
       // expected
     }
@@ -824,4 +908,30 @@ public class TestDocValuesIndexing extends LuceneTestCase {
     dir.close();
   }
 
+  public void testExcIndexingDocBeforeDocValues() throws Exception {
+    Directory dir = newDirectory();
+    IndexWriterConfig iwc = new IndexWriterConfig(TEST_VERSION_CURRENT, new MockAnalyzer(random()));
+    IndexWriter w = new IndexWriter(dir, iwc);
+    Document doc = new Document();
+    FieldType ft = new FieldType(TextField.TYPE_NOT_STORED);
+    ft.setDocValueType(DocValuesType.SORTED);
+    ft.freeze();
+    Field field = new Field("test", "value", ft);
+    field.setTokenStream(new TokenStream() {
+        @Override
+        public boolean incrementToken() {
+          throw new RuntimeException("no");
+        }
+      });
+    doc.add(field);
+    try {
+      w.addDocument(doc);
+      fail("did not hit exception");
+    } catch (RuntimeException re) {
+      // expected
+    }
+    w.addDocument(new Document());
+    w.close();
+    dir.close();
+  }
 }

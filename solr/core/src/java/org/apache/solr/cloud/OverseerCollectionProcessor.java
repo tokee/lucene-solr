@@ -36,6 +36,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -747,6 +748,10 @@ public class OverseerCollectionProcessor implements Runnable, Closeable {
       }
     }
 
+    List<String> liveNodes = zkStateReader.getZkClient().getChildren(ZkStateReader.LIVE_NODES_ZKNODE, null, true);
+
+    // now we need to walk the collectionProps tree to cross-check replica state with live nodes
+    crossCheckReplicaStateWithLiveNodes(liveNodes, collectionProps);
 
     NamedList<Object> clusterStatus = new SimpleOrderedMap<>();
     clusterStatus.add("collections", collectionProps);
@@ -768,10 +773,40 @@ public class OverseerCollectionProcessor implements Runnable, Closeable {
     }
 
     // add live_nodes
-    List<String> liveNodes = zkStateReader.getZkClient().getChildren(ZkStateReader.LIVE_NODES_ZKNODE, null, true);
     clusterStatus.add("live_nodes", liveNodes);
 
     results.add("cluster", clusterStatus);
+  }
+
+  /**
+   * Walks the tree of collection status to verify that any replicas not reporting a "down" status is
+   * on a live node, if any replicas reporting their status as "active" but the node is not live is
+   * marked as "down"; used by CLUSTERSTATUS.
+   * @param liveNodes List of currently live node names.
+   * @param collectionProps Map of collection status information pulled directly from ZooKeeper.
+   */
+  protected void crossCheckReplicaStateWithLiveNodes(List<String> liveNodes, NamedList<Object> collectionProps) {
+    Iterator<Map.Entry<String,Object>> colls = collectionProps.iterator();
+    while (colls.hasNext()) {
+      Map.Entry<String,Object> next = colls.next();
+      Map<String,Object> collMap = (Map<String,Object>)next.getValue();
+      Map<String,Object> shards = (Map<String,Object>)collMap.get("shards");
+      for (Object nextShard : shards.values()) {
+        Map<String,Object> shardMap = (Map<String,Object>)nextShard;
+        Map<String,Object> replicas = (Map<String,Object>)shardMap.get("replicas");
+        for (Object nextReplica : replicas.values()) {
+          Map<String,Object> replicaMap = (Map<String,Object>)nextReplica;
+          if (!ZkStateReader.DOWN.equals(replicaMap.get(ZkStateReader.STATE_PROP))) {
+            // not down, so verify the node is live
+            String node_name = (String)replicaMap.get(ZkStateReader.NODE_NAME_PROP);
+            if (!liveNodes.contains(node_name)) {
+              // node is not live, so this replica is actually down
+              replicaMap.put(ZkStateReader.STATE_PROP, ZkStateReader.DOWN);
+            }
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -946,7 +981,7 @@ public class OverseerCollectionProcessor implements Runnable, Closeable {
 
   private void deleteCollection(ZkNodeProps message, NamedList results)
       throws KeeperException, InterruptedException {
-    String collection = message.getStr("name");
+    final String collection = message.getStr("name");
     try {
       ModifiableSolrParams params = new ModifiableSolrParams();
       params.set(CoreAdminParams.ACTION, CoreAdminAction.UNLOAD.toString());
@@ -966,7 +1001,7 @@ public class OverseerCollectionProcessor implements Runnable, Closeable {
       boolean removed = false;
       while (System.nanoTime() < timeout) {
         Thread.sleep(100);
-        removed = !zkStateReader.getClusterState().hasCollection(message.getStr(collection));
+        removed = !zkStateReader.getClusterState().hasCollection(collection);
         if (removed) {
           Thread.sleep(300); // just a bit of time so it's more likely other
                              // readers see on return
@@ -975,7 +1010,7 @@ public class OverseerCollectionProcessor implements Runnable, Closeable {
       }
       if (!removed) {
         throw new SolrException(ErrorCode.SERVER_ERROR,
-            "Could not fully remove collection: " + message.getStr("name"));
+            "Could not fully remove collection: " + collection);
       }
       
     } finally {
@@ -2081,6 +2116,13 @@ public class OverseerCollectionProcessor implements Runnable, Closeable {
       throw new SolrException(ErrorCode.BAD_REQUEST, "collection already exists: " + collectionName);
     }
     
+    String configName = getConfigName(collectionName, message);
+    if (configName == null) {
+      throw new SolrException(ErrorCode.BAD_REQUEST, "No config set found to associate with the collection.");
+    } else if (!validateConfig(configName)) {
+      throw new SolrException(ErrorCode.BAD_REQUEST, "Can not find the specified config set: " + configName);
+    }
+
     try {
       // look at the replication factor and see if it matches reality
       // if it does not, find best nodes to create more cores
@@ -2161,8 +2203,8 @@ public class OverseerCollectionProcessor implements Runnable, Closeable {
       }
       boolean isLegacyCloud =  Overseer.isLegacy(zkStateReader.getClusterProps());
 
-      String configName = createConfNode(collectionName, message, isLegacyCloud);
-
+      createConfNode(configName, collectionName, isLegacyCloud);
+      
       Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(message));
 
       // wait for a while until we don't see the collection
@@ -2397,11 +2439,12 @@ public class OverseerCollectionProcessor implements Runnable, Closeable {
     } while (srsp != null);
   }
 
-  private String createConfNode(String coll, ZkNodeProps message, boolean isLegacyCloud) throws KeeperException, InterruptedException {
+  private String getConfigName(String coll, ZkNodeProps message) throws KeeperException, InterruptedException {
     String configName = message.getStr(OverseerCollectionProcessor.COLL_CONF);
-    if(configName == null){
+    
+    if(configName == null) {
       // if there is only one conf, use that
-      List<String> configNames=null;
+      List<String> configNames = null;
       try {
         configNames = zkStateReader.getZkClient().getChildren(ZkController.CONFIGS_ZKNODE, null, true);
         if (configNames != null && configNames.size() == 1) {
@@ -2412,9 +2455,15 @@ public class OverseerCollectionProcessor implements Runnable, Closeable {
       } catch (KeeperException.NoNodeException e) {
 
       }
-
     }
+    return configName;
+  }
 
+  private boolean validateConfig(String configName) throws KeeperException, InterruptedException {
+    return zkStateReader.getZkClient().exists(ZkController.CONFIGS_ZKNODE + "/" + configName, true);
+  }
+  
+  private void createConfNode(String configName, String coll, boolean isLegacyCloud) throws KeeperException, InterruptedException {
     if(configName!= null){
       log.info("creating collections conf node {} ",ZkStateReader.COLLECTIONS_ZKNODE + "/" + coll);
       zkStateReader.getZkClient().makePath(ZkStateReader.COLLECTIONS_ZKNODE + "/" + coll,
@@ -2427,7 +2476,6 @@ public class OverseerCollectionProcessor implements Runnable, Closeable {
         throw new SolrException(ErrorCode.BAD_REQUEST,"Unable to get config name");
       }
     }
-    return configName;
 
   }
 

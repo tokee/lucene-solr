@@ -416,6 +416,14 @@ public final class SolrCore implements SolrInfoMBean, Closeable {
     return responseWriters.put(name, responseWriter);
   }
 
+  public SolrCore reload(ConfigSet coreConfig) throws IOException,
+      ParserConfigurationException, SAXException {
+    return reload(coreConfig, this);
+  }
+  
+  /**
+   * @deprecated Use {@link #reload(ConfigSet)}
+   */
   public SolrCore reload(ConfigSet coreConfig, SolrCore prev) throws IOException,
       ParserConfigurationException, SAXException {
     
@@ -1046,14 +1054,6 @@ public final class SolrCore implements SolrInfoMBean, Closeable {
     }
 
 
-    try {
-      infoRegistry.clear();
-    } catch (Throwable e) {
-      SolrException.log(log, e);
-      if (e instanceof Error) {
-        throw (Error) e;
-      }
-    }
 
     try {
       if (null != updateHandler) {
@@ -1102,6 +1102,15 @@ public final class SolrCore implements SolrInfoMBean, Closeable {
       closeSearcher();
     } catch (Throwable e) {
       SolrException.log(log,e);
+      if (e instanceof Error) {
+        throw (Error) e;
+      }
+    }
+
+    try {
+      infoRegistry.clear();
+    } catch (Throwable e) {
+      SolrException.log(log, e);
       if (e instanceof Error) {
         throw (Error) e;
       }

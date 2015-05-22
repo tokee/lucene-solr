@@ -22,6 +22,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -484,7 +485,11 @@ public class AnalyzingInfixSuggester extends Lookup implements Closeable {
 
   /**
    * Create the results based on the search hits.
-   * Can be overridden by subclass to add particular behavior (e.g. weight transformation)
+   * Can be overridden by subclass to add particular behavior (e.g. weight transformation).
+   * Note that there is no prefix token (the {@code prefixToken} argument will
+   * be null) whenever the final token in the incoming request was in fact finished
+   * (had trailing characters, such as white-space).
+   *
    * @throws IOException If there are problems reading fields from the underlying Lucene index.
    */
   protected List<LookupResult> createResults(IndexSearcher searcher, TopFieldDocs hits, int num,
@@ -531,8 +536,7 @@ public class AnalyzingInfixSuggester extends Lookup implements Closeable {
       LookupResult result;
 
       if (doHighlight) {
-        Object highlightKey = highlight(text, matchedTokens, prefixToken);
-        result = new LookupResult(highlightKey.toString(), highlightKey, score, payload, contexts);
+        result = new LookupResult(text, highlight(text, matchedTokens, prefixToken), score, payload, contexts);
       } else {
         result = new LookupResult(text, score, payload, contexts);
       }
@@ -626,12 +630,14 @@ public class AnalyzingInfixSuggester extends Lookup implements Closeable {
   protected void addPrefixMatch(StringBuilder sb, String surface, String analyzed, String prefixToken) {
     // TODO: apps can try to invert their analysis logic
     // here, e.g. downcase the two before checking prefix:
+    if (prefixToken.length() >= surface.length()) {
+      addWholeMatch(sb, surface, analyzed);
+      return;
+    }
     sb.append("<b>");
     sb.append(surface.substring(0, prefixToken.length()));
     sb.append("</b>");
-    if (prefixToken.length() < surface.length()) {
-      sb.append(surface.substring(prefixToken.length()));
-    }
+    sb.append(surface.substring(prefixToken.length()));
   }
 
   @Override

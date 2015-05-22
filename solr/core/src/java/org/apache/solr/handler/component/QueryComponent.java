@@ -30,7 +30,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.lucene.index.AtomicReaderContext;
@@ -104,7 +103,7 @@ import java.util.Comparator;
 
 /**
  * TODO!
- * 
+ *
  *
  * @since solr 1.3
  */
@@ -806,7 +805,8 @@ public class QueryComponent extends SearchComponent
     boolean distribSinglePass = rb.req.getParams().getBool(ShardParams.DISTRIB_SINGLE_PASS, false);
 
     if(distribSinglePass || (fields != null && fields.wantsField(keyFieldName)
-        && fields.getRequestedFieldNames() != null && Arrays.asList(keyFieldName, "score").containsAll(fields.getRequestedFieldNames()))) {
+        && fields.getRequestedFieldNames() != null
+        && (!fields.hasPatternMatching() && Arrays.asList(keyFieldName, "score").containsAll(fields.getRequestedFieldNames())))) {
       sreq.purpose |= ShardRequest.PURPOSE_GET_FIELDS;
       rb.onePassDistributedQuery = true;
     }
@@ -839,51 +839,42 @@ public class QueryComponent extends SearchComponent
     sreq.params.set(ResponseBuilder.FIELD_SORT_VALUES,"true");
 
     boolean shardQueryIncludeScore = (rb.getFieldFlags() & SolrIndexSearcher.GET_SCORES) != 0 || rb.getSortSpec().includesScore();
-    if (distribSinglePass) {
-      String fl = rb.req.getParams().get(CommonParams.FL);
-      if (fl == null) {
-        if (fields.getRequestedFieldNames() == null && fields.wantsAllFields()) {
-          fl = "*";
-        } else  {
-          fl = "";
-          for (String s : fields.getRequestedFieldNames()) {
-            fl += s + ",";
-          }
+    StringBuilder additionalFL = new StringBuilder();
+    boolean additionalAdded = false;
+    if (distribSinglePass)  {
+      String[] fls = rb.req.getParams().getParams(CommonParams.FL);
+      if (fls != null && fls.length > 0 && (fls.length != 1 || !fls[0].isEmpty())) {
+        // If the outer request contains actual FL's use them...
+        sreq.params.set(CommonParams.FL, fls);
+        if (!fields.wantsField(keyFieldName))  {
+          additionalAdded = addFL(additionalFL, keyFieldName, additionalAdded);
         }
-      }
-      if (!fields.wantsField(keyFieldName))  {
-        // the user has not requested the unique key but
-        // we still need to add it otherwise mergeIds can't work
-        if (fl.endsWith(",")) {
-          fl += keyFieldName;
-        } else  {
-          fl += "," + keyFieldName;
-        }
-      }
-      sreq.params.set(CommonParams.FL, updateFl(fl, shardQueryIncludeScore));
-    } else {
-      // in this first phase, request only the unique key field and any fields needed for merging.
-      if (shardQueryIncludeScore) {
-        sreq.params.set(CommonParams.FL, keyFieldName + ",score");
       } else {
-        sreq.params.set(CommonParams.FL, keyFieldName);
+        // ... else we need to explicitly ask for all fields, because we are going to add
+        // additional fields below
+        sreq.params.set(CommonParams.FL, "*");
+      }
+      if (!fields.wantsScore() && shardQueryIncludeScore) {
+        additionalAdded = addFL(additionalFL, "score", additionalAdded);
+      }
+    } else {
+      // reset so that only unique key is requested in shard requests
+      sreq.params.set(CommonParams.FL, rb.req.getSchema().getUniqueKeyField().getName());
+      if (shardQueryIncludeScore) {
+        additionalAdded = addFL(additionalFL, "score", additionalAdded);
       }
     }
+
+    if (additionalAdded) sreq.params.add(CommonParams.FL, additionalFL.toString());
 
     rb.addRequest(this, sreq);
   }
 
-
-  String updateFl(String originalFields, boolean includeScoreIfMissing) {
-    if (includeScoreIfMissing && !scorePattern.matcher(originalFields).find()) {
-      return originalFields + ",score";
-    } else {
-      return originalFields;
-    }
+  private boolean addFL(StringBuilder fl, String field, boolean additionalAdded) {
+    if (additionalAdded) fl.append(",");
+    fl.append(field);
+    return true;
   }
-
-  private static final Pattern scorePattern = Pattern.compile("\\bscore\\b");
-
 
   private void mergeIds(ResponseBuilder rb, ShardRequest sreq) {
       List<MergeStrategy> mergeStrategies = rb.getMergeStrategies();
@@ -910,7 +901,7 @@ public class QueryComponent extends SearchComponent
       else {
         sortFields = new SortField[]{SortField.FIELD_SCORE};
       }
- 
+
       IndexSchema schema = rb.req.getSchema();
       SchemaField uniqueKeyField = schema.getUniqueKeyField();
 
@@ -928,7 +919,7 @@ public class QueryComponent extends SearchComponent
         shardInfo = new SimpleOrderedMap<>();
         rb.rsp.getValues().add(ShardParams.SHARDS_INFO,shardInfo);
       }
-      
+
       long numFound = 0;
       Float maxScore=null;
       boolean partialResults = false;
@@ -937,7 +928,7 @@ public class QueryComponent extends SearchComponent
 
         if(shardInfo!=null) {
           SimpleOrderedMap<Object> nl = new SimpleOrderedMap<>();
-          
+
           if (srsp.getException() != null) {
             Throwable t = srsp.getException();
             if(t instanceof SolrServerException) {
@@ -972,12 +963,12 @@ public class QueryComponent extends SearchComponent
         if (docs == null) { // could have been initialized in the shards info block above
           docs = (SolrDocumentList)srsp.getSolrResponse().getResponse().get("response");
         }
-        
+
         NamedList<?> responseHeader = (NamedList<?>)srsp.getSolrResponse().getResponse().get("responseHeader");
         if (responseHeader != null && Boolean.TRUE.equals(responseHeader.get("partialResults"))) {
           partialResults = true;
         }
-        
+
         // calculate global maxScore and numDocsFound
         if (docs.getMaxScore() != null) {
           maxScore = maxScore==null ? docs.getMaxScore() : Math.max(maxScore, docs.getMaxScore());
@@ -1027,7 +1018,7 @@ public class QueryComponent extends SearchComponent
           queue.insertWithOverflow(shardDoc);
         } // end for-each-doc-in-response
       } // end for-each-response
-      
+
       // The queue now has 0 -> queuesize docs, where queuesize <= start + rows
       // So we want to pop the last documents off the queue to get
       // the docs offset -> queuesize
@@ -1120,13 +1111,13 @@ public class QueryComponent extends SearchComponent
     rb.setNextCursorMark(nextCursorMark);
   }
 
-  private NamedList unmarshalSortValues(SortSpec sortSpec, 
-                                        NamedList sortFieldValues, 
+  private NamedList unmarshalSortValues(SortSpec sortSpec,
+                                        NamedList sortFieldValues,
                                         IndexSchema schema) {
     NamedList unmarshalledSortValsPerField = new NamedList();
 
     if (0 == sortFieldValues.size()) return unmarshalledSortValsPerField;
-    
+
     List<SchemaField> schemaFields = sortSpec.getSchemaFields();
     SortField[] sortFields = sortSpec.getSort().getSort();
 
@@ -1201,7 +1192,7 @@ public class QueryComponent extends SearchComponent
       if(!rb.rsp.getReturnFields().wantsField(uniqueField.getName())) {
         sreq.params.add(CommonParams.FL, uniqueField.getName());
       }
-    
+
       ArrayList<String> ids = new ArrayList<>(shardDocs.size());
       for (ShardDoc shardDoc : shardDocs) {
         // TODO: depending on the type, we may need more tha a simple toString()?
@@ -1247,7 +1238,7 @@ public class QueryComponent extends SearchComponent
               nl.add("trace", trace.toString() );
             }
           }
-          
+
           continue;
         }
         SolrDocumentList docs = (SolrDocumentList) srsp.getSolrResponse().getResponse().get("response");
@@ -1258,6 +1249,10 @@ public class QueryComponent extends SearchComponent
           if (sdoc != null) {
             if (returnScores) {
               doc.setField("score", sdoc.score);
+            } else {
+              // Score might have been added (in createMainQuery) to shard-requests (and therefore in shard-response-docs)
+              // Remove score if the outer request did not ask for it returned
+              doc.remove("score");
             }
             if (removeKeyField) {
               doc.removeFields(keyFieldName);

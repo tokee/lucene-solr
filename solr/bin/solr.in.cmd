@@ -22,28 +22,26 @@ REM affecting other Java applications on your server/workstation.
 REM set SOLR_JAVA_HOME=
 
 REM Increase Java Min/Max Heap as needed to support your indexing / query needs
-set SOLR_JAVA_MEM=-Xms512m -Xmx512m -XX:MaxPermSize=256m -XX:PermSize=256m
+set SOLR_JAVA_MEM=-Xms512m -Xmx512m
 
 REM Enable verbose GC logging
-set GC_LOG_OPTS=-verbose:gc -XX:+PrintHeapAtGC -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+PrintTenuringDistribution
+set GC_LOG_OPTS=-verbose:gc -XX:+PrintHeapAtGC -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintGCTimeStamps -XX:+PrintTenuringDistribution -XX:+PrintGCApplicationStoppedTime
 
 REM These GC settings have shown to work well for a number of common Solr workloads
-set GC_TUNE=-XX:-UseSuperWord ^
- -XX:NewRatio=3 ^
+set GC_TUNE=-XX:NewRatio=3 ^
  -XX:SurvivorRatio=4 ^
  -XX:TargetSurvivorRatio=90 ^
  -XX:MaxTenuringThreshold=8 ^
  -XX:+UseConcMarkSweepGC ^
+ -XX:+UseParNewGC ^
+ -XX:ConcGCThreads=4 -XX:ParallelGCThreads=4 ^
  -XX:+CMSScavengeBeforeRemark ^
  -XX:PretenureSizeThreshold=64m ^
- -XX:CMSFullGCsBeforeCompaction=1 ^
  -XX:+UseCMSInitiatingOccupancyOnly ^
- -XX:CMSInitiatingOccupancyFraction=70 ^
- -XX:CMSTriggerPermRatio=80 ^
+ -XX:CMSInitiatingOccupancyFraction=50 ^
  -XX:CMSMaxAbortablePrecleanTime=6000 ^
  -XX:+CMSParallelRemarkEnabled ^
- -XX:+ParallelRefProcEnabled ^
- -XX:+AggressiveOpts
+ -XX:+ParallelRefProcEnabled
 
 REM Set the ZooKeeper connection string if using an external ZooKeeper ensemble
 REM e.g. host1:2181,host2:2181/chroot
@@ -65,3 +63,5 @@ REM JMX savvy tools like VisualVM remotely, set to "false" to disable that behav
 REM (recommended in production environments)
 set ENABLE_REMOTE_JMX_OPTS=true
 
+REM The script will use SOLR_PORT+10000 for the RMI_PORT or you can set it here
+REM set RMI_PORT=18983

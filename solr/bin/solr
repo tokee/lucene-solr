@@ -47,10 +47,20 @@
 SOLR_SCRIPT="$0"
 verbose=false
 THIS_OS=`uname -s`
-hasLsof=$(which lsof)
+
+if hash jar 2>/dev/null ; then      # hash returns true if jar is on the path
+  UNPACK_WAR_CMD="$(command -v jar) xf"
+elif hash unzip 2>/dev/null ; then  # hash returns true if unzip is on the path
+  UNPACK_WAR_CMD="$(command -v unzip) -q"
+else
+  echo -e "This script requires extracting a WAR file with either the jar or unzip utility, please install these utilities or contact your administrator for assistance."
+  exit 1
+fi
+  
+stop_all=false
 
 # for now, we don't support running this script from cygwin due to problems
-# like not having lsof, ps waux, curl, and awkward directory handling
+# like not having lsof, ps auxww, curl, and awkward directory handling
 if [ "${THIS_OS:0:6}" == "CYGWIN" ]; then
   echo -e "This script does not support cygwin due to severe limitations and lack of adherence\nto BASH standards, such as lack of lsof, curl, and ps options.\n\nPlease use the native solr.cmd script on Windows!"
   exit 1
@@ -70,13 +80,23 @@ done
 
 SOLR_TIP=`dirname "$SOLR_SCRIPT"`/..
 SOLR_TIP=`cd "$SOLR_TIP"; pwd`
+DEFAULT_SERVER_DIR=$SOLR_TIP/example
 
-# TODO: see SOLR-3619, need to support server or example
-# depending on the version of Solr
-if [ -e "$SOLR_TIP/server/start.jar" ]; then
-  DEFAULT_SERVER_DIR=$SOLR_TIP/server
-else
-  DEFAULT_SERVER_DIR=$SOLR_TIP/example
+# If an include wasn't specified in the environment, then search for one...
+if [ "x$SOLR_INCLUDE" == "x" ]; then
+    # Locations (in order) to use when searching for an include file.
+    for include in "`dirname "$0"`/solr.in.sh" \
+                   "$HOME/.solr.in.sh" \
+                   /usr/share/solr/solr.in.sh \
+                   /usr/local/share/solr/solr.in.sh \
+                   /opt/solr/solr.in.sh; do
+        if [ -r "$include" ]; then
+            . "$include"
+            break
+        fi
+    done
+elif [ -r "$SOLR_INCLUDE" ]; then
+    . "$SOLR_INCLUDE"
 fi
 
 if [ "$SOLR_JAVA_HOME" != "" ]; then
@@ -108,16 +128,20 @@ function print_usage() {
     echo "Usage: solr COMMAND OPTIONS"
     echo "       where COMMAND is one of: start, stop, restart, healthcheck"
     echo ""
-    echo "  Example: Start Solr running in the background on port 8984:" 
+    echo "  Standalone server example (start Solr running in the background on port 8984):"
     echo ""
     echo "    ./solr start -p 8984"
     echo ""
+    echo "  SolrCloud example (start Solr running in SolrCloud mode using localhost:2181 to connect to ZooKeeper, with 1g max heap size and remote Java debug options enabled):"
+    echo ""
+    echo "    ./solr start -c -m 1g -z localhost:2181 -a \"-Xdebug -Xrunjdwp:transport=dt_socket,server=y,suspend=n,address=1044\""
+    echo ""
     echo "Pass -help after any COMMAND to see command-specific usage information,"
-    echo "  such as:    ./solr start -help" 
+    echo "  such as:    ./solr start -help or ./solr stop -help"
     echo ""
   elif [[ "$CMD" == "start" || "$CMD" == "restart" ]]; then
     echo ""
-    echo "Usage: solr $CMD [-f] [-c] [-h hostname] [-p port] [-d directory] [-z zkHost] [-m memory] [-e example] [-V]"
+    echo "Usage: solr $CMD [-f] [-c] [-h hostname] [-p port] [-d directory] [-z zkHost] [-m memory] [-e example] [-s solr.solr.home] [-a \"additional-options\"] [-V]"
     echo ""
     echo "  -f            Start Solr in foreground; default starts Solr in the background"
     echo "                  and sends stdout / stderr to solr-PORT-console.log"
@@ -128,6 +152,9 @@ function print_usage() {
     echo "  -h <host>     Specify the hostname for this Solr instance"
     echo ""
     echo "  -p <port>     Specify the port to start the Solr HTTP listener on; default is 8983"
+    echo "                  The specified port (SOLR_PORT) will also be used to determine the stop port"
+    echo "                  STOP_PORT=(\$SOLR_PORT-1000) and JMX RMI listen port RMI_PORT=(1\$SOLR_PORT). "
+    echo "                  For instance, if you set -p 8985, then the STOP_PORT=7985 and RMI_PORT=18985"
     echo ""
     echo "  -d <dir>      Specify the Solr server directory; defaults to server"
     echo ""
@@ -137,6 +164,13 @@ function print_usage() {
     echo "  -m <memory>   Sets the min (-Xms) and max (-Xmx) heap size for the JVM, such as: -m 4g"
     echo "                  results in: -Xms4g -Xmx4g; by default, this script sets the heap size to 512m"
     echo ""
+    echo "  -s <dir>      Sets the solr.solr.home system property; Solr will create core directories under"
+    echo "                  this directory. This allows you to run multiple Solr instances on the same host"
+    echo "                  while reusing the same server directory set using the -d parameter. If set, the"
+    echo "                  specified directory should contain a solr.xml file. The default value is example/solr."
+    echo "                  This parameter is ignored when running examples (-e), as the solr.solr.home depends"
+    echo "                  on which example is run."
+    echo ""
     echo "  -e <example>  Name of the example to run; available examples:"
     echo "      cloud:         SolrCloud example"
     echo "      default:       Solr default example"
@@ -144,21 +178,26 @@ function print_usage() {
     echo "      schemaless:    Schema-less example"
     echo "      multicore:     Multicore"
     echo ""
+    echo "  -a            Additional parameters to pass to the JVM when starting Solr, such as to setup"
+    echo "                  Java debug options. For example, to enable a Java debugger to attach to the Solr JVM"
+    echo "                  you could pass: -a \"-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=18983\""
+    echo "                  In most cases, you should wrap the additional parameters in double quotes."
+    echo ""
     echo "  -noprompt     Don't prompt for input; accept all defaults when running examples that accept user input"
     echo ""
     echo "  -V            Verbose messages from this script"
     echo ""
   elif [ "$CMD" == "stop" ]; then
     echo ""
-    echo "Usage: solr stop [-k key] [-p port]"
+    echo "Usage: solr stop [-k key] [-p port] [-V]"
     echo ""
     echo "  -k <key>      Stop key; default is solrrocks"
     echo ""
-    echo "  -p <port>     Specify the port the Solr HTTP listener is bound to; default is 8983"
+    echo "  -p <port>     Specify the port the Solr HTTP listener is bound to"
     echo ""
-    echo "  -V            Verbose messages from this script"
+    echo "  -all          Find and stop all running Solr servers on this host"
     echo ""
-    echo "NOTE: If port is not specified, then all running Solr servers are stopped."
+    echo "  NOTE: To see if any Solr servers are running, do: solr -i"
     echo ""
   elif [ "$CMD" == "healthcheck" ]; then
     echo ""
@@ -187,10 +226,23 @@ spinner()
   printf "    \b\b\b\b"
 }
 
+# given a port, find the pid for a Solr process
+function solr_pid_by_port() {
+  THE_PORT="$1"
+  if [ -e "$SOLR_TIP/bin/solr-$THE_PORT.pid" ]; then
+    PID=`cat $SOLR_TIP/bin/solr-$THE_PORT.pid`
+    CHECK_PID=`ps auxww | awk '{print $2}' | grep $PID | sort -r | tr -d ' '`
+    if [ "$CHECK_PID" != "" ]; then
+      local solrPID=$PID
+    fi
+  fi
+  echo "$solrPID"
+}
+
 # extract the value of the -Djetty.port parameter from a running Solr process 
 function jetty_port() {
   SOLR_PID="$1"
-  SOLR_PROC=`ps waux | grep $SOLR_PID | grep start.jar | grep jetty.port`      
+  SOLR_PROC=`ps auxww | grep $SOLR_PID | grep start.jar | grep jetty.port`      
   IFS=' ' read -a proc_args <<< "$SOLR_PROC"
   for arg in "${proc_args[@]}"
     do
@@ -208,8 +260,8 @@ function jetty_port() {
 function run_tool() {
   
   # Extract the solr.war if it hasn't been done already (so we can access the SolrCLI class)
-  if [ ! -d "$DEFAULT_SERVER_DIR/solr-webapp/webapp" ]; then
-    (mkdir -p $DEFAULT_SERVER_DIR/solr-webapp/webapp && cd $DEFAULT_SERVER_DIR/solr-webapp/webapp && jar xf $DEFAULT_SERVER_DIR/webapps/solr.war)    
+  if [[ -e $DEFAULT_SERVER_DIR/webapps/solr.war && ! -d "$DEFAULT_SERVER_DIR/solr-webapp/webapp" ]]; then
+    (mkdir -p $DEFAULT_SERVER_DIR/solr-webapp/webapp && cd $DEFAULT_SERVER_DIR/solr-webapp/webapp && $UNPACK_WAR_CMD $DEFAULT_SERVER_DIR/webapps/solr.war)    
   fi
   
   "$JAVA" -Dlog4j.configuration=file:$DEFAULT_SERVER_DIR/scripts/cloud-scripts/log4j.properties \
@@ -221,21 +273,38 @@ function run_tool() {
 # get information about any Solr nodes running on this host
 function get_info() {
   # first, see if Solr is running
-  numSolrs=`ps waux | grep java | grep start.jar | wc -l | sed -e 's/^[ \t]*//'`
+  numSolrs=`find $SOLR_TIP/bin -name "solr-*.pid" -type f | wc -l | tr -d ' '`
   if [ "$numSolrs" != "0" ]; then
     echo -e "\nFound $numSolrs Solr nodes: "
-    for ID in `ps waux | grep java | grep start.jar | awk '{print $2}' | sort -r`
+    for PIDF in `find $SOLR_TIP/bin -name "solr-*.pid" -type f`
       do
+        ID=`cat $PIDF`
         port=`jetty_port "$ID"`
         if [ "$port" != "" ]; then
           echo ""
-          echo "Found Solr process $ID running on port $port"
+          echo "Solr process $ID running on port $port"
           run_tool status -solr http://localhost:$port/solr
           echo ""
        fi
     done
   else
-    echo -e "\nNo Solr nodes are running.\n"
+    # no pid files but check using ps just to be sure
+    numSolrs=`ps auxww | grep java | grep start.jar | wc -l | sed -e 's/^[ \t]*//'`
+    if [ "$numSolrs" != "0" ]; then
+      echo -e "\nFound $numSolrs Solr nodes: "
+      for ID in `ps auxww | grep java | grep start.jar | awk '{print $2}' | sort -r`
+        do
+          port=`jetty_port "$ID"`
+          if [ "$port" != "" ]; then
+            echo ""
+            echo "Solr process $ID running on port $port"
+            run_tool status -solr http://localhost:$port/solr
+            echo ""
+          fi
+      done
+    else
+      echo -e "\nNo Solr nodes are running.\n"
+    fi
   fi
   
 } # end get_info
@@ -246,29 +315,32 @@ function stop_solr() {
 
   DIR="$1"
   SOLR_PORT="$2"
-  STOP_PORT="79${SOLR_PORT: -2}"
+  STOP_PORT=`expr $SOLR_PORT - 1000`
   STOP_KEY="$3"
-  
-  SOLR_PID=`ps waux | grep start.jar | grep $SOLR_PORT | grep -v grep | awk '{print $2}' | sort -r`
+  SOLR_PID="$4"
+
   if [ "$SOLR_PID" != "" ]; then
-    echo -e "Sending stop command to Jetty stop port $STOP_PORT ... waiting 5 seconds to allow process $SOLR_PID to stop gracefully."
+    echo -e "Sending stop command to Solr running on port $SOLR_PORT ... waiting 5 seconds to allow Jetty process $SOLR_PID to stop gracefully."
     $JAVA -jar $DIR/start.jar STOP.PORT=$STOP_PORT STOP.KEY=$STOP_KEY --stop || true
     (sleep 5) &
     spinner $!
+    rm -f $SOLR_TIP/bin/solr-$SOLR_PORT.pid
   else
     echo -e "No Solr nodes found to stop."
     exit 0
   fi
 
-  SOLR_PID=`ps waux | grep start.jar | grep $SOLR_PORT | grep -v grep | awk '{print $2}' | sort -r`
-  if [ "$SOLR_PID" != "" ]; then
+  CHECK_PID=`ps auxww | awk '{print $2}' | grep $SOLR_PID | sort -r | tr -d ' '`
+  if [ "$CHECK_PID" != "" ]; then
     echo -e "Solr process $SOLR_PID is still running; forcefully killing it now."
     kill -9 $SOLR_PID
     echo "Killed process $SOLR_PID"
+    rm -f $SOLR_TIP/bin/solr-$SOLR_PORT.pid
+    sleep 1
   fi
 
-  SOLR_PID=`ps waux | grep start.jar | grep $SOLR_PORT | grep -v grep | awk '{print $2}' | sort -r`
-  if [ "$SOLR_PID" != "" ]; then
+  CHECK_PID=`ps auxww | awk '{print $2}' | grep $SOLR_PID | sort -r | tr -d ' '`
+  if [ "$CHECK_PID" != "" ]; then
     echo "ERROR: Failed to kill previous Solr Java process $SOLR_PID ... script fails."
     exit 1
   fi
@@ -309,7 +381,7 @@ if [ "$SCRIPT_CMD" == "healthcheck" ]; then
     while true; do  
       case $1 in
           -c|-collection)
-              if [ "${2:0:1}" == "-" ]; then
+              if [[ "$2" == "" || "${2:0:1}" == "-" ]]; then
                 print_usage "$SCRIPT_CMD" "Expected collection name but found $2 instead!"
                 exit 1            
               fi
@@ -317,7 +389,7 @@ if [ "$SCRIPT_CMD" == "healthcheck" ]; then
               shift 2
           ;;
           -z|-zkhost)          
-              if [ "${2:0:1}" == "-" ]; then
+              if [[ "$2" == "" || "${2:0:1}" == "-" ]]; then
                 print_usage "$SCRIPT_CMD" "Expected a ZooKeeper connection string but found $2 instead!"
                 exit 1            
               fi          
@@ -365,23 +437,6 @@ if [ "$SCRIPT_CMD" != "stop" ] && [ "$SCRIPT_CMD" != "start" ] && [ "$SCRIPT_CMD
   exit 1
 fi
 
-# If an include wasn't specified in the environment, then search for one...
-if [ "x$SOLR_INCLUDE" == "x" ]; then
-    # Locations (in order) to use when searching for an include file.
-    for include in "`dirname "$0"`/solr.in.sh" \
-                   "$HOME/.solr.in.sh" \
-                   /usr/share/solr/solr.in.sh \
-                   /usr/local/share/solr/solr.in.sh \
-                   /opt/solr/solr.in.sh; do
-        if [ -r "$include" ]; then
-            . "$include"
-            break
-        fi
-    done
-elif [ -r "$SOLR_INCLUDE" ]; then
-    . "$SOLR_INCLUDE"
-fi
-
 # Run in foreground (default is to run in the background)
 FG="false"
 noprompt=false
@@ -394,21 +449,36 @@ if [ $# -gt 0 ]; then
             shift
         ;;
         -d|-dir)
-            if [ "${2:0:1}" == "-" ]; then
+            if [[ "$2" == "" || "${2:0:1}" == "-" ]]; then
               print_usage "$SCRIPT_CMD" "Expected directory but found $2 instead!"
               exit 1            
             fi
 
-            # see if the arg value is relative to the tip vs full path
-            if [ -d "$SOLR_TIP/$2" ]; then
-              SOLR_SERVER_DIR="$SOLR_TIP/$2"              
-            else            
-              SOLR_SERVER_DIR="$2"
+            if [[ "$2" == "." || "$2" == "./" || "$2" == ".." || "$2" == "../" ]]; then
+              SOLR_SERVER_DIR=`pwd`/$2
+            else
+              # see if the arg value is relative to the tip vs full path
+              if [[ $2 != /* ]] && [[ -d "$SOLR_TIP/$2" ]]; then
+                SOLR_SERVER_DIR="$SOLR_TIP/$2"
+              else
+                SOLR_SERVER_DIR="$2"
+              fi
             fi
+            # resolve it to an absolute path
+            SOLR_SERVER_DIR=`cd "$SOLR_SERVER_DIR"; pwd`
+            shift 2
+        ;;
+        -s|-solr.home)
+            if [[ "$2" == "" || "${2:0:1}" == "-" ]]; then
+              print_usage "$SCRIPT_CMD" "Expected directory but found $2 instead!"
+              exit 1
+            fi
+
+            SOLR_HOME="$2"
             shift 2
         ;;
         -e|-example)
-            if [ "${2:0:1}" == "-" ]; then
+            if [[ "$2" == "" || "${2:0:1}" == "-" ]]; then
               print_usage "$SCRIPT_CMD" "Expected example name but found $2 instead!"
               exit 1            
             fi
@@ -420,7 +490,7 @@ if [ $# -gt 0 ]; then
             shift
         ;;
         -h|-host)
-            if [ "${2:0:1}" == "-" ]; then
+            if [[ "$2" == "" || "${2:0:1}" == "-" ]]; then
               print_usage "$SCRIPT_CMD" "Expected hostname but found $2 instead!"
               exit 1            
             fi
@@ -428,7 +498,7 @@ if [ $# -gt 0 ]; then
             shift 2
         ;;
         -m|-memory)
-            if [ "${2:0:1}" == "-" ]; then
+            if [[ "$2" == "" || "${2:0:1}" == "-" ]]; then
               print_usage "$SCRIPT_CMD" "Expected memory setting but found $2 instead!"
               exit 1            
             fi            
@@ -436,7 +506,7 @@ if [ $# -gt 0 ]; then
             shift 2
         ;;
         -p|-port)
-            if [ "${2:0:1}" == "-" ]; then
+            if [[ "$2" == "" || "${2:0:1}" == "-" ]]; then
               print_usage "$SCRIPT_CMD" "Expected port number but found $2 instead!"
               exit 1            
             fi            
@@ -444,12 +514,20 @@ if [ $# -gt 0 ]; then
             shift 2
         ;;
         -z|-zkhost)
-            if [ "${2:0:1}" == "-" ]; then
+            if [[ "$2" == "" || "${2:0:1}" == "-" ]]; then
               print_usage "$SCRIPT_CMD" "Expected ZooKeeper connection string but found $2 instead!"
               exit 1            
             fi
 
             ZK_HOST="$2"
+            shift 2
+        ;;
+        -a|-addlopts)
+            ADDITIONAL_CMD_OPTS="$2"
+            shift 2
+        ;;
+        -k|-key)
+            STOP_KEY="$2"
             shift 2
         ;;
         -help|-usage)
@@ -462,6 +540,10 @@ if [ $# -gt 0 ]; then
         ;;
         -V|-verbose)
             verbose=true
+            shift
+        ;;
+        -all)
+            stop_all=true
             shift
         ;;
         --)
@@ -546,8 +628,8 @@ if [ "$EXAMPLE" != "" ]; then
                   fi
                                   
                   # check to see if something is already bound to that port
-                  if [ "$hasLsof" != "" ]; then
-                    PORT_IN_USE=`lsof -i:$CLOUD_PORT | grep $CLOUD_PORT`
+                  if hash lsof 2>/dev/null ; then  # hash returns true if lsof is on the path
+                    PORT_IN_USE=`lsof -Pni:$CLOUD_PORT`
                     if [ "$PORT_IN_USE" != "" ]; then
                       read -e -p "Oops! Looks like port $CLOUD_PORT is already being used by another process. Please choose a different port. " USER_INPUT
                     else
@@ -580,19 +662,19 @@ if [ "$EXAMPLE" != "" ]; then
             shift
         ;;
         default)
-            SOLR_HOME="$SOLR_TIP/example/solr"
+            SOLR_HOME="$SOLR_SERVER_DIR/solr"
             shift
         ;;
         dih)
-            SOLR_HOME="$SOLR_TIP/example/example-DIH/solr"
+            SOLR_HOME="$SOLR_SERVER_DIR/example-DIH/solr"
             shift
         ;;
         schemaless)
-            SOLR_HOME="$SOLR_TIP/example/example-schemaless/solr"
+            SOLR_HOME="$SOLR_SERVER_DIR/example-schemaless/solr"
             shift
         ;;
         multicore)
-            SOLR_HOME="$SOLR_TIP/example/multicore"
+            SOLR_HOME="$SOLR_SERVER_DIR/multicore"
             shift
         ;;
         *)
@@ -602,8 +684,9 @@ if [ "$EXAMPLE" != "" ]; then
     esac
 fi
 
-if [ "$SOLR_HOME" == "" ]; then
-  SOLR_HOME="$SOLR_SERVER_DIR/solr"
+if [[ "$FG" == "true" && "$EXAMPLE" != "" ]]; then
+  FG="false"
+  echo -e "\nWARNING: Foreground mode (-f) not supported when running examples.\n"
 fi
 
 if [ "$STOP_KEY" == "" ]; then
@@ -612,18 +695,26 @@ fi
 
 # stop all if no port specified
 if [[ "$SCRIPT_CMD" == "stop" && "$SOLR_PORT" == "" ]]; then
-  numSolrs=`ps waux | grep java | grep start.jar | wc -l | sed -e 's/^[ \t]*//'`
-  if [ "$numSolrs" != "0" ]; then
-    echo -e "\nFound $numSolrs Solr nodes to stop."
-    for ID in `ps waux | grep java | grep start.jar | awk '{print $2}' | sort -r`
+  if $stop_all; then
+    none_stopped=true
+    for PIDF in `find $SOLR_TIP/bin -name "solr-*.pid" -type f`
       do
-        port=`jetty_port "$ID"`
-        stop_solr "$SOLR_SERVER_DIR" "$port" "$STOP_KEY"      
-      done
+        NEXT_PID=`cat $PIDF`
+        port=`jetty_port "$NEXT_PID"`
+        if [ "$port" != "" ]; then
+          stop_solr "$SOLR_SERVER_DIR" "$port" "$STOP_KEY" "$NEXT_PID"
+          none_stopped=false
+        fi
+        rm -f $PIDF
+    done
+    if $none_stopped; then
+      echo -e "\nNo Solr nodes found to stop.\n"
+    fi
   else
-    echo -e "\nNo Solr nodes found to stop.\n"
+    echo -e "\nERROR: Must either specify a port using -p or -all to stop all Solr nodes on this host.\n"
+    exit 1
   fi
-  exit  
+  exit
 fi
 
 if [ "$SOLR_PORT" == "" ]; then
@@ -631,20 +722,38 @@ if [ "$SOLR_PORT" == "" ]; then
 fi
 
 if [ "$STOP_PORT" == "" ]; then
-  STOP_PORT="79${SOLR_PORT: -2}"
+  STOP_PORT=`expr $SOLR_PORT - 1000`
 fi
 
 if [[ "$SCRIPT_CMD" == "start" ]]; then
   # see if Solr is already running
-  SOLR_PID=`ps waux | grep start.jar | grep $SOLR_PORT | grep -v grep | awk '{print $2}' | sort -r`
+  SOLR_PID=`solr_pid_by_port "$SOLR_PORT"`
+
+  if [ "$SOLR_PID" == "" ]; then
+    # not found using the pid file ... but use ps to ensure not found
+    SOLR_PID=`ps auxww | grep start.jar | grep $SOLR_PORT | grep -v grep | awk '{print $2}' | sort -r`
+  fi
+
   if [ "$SOLR_PID" != "" ]; then
-    echo -e "\nSolr already running on port $SOLR_PORT (pid: $SOLR_PID)!"
-    echo -e "Please use the 'restart' command if you want to restart this node.\n"
-    exit
+    echo -e "\nPort $SOLR_PORT is already being used by another process (pid: $SOLR_PID)\n"
+    exit 1
   fi
 else
   # either stop or restart
-  stop_solr "$SOLR_SERVER_DIR" "$SOLR_PORT" "$STOP_KEY"
+  # see if Solr is already running
+  SOLR_PID=`solr_pid_by_port "$SOLR_PORT"`
+  if [ "$SOLR_PID" == "" ]; then
+    # not found using the pid file ... but use ps to ensure not found
+    SOLR_PID=`ps auxww | grep start.jar | grep $SOLR_PORT | grep -v grep | awk '{print $2}' | sort -r`
+  fi
+  if [ "$SOLR_PID" != "" ]; then
+    stop_solr "$SOLR_SERVER_DIR" "$SOLR_PORT" "$STOP_KEY" "$SOLR_PID"
+  else
+    if [ "$SCRIPT_CMD" == "stop" ]; then
+      echo -e "No process found for Solr node running on port $SOLR_PORT"
+      exit 1
+    fi
+  fi
 fi
 
 # backup the log files
@@ -668,6 +777,22 @@ if [ "$SCRIPT_CMD" == "stop" ]; then
 fi
 
 # if we get here, then we're starting a new node up ...
+if [ "$SOLR_HOME" == "" ]; then
+  SOLR_HOME="$SOLR_SERVER_DIR/solr"
+else
+  if [[ $SOLR_HOME != /* ]] && [[ -d "$SOLR_SERVER_DIR/$SOLR_HOME" ]]; then
+    SOLR_HOME="$SOLR_SERVER_DIR/$SOLR_HOME"
+  fi
+fi
+
+if [ ! -e "$SOLR_HOME" ]; then
+  echo -e "\nSolr home directory $SOLR_HOME not found!\n"
+  exit 1
+fi
+if [ ! -e "$SOLR_HOME/solr.xml" ]; then
+  echo -e "\nSolr home directory $SOLR_HOME must contain a solr.xml file!\n"
+  exit 1
+fi
 
 # if verbose gc logging enabled, setup the location of the log file
 if [ "$GC_LOG_OPTS" != "" ]; then
@@ -689,23 +814,28 @@ if [ "$SOLR_MODE" == "solrcloud" ]; then
     fi
 
     CLOUD_MODE_OPTS="$CLOUD_MODE_OPTS -DzkRun"
-    
-    # and if collection1 needs to be bootstrapped
-    if [ -e "$SOLR_HOME/collection1/core.properties" ]; then
-      CLOUD_MODE_OPTS="$CLOUD_MODE_OPTS -Dbootstrap_confdir=./solr/collection1/conf -Dcollection.configName=myconf -DnumShards=1"
-    fi
+  fi
+
+  # and if collection1 needs to be bootstrapped
+  if [ -e "$SOLR_HOME/collection1/core.properties" ]; then
+    CLOUD_MODE_OPTS="$CLOUD_MODE_OPTS -Dbootstrap_confdir=./solr/collection1/conf -Dcollection.configName=myconf -DnumShards=1"
   fi
     
 fi
 
 # These are useful for attaching remove profilers like VisualVM/JConsole
 if [ "$ENABLE_REMOTE_JMX_OPTS" == "true" ]; then
+
+  if [ "$RMI_PORT" == "" ]; then
+    RMI_PORT=1$SOLR_PORT
+  fi
+
   REMOTE_JMX_OPTS="-Dcom.sun.management.jmxremote \
 -Dcom.sun.management.jmxremote.local.only=false \
 -Dcom.sun.management.jmxremote.ssl=false \
 -Dcom.sun.management.jmxremote.authenticate=false \
--Dcom.sun.management.jmxremote.port=10${SOLR_PORT: -2} \
--Dcom.sun.management.jmxremote.rmi.port=10${SOLR_PORT: -2}"
+-Dcom.sun.management.jmxremote.port=$RMI_PORT \
+-Dcom.sun.management.jmxremote.rmi.port=$RMI_PORT"
 
   # if the host is set, then set that as the rmi server hostname
   if [ "$SOLR_HOST" != "" ]; then
@@ -731,28 +861,48 @@ fi
 function launch_solr() {
 
   run_in_foreground="$1"
-  stop_port="79${SOLR_PORT: -2}"
+  stop_port="$STOP_PORT"
   
   SOLR_ADDL_ARGS="$2"
 
-  # commented out debugging info
+  # deal with Java version specific GC and other flags
+  JAVA_VERSION=`echo "$($JAVA -version 2>&1)" | grep "java version" | awk '{ print substr($3, 2, length($3)-2); }'`
+  if [ "${JAVA_VERSION:0:3}" == "1.7" ]; then
+    # Specific Java version hacking
+    GC_TUNE="$GC_TUNE -XX:CMSFullGCsBeforeCompaction=1 -XX:CMSTriggerPermRatio=80"
+    JAVA_MINOR_VERSION=${JAVA_VERSION:(-2)}
+    if [[ $JAVA_MINOR_VERSION -ge 40 && $JAVA_MINOR_VERSION -le 51 ]]; then
+      GC_TUNE="$GC_TUNE -XX:-UseSuperWord"
+      echo -e "\nWARNING: Java version $JAVA_VERSION has known bugs with Lucene and requires the -XX:-UseSuperWord flag. Please consider upgrading your JVM.\n"
+    fi
+  fi
+
   if $verbose ; then
     echo -e "\nStarting Solr using the following settings:"
+    echo -e "    JAVA            = $JAVA"
     echo -e "    SOLR_SERVER_DIR = $SOLR_SERVER_DIR"
     echo -e "    SOLR_HOME       = $SOLR_HOME"
-    echo -e "    JAVA            = $JAVA"
     echo -e "    SOLR_HOST       = $SOLR_HOST"
     echo -e "    SOLR_PORT       = $SOLR_PORT"
+    echo -e "    STOP_PORT       = $STOP_PORT"
+    echo -e "    SOLR_JAVA_MEM   = $SOLR_JAVA_MEM"
     echo -e "    GC_TUNE         = $GC_TUNE"
     echo -e "    GC_LOG_OPTS     = $GC_LOG_OPTS"
-    echo -e "    SOLR_JAVA_MEM   = $SOLR_JAVA_MEM"
-    echo -e "    REMOTE_JMX_OPTS = $REMOTE_JMX_OPTS"
-    echo -e "    CLOUD_MODE_OPTS = $CLOUD_MODE_OPTS"
     echo -e "    SOLR_TIMEZONE   = $SOLR_TIMEZONE"
-    
+
+    if [ "$SOLR_MODE" == "solrcloud" ]; then
+      echo -e "    CLOUD_MODE_OPTS = $CLOUD_MODE_OPTS"
+    fi
+
     if [ "$SOLR_ADDL_ARGS" != "" ]; then
       echo -e "    SOLR_ADDL_ARGS   = $SOLR_ADDL_ARGS"
     fi
+
+    if [ "$ENABLE_REMOTE_JMX_OPTS" == "true" ]; then
+      echo -e "    RMI_PORT        = $RMI_PORT"
+      echo -e "    REMOTE_JMX_OPTS = $REMOTE_JMX_OPTS"
+    fi
+    echo -e "\n"
   fi
     
   # need to launch solr from the server dir
@@ -768,46 +918,49 @@ function launch_solr() {
 -DSTOP.PORT=$stop_port -DSTOP.KEY=$STOP_KEY \
 $SOLR_HOST_ARG -Djetty.port=$SOLR_PORT \
 -Dsolr.solr.home=$SOLR_HOME \
+-Dsolr.install.dir=$SOLR_TIP \
 -Duser.timezone=$SOLR_TIMEZONE \
--Djava.net.preferIPv4Stack=true -Dsolr.autoSoftCommit.maxTime=3000"
+-Djava.net.preferIPv4Stack=true"
   
   if [ "$SOLR_MODE" == "solrcloud" ]; then
     IN_CLOUD_MODE=" in SolrCloud mode"
   fi
-  
+
+  mkdir -p $SOLR_SERVER_DIR/logs
+
   if [ "$run_in_foreground" == "true" ]; then
     echo -e "\nStarting Solr$IN_CLOUD_MODE on port $SOLR_PORT from $SOLR_SERVER_DIR\n"
     $JAVA $SOLR_START_OPTS $SOLR_ADDL_ARGS -XX:OnOutOfMemoryError="$SOLR_TIP/bin/oom_solr.sh $SOLR_PORT" -jar start.jar
   else
     # run Solr in the background
-    nohup $JAVA $SOLR_START_OPTS $SOLR_ADDL_ARGS -XX:OnOutOfMemoryError="$SOLR_TIP/bin/oom_solr.sh $SOLR_PORT" -jar start.jar 1>$SOLR_TIP/bin/solr-$SOLR_PORT-console.log 2>&1 &
+    nohup $JAVA $SOLR_START_OPTS $SOLR_ADDL_ARGS -XX:OnOutOfMemoryError="$SOLR_TIP/bin/oom_solr.sh $SOLR_PORT" -jar start.jar 1>$SOLR_SERVER_DIR/logs/solr-$SOLR_PORT-console.log 2>&1 & echo $! > $SOLR_TIP/bin/solr-$SOLR_PORT.pid
   
     # no lsof on cygwin though
-    if [ "$hasLsof" != "" ]; then
+    if hash lsof 2>/dev/null ; then  # hash returns true if lsof is on the path
       echo -n "Waiting to see Solr listening on port $SOLR_PORT"
       # Launch in a subshell to show the spinner
       (loops=0
       while true
       do
-        running=`lsof -i:$SOLR_PORT | grep $SOLR_PORT`
+        running=`lsof -Pni:$SOLR_PORT`
         if [ "$running" == "" ]; then
           if [ $loops -lt 6 ]; then
             sleep 5
             loops=$[$loops+1]
           else
             echo -e "Still not seeing Solr listening on $SOLR_PORT after 30 seconds!"
-            tail -30 $SOLR_TIP/node1/logs/solr.log
+            tail -30 $SOLR_SERVER_DIR/logs/solr.log
             exit;
           fi
         else
-          SOLR_PID=`ps waux | grep start.jar | grep $SOLR_PORT | grep -v grep | awk '{print $2}' | sort -r`
+          SOLR_PID=`ps auxww | grep start.jar | grep $SOLR_PORT | grep -v grep | awk '{print $2}' | sort -r`
           echo -e "\nStarted Solr server on port $SOLR_PORT (pid=$SOLR_PID). Happy searching!\n"
           exit;
         fi
       done) &
       spinner $!
     else
-      SOLR_PID=`ps waux | grep start.jar | grep $SOLR_PORT | grep -v grep | awk '{print $2}' | sort -r`
+      SOLR_PID=`ps auxww | grep start.jar | grep $SOLR_PORT | grep -v grep | awk '{print $2}' | sort -r`
       echo -e "\nStarted Solr server on port $SOLR_PORT (pid=$SOLR_PID). Happy searching!\n"
       exit;
     fi
@@ -815,7 +968,7 @@ $SOLR_HOST_ARG -Djetty.port=$SOLR_PORT \
 }
 
 if [ "$EXAMPLE" != "cloud" ]; then
-  launch_solr "$FG" ""
+  launch_solr "$FG" "$ADDITIONAL_CMD_OPTS"
 else
   #
   # SolrCloud example is a bit involved so needs special handling here
@@ -823,23 +976,42 @@ else
   SOLR_SERVER_DIR=$SOLR_TIP/node1
   SOLR_HOME=$SOLR_TIP/node1/solr
   SOLR_PORT=${CLOUD_PORTS[0]}
+
+  if [ "$ZK_HOST" != "" ]; then
+    DASHZ="-z $ZK_HOST"
+  fi
+
+  if [ "$SOLR_HEAP" != "" ]; then
+    DASHM="-m $SOLR_HEAP"
+  fi
+
+  if [ "$ADDITIONAL_CMD_OPTS" != "" ]; then
+    DASHA="-a $ADDITIONAL_CMD_OPTS"
+  fi
+
   echo -e "\nStarting up SolrCloud node1 on port ${CLOUD_PORTS[0]} using command:\n"
-  echo -e "solr start -cloud -d node1 -p $SOLR_PORT \n\n"
+  echo -e "solr start -cloud -d node1 -p $SOLR_PORT $DASHZ $DASHM $DASHA\n\n"
     
   # can't launch this node in the foreground else we can't run anymore commands
-  launch_solr "false" ""
-  
-  zk_port=$[$SOLR_PORT+1000]  
-  zk_host=localhost:$zk_port
-  
+  launch_solr "false" "$ADDITIONAL_CMD_OPTS"
+
+  sleep 5
+
+  # if user did not define a specific -z parameter, assume embedded in first cloud node we launched above
+  zk_host=$ZK_HOST
+  if [ "$zk_host" == "" ]; then
+    zk_port=$[$SOLR_PORT+1000]
+    zk_host=localhost:$zk_port
+  fi
+
   for (( s=1; s<$CLOUD_NUM_NODES; s++ ))
   do
     ndx=$[$s+1]
     next_port=${CLOUD_PORTS[$s]}
     echo -e "\n\nStarting node$ndx on port $next_port using command:\n"
-    echo -e "solr start -cloud -d node$ndx -p $next_port -z $zk_host \n\n"
+    echo -e "solr start -cloud -d node$ndx -p $next_port -z $zk_host $DASHM $DASHA \n\n"
     # call this script again with correct args for next node    
-    $SOLR_TIP/bin/solr start -cloud -d node$ndx -p $next_port -z $zk_host
+    $SOLR_TIP/bin/solr start -cloud -d node$ndx -p $next_port -z $zk_host $DASHM $DASHA
   done
   
   # TODO: better (shorter) name??

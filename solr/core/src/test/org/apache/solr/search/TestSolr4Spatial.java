@@ -24,6 +24,8 @@ import com.spatial4j.core.distance.DistanceUtils;
 import com.spatial4j.core.shape.Point;
 import com.spatial4j.core.shape.Rectangle;
 import com.spatial4j.core.shape.impl.RectangleImpl;
+import org.apache.lucene.util.LuceneTestCase;
+import org.apache.lucene.util.LuceneTestCase.SuppressCodecs;
 import org.apache.solr.SolrTestCaseJ4;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.schema.AbstractSpatialFieldType;
@@ -40,6 +42,7 @@ import java.util.Arrays;
  * Test Solr 4's new spatial capabilities from the new Lucene spatial module. Don't thoroughly test it here because
  * Lucene spatial has its own tests.  Some of these tests were ported from Solr 3 spatial tests.
  */
+@SuppressCodecs({"Lucene3x", "Appending", "Lucene40", "Lucene41"})//sometimes we need DocValues
 public class TestSolr4Spatial extends SolrTestCaseJ4 {
 
   private String fieldName;
@@ -51,7 +54,7 @@ public class TestSolr4Spatial extends SolrTestCaseJ4 {
   @ParametersFactory
   public static Iterable<Object[]> parameters() {
     return Arrays.asList(new Object[][]{
-        {"srpt_geohash"}, {"srpt_quad"}, {"stqpt_geohash"}, {"pointvector"}
+        {"srpt_geohash"}, {"srpt_quad"}, {"stqpt_geohash"}, {"pointvector"}, {"bbox"}
     });
   }
 
@@ -158,7 +161,7 @@ public class TestSolr4Spatial extends SolrTestCaseJ4 {
 
     assertQ(req(
         "fl", "id," + fieldName, "q", "*:*", "rows", "1000",
-        "fq", "{!geofilt sfield="+fieldName+" pt="+IN+" d=9}"),
+        "fq", "{!bbox sfield="+fieldName+" pt="+IN+" d=9}"),
         "//result/doc/*[@name='" + fieldName + "']//text()='" + OUT + "'");
   }
 
@@ -172,6 +175,9 @@ public class TestSolr4Spatial extends SolrTestCaseJ4 {
   }
 
   private void checkHits(String fieldName, boolean exact, String ptStr, double distKM, int count, int ... docIds) throws ParseException {
+    if (exact && fieldName.equalsIgnoreCase("bbox")) {
+      return; // bbox field only supports rectangular query
+    }
     String [] tests = new String[docIds != null && docIds.length > 0 ? docIds.length + 1 : 1];
     //test for presence of required ids first
     int i = 0;
@@ -322,8 +328,10 @@ public class TestSolr4Spatial extends SolrTestCaseJ4 {
 
   private String radiusQuery(double lat, double lon, double dDEG, String score, String filter) {
     //Choose between the Solr/Geofilt syntax, and the Lucene spatial module syntax
-    if (random().nextBoolean()) {
-      return "{!geofilt " +
+    if (fieldName.equals("bbox") || random().nextBoolean()) {
+      //we cheat for bbox strategy which doesn't do radius, only rect.
+      final String qparser = fieldName.equals("bbox") ? "bbox" : "geofilt";
+      return "{!" + qparser + " " +
           "sfield=" + fieldName + " "
           + (score != null ? "score="+score : "") + " "
           + (filter != null ? "filter="+filter : "") + " "
@@ -338,7 +346,8 @@ public class TestSolr4Spatial extends SolrTestCaseJ4 {
 
   @Test
   public void testSortMultiVal() throws Exception {
-    RandomizedTest.assumeFalse("Multivalue not supported for this field", fieldName.equals("pointvector"));
+    RandomizedTest.assumeFalse("Multivalue not supported for this field",
+        fieldName.equals("pointvector") || fieldName.equals("bbox"));
 
     assertU(adoc("id", "100", fieldName, "1,2"));//1 point
     assertU(adoc("id", "101", fieldName, "4,-1", fieldName, "3,5"));//2 points, 2nd is pretty close to query point
@@ -373,12 +382,24 @@ public class TestSolr4Spatial extends SolrTestCaseJ4 {
 
     //show we can index this (without an error)
     assertU(adoc("id", "rect", fieldName, rect));
-    assertU(adoc("id", "circ", fieldName, circ));
-    assertU(commit());
+    if (!fieldName.equals("bbox")) {
+      assertU(adoc("id", "circ", fieldName, circ));
+      assertU(commit());
+    }
 
     //only testing no error
     assertJQ(req("q", "{!field f=" + fieldName + "}Intersects(" + rect + ")"));
-    assertJQ(req("q", "{!field f=" + fieldName + "}Intersects(" + circ + ")"));
+    if (!fieldName.equals("bbox")) {
+      assertJQ(req("q", "{!field f=" + fieldName + "}Intersects(" + circ + ")"));
+    }
+  }
+
+  @Test
+  public void testBadScoreParam() throws Exception {
+    assertQEx("expect friendly error message",
+        "none",
+        req(radiusQuery(0, 0, 0, "bogus", "false")),
+        SolrException.ErrorCode.BAD_REQUEST);
   }
 
 }
