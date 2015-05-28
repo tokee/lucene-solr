@@ -24,7 +24,7 @@ import org.apache.lucene.util.packed.PackedInts;
  * a PackedInts.Mutable instead of an int[] for counting. This means less memory overhead and in some cases a
  * performance overhead.
  * </p><p>
- * This class is not thread safe.
+ * This class is optionally thread safe with regard to increments.
  * </p><p>
  * Tight-loop methods are final to help the compiler make optimizations.
  */
@@ -32,6 +32,7 @@ public class SparseCounterPacked implements ValueCounter {
   private final PackedInts.Mutable counts;  // One counter/tag
   private final int[] tracker; // Tracker not PackedInts.Mutable as it should be relatively small
   private final int tracksMax; // The maximum amount of trackers (tracker.length)
+  // TODO: Remove the zero counter as it is replaced by missing
   private long zeroCounter = 0; // The counter at index 0 is special as it can exceed the maxValue of {@link #counts}
 
   private int tracksPos;       // The current amount of tracker entries. Setting this to 0 works as a tracker clear

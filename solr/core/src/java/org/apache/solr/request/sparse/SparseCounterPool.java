@@ -156,6 +156,9 @@ public class SparseCounterPool {
   private BytesRefArray externalTerms = null;
   // Optionally defined histogram of the number of counters with the given maxBits
   private long[] histogram = null;
+  // Optionally defined histogram of the number of counters with the given bits needed by {@link NPlaneMutable}
+  // for setups with fast tracking on non-zero counters.
+  private long[] plusOneHistogram = null;
 
   public SparseCounterPool(ThreadPoolExecutor janitorSupervisor, String field, String description,
                            int maxPoolSize, int minEmptyCounters) {
@@ -250,7 +253,8 @@ public class SparseCounterPool {
     // Checking for existing and potential reset of the structureKey and pool
     ValueCounter vc = getCounter(sparseKeys, implementation);
     if (vc != null) {
-      log.warn("addAndReturn: An available counter already existed, but was discarded");
+      log.info("addAndReturn: An available counter " + vc.getClass().getSimpleName()
+          + " already existed, but was discarded");
     }
     template = newVC;
     switch (implementation) {
@@ -264,6 +268,9 @@ public class SparseCounterPool {
         dualPlaneAllocations.incRel(allocateStartTime);
         break;
       case nplane:
+        nplaneAllocations.incRel(allocateStartTime);
+        break;
+      case nplanez:
         nplaneAllocations.incRel(allocateStartTime);
         break;
       default: throw new UnsupportedOperationException(
@@ -287,6 +294,10 @@ public class SparseCounterPool {
       case dualplane:
       case nplane: // TODO: Add split/spank/max etc
         return SparseCounterThreaded.createStructureKey(
+            uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked,
+            sparseKeys.counter);
+      case nplanez:
+        return SparseCounterBitmap.createStructureKey(
             uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked,
             sparseKeys.counter);
       default: throw new UnsupportedOperationException(
@@ -351,6 +362,30 @@ public class SparseCounterPool {
           if (scp.counterImpl != implementation) {
             throw new IllegalStateException(
                 "Logic error: nplane counting was requested and an a template existed, but the template contained a "
+                    + "counter with implementation " + scp.counterImpl);
+          }
+
+          ValueCounter counter = scp.createSibling();
+          nplaneAllocations.incRel(allocateTime);
+          return counter;
+        }
+      }
+      case nplanez: {
+        synchronized (pool) {
+          // nplane needs a template in the form of an already existing nplane
+          if (template == null) {
+            return null; // The caller needs to create the counter from scratch
+          }
+          if (!(template instanceof SparseCounterBitmap)) {
+            throw new IllegalStateException(
+                "Logic error: nplanez counting was requested and an a template existed, but the template was a "
+                    + template.getClass().getSimpleName() + " where " + SparseCounterBitmap.class.getSimpleName()
+                    + " was required");
+          }
+          SparseCounterBitmap scp = (SparseCounterBitmap)template;
+          if (scp.counterImpl != implementation) {
+            throw new IllegalStateException(
+                "Logic error: nplanez counting was requested and an a template existed, but the template contained a "
                     + "counter with implementation " + scp.counterImpl);
           }
 
@@ -833,6 +868,14 @@ public class SparseCounterPool {
 
   public void setHistogram(long[] histogram) {
     this.histogram = histogram;
+  }
+
+  public void setPlusOneHistogram(long[] plusOneHistogram) {
+    this.plusOneHistogram = plusOneHistogram;
+  }
+
+  public long[] getPlusOneHistogram() {
+    return plusOneHistogram;
   }
 
   /**

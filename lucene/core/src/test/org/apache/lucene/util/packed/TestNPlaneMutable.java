@@ -44,6 +44,17 @@ public class TestNPlaneMutable extends LuceneTestCase {
         9, 9/2, 2, UPDATES, 10, CACHES, MAX_PLANES, Integer.MAX_VALUE, SPLITS, true, null);
   }
 
+  public void testMonkeyZ() {
+    final int DIVISOR = 500;
+    final int UPDATES = MI;
+    final int[] CACHES = new int[] {200};
+    final int[] MAX_PLANES = new int[] {8};
+    final int[] SPLITS = new int[] {1};
+    final char[] WHITELIST = null;
+    LongTailPerformance.measurePerformance(LongTailPerformance.reduce(LongTailPerformance.links20150209, DIVISOR),
+        9, 9/2, 1, UPDATES, 10, CACHES, MAX_PLANES, 1, SPLITS, true, WHITELIST);
+  }
+
   public void testMonkeySplits() {
     final int DIVISOR = 500;
     final int UPDATES = MI;
@@ -203,7 +214,15 @@ public class TestNPlaneMutable extends LuceneTestCase {
     }
   }
 
-  public void testSmallAdd() {
+  public void testSmallAddSpank() {
+    testSmallAdd(NPlaneMutable.IMPL.spank);
+  }
+
+  public void testSmallAddZethra() {
+    testSmallAdd(NPlaneMutable.IMPL.zethra);
+  }
+
+  private void testSmallAdd(NPlaneMutable.IMPL impl) {
     final int[] MAXIMA = new int[]{10, 1, 16, 2, 3};
     final int MAX = 16;
     final PackedInts.Mutable maxima =
@@ -213,11 +232,13 @@ public class TestNPlaneMutable extends LuceneTestCase {
     }
     System.out.println("maxima: " + toString(maxima));
 
-    PackedInts.Mutable bpm = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank);
+    NPlaneMutable bpm = new NPlaneMutable(maxima, impl);
     bpm.set(1, bpm.get(1)+1);
     assertEquals("Test 1: index 1", 1, bpm.get(1));
-    assertEquals("The unmodified counter 0 should be zero", 0 , bpm.get(0));
-    bpm.set(0, bpm.get(0)+1);
+    assertEquals("The unmodified counter 0 should be zero", 0, bpm.get(0));
+//    System.out.println("=================== inc(1)\n" + bpm.toString(true));
+    bpm.set(0, bpm.get(0) + 1);
+//    System.out.println("=================== inc(0)\n" + bpm.toString(true));
     assertEquals("Test 2: index 0", 1, bpm.get(0));
     bpm.set(0, bpm.get(0)+1);
     bpm.set(0, bpm.get(0)+1);
@@ -227,13 +248,72 @@ public class TestNPlaneMutable extends LuceneTestCase {
     bpm.set(2, bpm.get(2)+1);
   }
 
+  public void testSpecificFillPattern() {
+    final int[] MAXIMA = new int[]{8, 4, 12, 10, 8, 10, 15, 12, 7, 14, 0};
+    final int[] INCREMENTS = new int[]{5, 6, 0, 8, 9, 8, 9, 6, 9, 2, 8, 7, 6, 5, 6, 2, 7, 1, 6, 4, 3};
+    final int MAX = 15;
+    final PackedInts.Mutable maxima =
+        PackedInts.getMutable(MAXIMA.length, PackedInts.bitsRequired(MAX), PackedInts.COMPACT);
+    for (int i = 0 ; i < MAXIMA.length ; i++) {
+      maxima.set(i, MAXIMA[i]);
+    }
+//    System.out.println("maxima: " + toString(maxima));
+    NPlaneMutable.StatCollectingBPVWrapper collector = new NPlaneMutable.StatCollectingBPVWrapper(
+        new NPlaneMutable.BPVPackedWrapper(maxima, false));
+    collector.collect();
+//    System.out.println("maxima zeroBits: " + toString(collector.plusOneHistogram));
+
+    NPlaneMutable.Layout layout = NPlaneMutable.getLayout(collector.plusOneHistogram, true);
+    NPlaneMutable mutable = new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false),
+        NPlaneMutable.IMPL.zethra);
+//    System.out.println(mutable.toString(true) + "\n");
+    //mutable = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank);
+
+    for (int inc: INCREMENTS) {
+      mutable.increment(inc);
+    }
+  }
+
+  public void testCreateZeroTrackedFromHistogram() {
+    final int[] MAXIMA = new int[]{10, 1, 16, 2, 3};
+    final int MAX = 16;
+    final PackedInts.Mutable maxima =
+        PackedInts.getMutable(MAXIMA.length, PackedInts.bitsRequired(MAX), PackedInts.COMPACT);
+    for (int i = 0 ; i < MAXIMA.length ; i++) {
+      maxima.set(i, MAXIMA[i]);
+    }
+//    System.out.println("maxima: " + toString(maxima));
+    NPlaneMutable.StatCollectingBPVWrapper collector = new NPlaneMutable.StatCollectingBPVWrapper(
+        new NPlaneMutable.BPVPackedWrapper(maxima, false));
+    collector.collect();
+//    System.out.println("maxima zeroBits: " + toString(collector.plusOneHistogram));
+
+    NPlaneMutable.Layout layout = NPlaneMutable.getLayout(collector.plusOneHistogram, true);
+    NPlaneMutable mutable = new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false),
+        NPlaneMutable.IMPL.zethra);
+//    System.out.println(mutable.toString(true) + "\n");
+    //mutable = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank);
+
+    for (int i = 0 ; i < MAXIMA.length ; i++) {
+      for (int j = 0 ; j < MAXIMA[i]; j++) {
+        mutable.increment(i);
+//        System.out.println("index=" + i + ", increment=" + (i+1) + "/" + MAXIMA[i] + ": "
+//            + mutable.get(i) + "\n" + mutable.toString(true));
+      }
+    }
+    // TODO: Overflow for plane 2 is wrong: Index 0 should be marked
+    for (int i = 0 ; i < MAXIMA.length ; i++) {
+        assertEquals("index=" + i, MAXIMA[i], mutable.get(i));
+    }
+  }
+
   public void testNPlaneLayout() {
     long EXPECTED = 400;
     long[] histogram = LongTailPerformance.reduce(LongTailPerformance.links20150209, 1.0);
 
     long[] full = NPlaneMutable.directHistogramToFullZero(histogram);
     NPlaneMutable.Layout layout = NPlaneMutable.getLayoutWithZeroHistogram(
-        full, 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION);
+        full, 0, 64, NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, false);
     assertTrue("There should be more than 3 planes", layout.size() > 3);
     long mem = 0;
     for (NPlaneMutable.PseudoPlane plane: layout) {
@@ -250,10 +330,18 @@ public class TestNPlaneMutable extends LuceneTestCase {
 //        layout.size(), mem/M, estimated/M));
   }
 
-  public void testSmallInc() {
+  public void testSmallIncSpank() {
+    testSmallInc(NPlaneMutable.IMPL.spank);
+  }
+  public void testSmallIncZethra() {
+    testSmallInc(NPlaneMutable.IMPL.zethra);
+  }
+
+  public void testSmallInc(NPlaneMutable.IMPL impl) {
     final PackedInts.Mutable maxima = toMutable(10, 1, 16, 2, 3);
     System.out.println("maxima: " + toString(maxima));
-    NPlaneMutable bpm = new NPlaneMutable(maxima, NPlaneMutable.IMPL.spank);
+    NPlaneMutable bpm = new NPlaneMutable(maxima, impl);
+    System.out.println(bpm.toString(true));
 
     bpm.increment(1);
     assertEquals("Test 1: index 1", 1, bpm.get(1));
@@ -266,6 +354,19 @@ public class TestNPlaneMutable extends LuceneTestCase {
     bpm.increment(0);
     assertEquals("Test 4: index 0", 4, bpm.get(0));
     bpm.increment(2);
+//    System.out.println("============ expected 2:" + 1);
+//    System.out.println(bpm.toString(true));
+    assertEquals("Test 5: index 2", 1, bpm.get(2));
+    for (int i = 0 ; i < 15 ; i++) {
+      bpm.increment(2);
+//      System.out.println("============ expected 2:" + (1 + 1 + i));
+//      System.out.println(bpm.toString(true));
+      assertEquals("Test 5b: index 2", 1 + 1 + i, bpm.get(2));
+    }
+    assertEquals("Test 6: index 2", 16, bpm.get(2));
+    bpm.increment(4);
+    assertEquals("Test 7: index 4", 1, bpm.get(4));
+    assertEquals("Test 1b: index 1", 1, bpm.get(1));
   }
 
   public void testOverflowCache() {
@@ -339,8 +440,8 @@ public class TestNPlaneMutable extends LuceneTestCase {
   public void testBytesEstimation() {
     System.out.println(String.format(Locale.ENGLISH, "ltbpm=%d/%d/%dMB",
         NPlaneMutable.estimateBytesNeeded(LongTailPerformance.links20150209, NPlaneMutable.IMPL.spank) / M,
-        640280533L*(NPlaneMutable.getMaxBit(LongTailPerformance.links20150209)+1)/8/M,
-        640280533L*4/M));
+        640280533L * (NPlaneMutable.getMaxBit(LongTailPerformance.links20150209) + 1) / 8 / M,
+        640280533L * 4 / M));
   }
 
   public void disabledtestAssignRealLargeSample() {
@@ -407,6 +508,17 @@ public class TestNPlaneMutable extends LuceneTestCase {
         sb.append(", ");
       }
       sb.append(Long.toString(maxima.get(i)));
+    }
+    return sb.toString();
+  }
+
+  private String toString(long[] bpvs) {
+    StringBuilder sb = new StringBuilder();
+    for (long bpv : bpvs) {
+      if (sb.length() > 0) {
+        sb.append(", ");
+      }
+      sb.append(Long.toString(bpv));
     }
     return sb.toString();
   }

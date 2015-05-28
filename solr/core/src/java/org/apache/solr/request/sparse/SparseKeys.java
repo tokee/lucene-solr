@@ -156,13 +156,16 @@ public class SparseKeys {
    *   <li>nplane:    {@link org.apache.lucene.util.packed.NPlaneMutable}
    *                  very slow first call, 3-5 times slower than array, extremely low memory usage.
    *                  nplane does support {@link #COUNTING_THREADS}.</li>
+   *   <li>nplanez:   {@link org.apache.lucene.util.packed.NPlaneMutable} with experimental zeroTracking.
+   *                  very slow first call, should be faster than nplane, extremely low memory usage.
+   *                  nplanez does support {@link #COUNTING_THREADS}.</li>
    * </ul>
    * </p><p>
    * Optional. Default value is auto.
    */
   public static final String COUNTER = "facet.sparse.counter";
   public static final String DEFAULT_COUNTER = COUNTER_IMPL.auto.toString();
-  public enum COUNTER_IMPL {auto, array, packed, dualplane, nplane}
+  public enum COUNTER_IMPL {auto, array, packed, dualplane, nplane, nplanez}
 
   /**
    * If true and the {@link #PACKED_BITLIMIT} holds, use {@link SparseCounterPacked} for counting.<br/>
@@ -213,6 +216,16 @@ public class SparseKeys {
    * Setting this to true resets collected statistics.
    */
   public static final String STATS_RESET = "facet.sparse.stats.reset";
+
+  /**
+   * If true, detailed performance statistics will be logged at INFO level in the Solr log.
+   * </p><p>
+   * TODO: Remove this option and the corresponding code when sparse faceting is stabilized
+   * </p><p>
+   * Optional. Default is false;
+   */
+  public static final String LOG_EXTENDED = "facet.sparse.log.extended";
+  public static final boolean LOG_EXTENDED_DEFAULT = false;
 
   /**
    * The maximum amount of pools to hold in the {@link org.apache.solr.request.sparse.SparseCounterPoolController}.
@@ -274,6 +287,7 @@ public class SparseKeys {
   final public double fraction;
   final public double cutOff;
   final public long maxCountsTracked;
+  final public boolean logExtended;
 
   final public COUNTER_IMPL counter;
   final public int countingThreads;
@@ -310,6 +324,7 @@ public class SparseKeys {
     cutOff = params.getFieldDouble(field, CUTOFF, CUTOFF_DEFAULT);
 
     maxCountsTracked = Long.parseLong(params.getFieldParam(field, MAXTRACKED, Long.toString(MAXTRACKED_DEFAULT)));
+    logExtended = params.getFieldBool(field, LOG_EXTENDED, LOG_EXTENDED_DEFAULT);
 
     countingThreads = params.getFieldInt(field, COUNTING_THREADS, DEFAULT_COUNTING_THREADS);
     countingThreadsMinDocs = params.getFieldInt(field, COUNTING_THREADS_MINDOCS, DEFAULT_COUNTING_THREADS_MINDOCS);

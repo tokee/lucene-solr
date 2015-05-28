@@ -17,26 +17,28 @@ package org.apache.solr.request.sparse;
  * limitations under the License.
  */
 
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-
 import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.packed.NPlaneMutable;
-import org.apache.lucene.util.packed.PackedInts;
+
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongArray;
 
 /**
- * Re-usable sparse counter. A mirror of {@link org.apache.solr.request.sparse.SparseCounterPacked} with thread-safe
- * increments and sets. For single-threaded usage, this class is slower than SparseCounterPacked.
+ * Sparse counter which uses a bitmap for tracking updated values..
  */
-public class SparseCounterThreaded implements ValueCounter {
-  final PackedInts.Mutable counts;  // One counter/tag
+public class SparseCounterBitmap implements ValueCounter {
+
+  private final NPlaneMutable counts;  // One counter/tag
   private final Incrementable countsInc; // Wrapper around or same-reference as counts
-  private final int[] tracker; // Tracker not PackedInts.Mutable as it should be relatively small
+  private final AtomicLongArray tracker; // Tracks changes to counts
+  // We could have infinite tracker trackers, but as it is, two layers means 1 top entry covers 64^4 = 16M values
+  private final AtomicLongArray trackerTracker; // Tracks changes to tracker
+  private AtomicLong nonZeroCounters = new AtomicLong(0);
+  private boolean incremented = false; // Has this been incremented at all?
   private final int tracksMax; // The maximum amount of trackers (tracker.length)
   public final SparseKeys.COUNTER_IMPL counterImpl; // Used for key generation
 
-  // The current amount of tracker entries. Setting this to 0 works as a tracker clear
-  private AtomicInteger tracksPos = new AtomicInteger(0);
   private AtomicLong missing = new AtomicLong(0);
 
   private final long maxCountForAny;    // The maximum count that it is possible to reach. Intended to PackedInts
@@ -56,8 +58,8 @@ public class SparseCounterThreaded implements ValueCounter {
    *                          if specified, it is highly recommended to set this to 2^n-1, with 7, 255 and 65535
    *                          being the fastest.
    */
-  public SparseCounterThreaded(SparseKeys.COUNTER_IMPL counterImpl, PackedInts.Mutable counts, long maxCountGlobal,
-                               int minCountsForSparse, double fraction, long maxCountExplicit) {
+  public SparseCounterBitmap(SparseKeys.COUNTER_IMPL counterImpl, NPlaneMutable counts, long maxCountGlobal,
+                             int minCountsForSparse, double fraction, long maxCountExplicit) {
     this.counterImpl = counterImpl;
     this.counts = counts;
     if (!(counts instanceof Incrementable)) {
@@ -75,17 +77,19 @@ public class SparseCounterThreaded implements ValueCounter {
     if (counts.size() < minCountsForSparse) {
       tracksMax = 0;
       tracker = null;
+      trackerTracker = null;
     } else {
       tracksMax = (int) (counts.size() * fraction);
-//      tracker = PackedInts.getMutable(tracksMax, PackedInts.bitsRequired(counts), PackedInts.FAST);
-      tracker = new int[tracksMax];
+      trackerTracker = new AtomicLongArray(counts.size()/64/64/64+1); // Why the +1?
+      // FIXME: An occasional (q:"d-mol" at SB test installation) ArrayIndexOutOfBounds seems workarounded by the +64
+      tracker = new AtomicLongArray(counts.size()/64/64+64+1);           // Why the +1?
     }
   }
 
   @Override
   public ValueCounter createSibling() {
-    SparseCounterThreaded newCounter = new SparseCounterThreaded(
-        counterImpl, NPlaneMutable.newFromTemplate(counts), maxCountForAny, minCountsForSparse,
+    SparseCounterBitmap newCounter = new SparseCounterBitmap(
+        counterImpl, (NPlaneMutable) NPlaneMutable.newFromTemplate(counts), maxCountForAny, minCountsForSparse,
         fraction, maxCountTracked);
     newCounter.setContentKey(getContentKey());
     return newCounter;
@@ -98,7 +102,7 @@ public class SparseCounterThreaded implements ValueCounter {
   public static String createStructureKey(
       int counts, long maxCountForAny, int minCountForSparse, double fraction, long maxCountTracked,
       SparseKeys.COUNTER_IMPL counter) {
-    return "SparseCounterThreaded(counts" + counts + "maxCountForAny" + maxCountForAny
+    return "SparseCounterBitmap(counts" + counts + "maxCountForAny" + maxCountForAny
         + "minCountsForSparse" + minCountForSparse + "fraction" + fraction + "maxCountTracked" + maxCountTracked
         + "counter=" + counter +")";
   }
@@ -109,7 +113,7 @@ public class SparseCounterThreaded implements ValueCounter {
   @Override
   public String getStructureKey() {
     //return SparseCounter.createStructureKey(counts.size(), maxCountForAny, minCountsForSparse, fraction);
-    return SparseCounterThreaded.createStructureKey(counts.size(), maxCountForAny,
+    return SparseCounterBitmap.createStructureKey(counts.size(), maxCountForAny,
         minCountsForSparse, fraction, maxCountTracked, counterImpl);
   }
 
@@ -122,21 +126,20 @@ public class SparseCounterThreaded implements ValueCounter {
   // tracking structure for high contention multi-threading.
   // This only affects performance, not validity of the end result.
   public final void inc(int counter) {
+    incremented = true;  // Very congested here. This might imply a CPU cache flush delay
     // No explicit max set for the for counters (this is the standard case)
     if (maxCountTracked == -1) {
-      if (tracksPos.get() >= tracksMax) {
-       // The tracker has been exceeded or disabled, so we just update the value (very fast)
-        countsInc.increment(counter);
-        return;
+      if (nonZeroCounters.get() >= tracksMax) {
+       // The tracker has been exceeded or disabled, so we just update the value
+          countsInc.increment(counter);
+          return;
       }
-      // We want to track changes to counters to maintain the sparse structure
 
-      if (countsInc.incrementStatus(counter) == Incrementable.STATUS.wasZero) {
+      // We want to track changes to counters to maintain the sparse structure
+      if(countsInc.incrementStatus(counter) == Incrementable.STATUS.wasZero) {
         // This is the first update of the counter, so we add it to the tracker
-        final int oldTracksPos = tracksPos.getAndIncrement();
-        if (oldTracksPos < tracksMax) {
-          tracker[oldTracksPos] = counter;
-        }
+        // TODO: Further optimize with blockWasZero as we only tracks blocks here
+        updateTracker(counter);
       }
       return;
     }
@@ -153,14 +156,39 @@ public class SparseCounterThreaded implements ValueCounter {
         // There was a collision; another thread updated the counter before we did: Start over
         continue;
       }
-      if (oldValue == 0 && tracksPos.get() < tracksMax) {
+      if (oldValue == 0) {
         // This was the first update of the counter: Track it
-        final int oldTracksPos = tracksPos.getAndIncrement();
-        if (oldTracksPos < tracksMax) {
-          tracker[oldTracksPos] = counter;
-        }
+        updateTracker(counter);
       }
       break;
+    }
+  }
+
+  private void updateTracker(int counter) {
+    nonZeroCounters.incrementAndGet(); // Hot spot that we could mitigate with blockWasZero
+    final int trackerIndex = counter >>> 12; //     /64/64
+    final int trackerBit = (counter >>> 6) & 63; // /64%64
+    while (true) {
+      long oldValue = tracker.get(trackerIndex);
+      long newValue = oldValue | (1 << trackerBit);
+      if (newValue == oldValue) { // Already tracked
+        break;
+      }
+      if (tracker.compareAndSet(trackerIndex, oldValue, newValue)) {
+        updateTrackerTracker(trackerIndex);
+        break;
+      }
+    }
+  }
+  private void updateTrackerTracker(int trackerIndex) {
+    final int ttIndex = trackerIndex >>> 6; // /64
+    final int ttBit = trackerIndex & 63; // /  %64
+    while (true) {
+      long oldValue = trackerTracker.get(ttIndex);
+      long newValue = oldValue | (1 << ttBit);
+      if (newValue == oldValue || trackerTracker.compareAndSet(ttIndex, oldValue, newValue)) {
+        break;
+      }
     }
   }
 
@@ -186,11 +214,7 @@ public class SparseCounterThreaded implements ValueCounter {
     long oldValue = counts.get(counter);
     counts.set(counter, value);
     if (oldValue == 0) {
-      // Update tracker
-      final int oldTracksPos = tracksPos.getAndIncrement();
-      if (oldTracksPos < tracksMax) {
-        tracker[oldTracksPos] = 0;
-      }
+      updateTracker(counter);
     }
   }
 
@@ -200,19 +224,81 @@ public class SparseCounterThreaded implements ValueCounter {
    */
   @Override
   public void clear() {
-    if (tracksPos.get() >= tracksMax) {
-      counts.clear();
-    } else {
-      for (int i = 0 ; i < tracksPos.get() ; i++) {
-        counts.set(tracker[i],  0);
-      }
-    }
+    final int nonZero = (int) nonZeroCounters.getAndSet(0);
+    final boolean hasBeenIncremented = incremented;
+
+    incremented = false;
     explicitlyDisabled = false;
-    tracksPos.set(0);
     missing.set(0);
     setContentKey(null);
-  }
+    if (!hasBeenIncremented) {
+      return;
+    } else if (nonZero >= tracksMax || tracker == null) {
+      counts.clear();
+      if (tracker != null) {
+        for (int i = 0 ; i < tracker.length() ; i++) { // If only we had access to the inner long[]...
+          tracker.set(i, 0);
+        }
+        for (int i = 0 ; i < trackerTracker.length() ; i++) {
+          trackerTracker.set(i, 0);
+        }
+      }
+      return;
+    }
+    // 0 < nonZero < tracksMax (considered sparse)
 
+    int cleared = 0;
+    out:
+    for (int tti = 0 ; tti < trackerTracker.length() ; tti++) {
+      long ttBitset = trackerTracker.getAndSet(tti, 0);
+      while (ttBitset != 0) {
+        final long tt = ttBitset & -ttBitset;
+        final int ti = Long.bitCount(tt-1);
+        ttBitset ^= tt;
+
+        long tBitset = tracker.getAndSet(tti * 64 + ti, 0);
+        while (tBitset != 0) {
+          final long t = tBitset & -tBitset;
+          final int i = Long.bitCount(t-1);
+          tBitset ^= t;
+
+          long vBitset = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
+          while (vBitset != 0) {
+            final long v = vBitset & -vBitset;
+            final int z = Long.bitCount(v-1);
+            vBitset ^= v;
+
+            counts.set(tti*64*64*64 + ti*64*64 + i*64 + z, 0);
+            if (cleared++ == nonZero) { // Terminate early
+              break out;
+            }
+          }
+        }
+      }
+    }
+  }
+/*
+
+    int tti = 0;
+    int ti, i, z;
+    while (cleared != nonZero && tti < trackerTracker.length()) {
+      long ttv = trackerTracker.getAndSet(tti, 0);
+      while ((ti = Long.numberOfLeadingZeros(ttv)) != 64 && cleared != nonZero) {
+        ttv = 1 << ti;
+        long tv = tracker.getAndSet(tti * 64 + ti, 0);
+        while ((i = Long.numberOfLeadingZeros(tv)) != 64 && cleared != nonZero) {
+          tv = 1 << i;
+          long v = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
+          while ((z = Long.numberOfLeadingZeros(v)) != 64 && cleared != nonZero) {
+            v = 1 << z;
+            counts.set(tti*64*64*64 + ti*64*64 + i*64 + z, 0);
+            cleared++;
+          }
+        }
+      }
+    }
+    }
+  */
   /**
    * @return the absolute size of the counters.
    */
@@ -251,7 +337,7 @@ public class SparseCounterThreaded implements ValueCounter {
           start, end, minValue, size()));
     }
 
-    if (tracksPos.get() >= tracksMax || doNegative) { // Not sparse or very big (normally the same thing)
+    if (nonZeroCounters.get() >= tracksMax || doNegative) { // Not sparse or very big (normally the same thing)
       callback.setOrdered(true);
       for (int counter = start ; counter < end ; counter++) {
         final long value = get(counter);
@@ -263,16 +349,69 @@ public class SparseCounterThreaded implements ValueCounter {
     }
 
     // Sparse
-    callback.setOrdered(false);
+    // http://lemire.me/blog/archives/2013/12/23/even-faster-bitmap-decoding/
+    callback.setOrdered(minValue > 0); // Might need second run if minValue == 0
     boolean filled = false;
     final int sparseMinValue = Math.max(minValue, 1);
-    for (int t = 0 ; t < tracksPos.get() ; t++) {
-      final int counter = tracker[t];
-      long value = get(counter);
-      if (counter >= start && counter <= end && value >= sparseMinValue) {
-        filled |= callback.handle(counter, value);
+    for (int tti = 0 ; tti < trackerTracker.length() ; tti++) {
+      long ttBitset = trackerTracker.get(tti);
+      while (ttBitset != 0) {
+        final long tt = ttBitset & -ttBitset;
+        final int ti = Long.bitCount(tt-1);
+        ttBitset ^= tt;
+
+        long tBitset = tracker.get(tti * 64 + ti);
+        while (tBitset != 0) {
+          final long t = tBitset & -tBitset;
+          final int i = Long.bitCount(t-1);
+          tBitset ^= t;
+
+          long vBitset = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
+          while (vBitset != 0) {
+            final long v = vBitset & -vBitset;
+            final int z = Long.bitCount(v-1);
+            vBitset ^= v;
+
+            final int counter = tti*64*64*64 + ti*64*64 + i*64 + z;
+            final long value = get(counter);
+            if (counter >= start && counter <= end && value >= sparseMinValue) {
+              filled |= callback.handle(counter, value);
+            }
+          }
+        }
       }
     }
+//    log.info(String.format(Locale.ENGLISH, "iterate(ttc=%d, tc=%d, c=%d, filled=%b, ms=%d)",
+//        ttc, tc, c, filled, (System.nanoTime()-startTime)/1000000));
+    /*
+        callback.setOrdered(minValue > 0); // Might need second run if minValue == 0
+    boolean filled = false;
+    final int sparseMinValue = Math.max(minValue, 1);
+    int tti = 0;
+    int ti, i, z;
+    while (tti < trackerTracker.length()) {
+      long ttBitset = trackerTracker.get(tti);
+      while ((ti = Long.numberOfLeadingZeros(ttBitset)) != 64) {
+        ttBitset = 1 << ti;
+        long tBitset = tracker.get(tti * 64 + ti);
+        while ((i = Long.numberOfLeadingZeros(tBitset)) != 64) {
+          tBitset = 1 << i;
+          long vBitset = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
+          while ((z = Long.numberOfLeadingZeros(vBitset)) != 64) {
+            vBitset = 1 << z;
+            final int counter = tti*64*64*64 + ti*64*64 + i*64 + z;
+            long value = get(counter);
+            if (counter >= start && counter <= end && value >= sparseMinValue) {
+              filled |= callback.handle(counter, value);
+            }
+          }
+        }
+      }
+      tti++;
+    }
+
+
+     */
     if (minValue == 0 && !filled) { // We need a second iteration to get enough 0-count values to fill the callback
       for (int counter = start ; counter < end ; counter++) {
         final long value = get(counter);
@@ -291,7 +430,7 @@ public class SparseCounterThreaded implements ValueCounter {
    */
   @Override
   public void disableSparseTracking() {
-    tracksPos.set(tracksMax);
+    nonZeroCounters.set(tracksMax);
     explicitlyDisabled = true;
   }
 
@@ -302,8 +441,8 @@ public class SparseCounterThreaded implements ValueCounter {
 
   @Override
   public String toString() {
-    return "SparseCounterThreaded(counter=" + counts + ", counts=" + counts.size() + ", bpv=" + counts.getBitsPerValue()
-        + ", trackers=" + tracksPos + "/" + tracksMax + ", maxCountForAny=" + maxCountForAny
+    return "SparseCounterBitmap(counter=" + counts + ", counts=" + counts.size() + ", bpv=" + counts.getBitsPerValue()
+        + ", trackers=" + nonZeroCounters + "/" + tracksMax + ", maxCountForAny=" + maxCountForAny
         + ", minCountsForSparse=" + minCountsForSparse + ", fraction=" + fraction + ", explicitly disabled="
         + explicitlyDisabled + ')';
   }

@@ -332,12 +332,47 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
 
       {
         params.set(SparseKeys.STATS, Boolean.FALSE.toString()); // For comparison
-        QueryResponse ngramFF = clients.get(0).query(params);
+        QueryResponse nplaneFF = clients.get(0).query(params);
         // With tiny result sets all possible facet values are returned in the first call, so no secondary call is needed
-        assertEquals("ngram faceting should give the same result as Vanilla Solr\n"
-            + ngramFF.toString().replace("{", "\n{"),
+        assertEquals("nplane faceting should give the same result as Vanilla Solr\n"
+            + nplaneFF.toString().replace("{", "\n{"),
             nonSparseFF.toString().replaceAll("QTime=[0-9]+", "").replace("{", "\n{"),
-            ngramFF.toString().replaceAll("QTime=[0-9]+", "").replace("{", "\n{"));
+            nplaneFF.toString().replaceAll("QTime=[0-9]+", "").replace("{", "\n{"));
+      }
+    }
+
+    { // nplanez
+      ModifiableSolrParams params = new ModifiableSolrParams();
+      params.set(CommonParams.Q, "*:*");
+      params.add(FacetParams.FACET, Boolean.TRUE.toString());
+      params.add(FacetParams.FACET_METHOD, FacetParams.FACET_METHOD_fc);
+      params.set(SparseKeys.SPARSE, Boolean.TRUE.toString());
+
+      params.set(FacetParams.FACET_FIELD, FF);
+      params.set(FacetParams.FACET_LIMIT, Integer.toString(10));
+
+      params.set(SparseKeys.STATS_RESET, Boolean.TRUE.toString());
+      clients.get(0).query(params);
+      params.remove(SparseKeys.STATS_RESET);
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.nplanez.toString());
+
+      {
+        params.set(SparseKeys.STATS, Boolean.TRUE.toString());
+        clients.get(0).query(params); // Double tap to get stats to bubble up
+        QueryResponse ngramThin = clients.get(0).query(params);
+        assertTrue("nplanez faceting should be active\n"
+            + ngramThin.toString().replace("{", "\n{").replace(")", ")\n"),
+            ngramThin.toString().contains("nplaneAllocation(calls=1"));
+      }
+
+      {
+        params.set(SparseKeys.STATS, Boolean.FALSE.toString()); // For comparison
+        QueryResponse nplaneFF = clients.get(0).query(params);
+        // With tiny result sets all possible facet values are returned in the first call, so no secondary call is needed
+        assertEquals("nplanez faceting should give the same result as Vanilla Solr\n"
+            + nplaneFF.toString().replace("{", "\n{"),
+            nonSparseFF.toString().replaceAll("QTime=[0-9]+", "").replace("{", "\n{"),
+            nplaneFF.toString().replaceAll("QTime=[0-9]+", "").replace("{", "\n{"));
       }
     }
     /*   TODO: Add facet content with 12+ unique values and a matching search that contains zero values

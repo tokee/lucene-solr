@@ -38,16 +38,22 @@ public interface Incrementable {
    * If the value overflows, 0 must be stored at the index.
    * @param index the index for the value to increment.
    */
-  public void increment(int index);
+  void increment(int index);
 
   /**
    * Increment the value at the given index by 1.
-   * If the value overflows, 0 must be stored at the index,
-   * but the full (overflowed) value must be returned.
+   * If the value overflows, 0 must be stored at the index.
    * @param index the index for the value to increment.
-   * @return the value after incrementation;
+   * @return the state of the counter before and after the operation.
    */
-  public long incrementAndGet(int index);
+  STATUS incrementStatus(int index);
+  enum STATUS { // All are mutually exclusive as counters always goes to > 0
+    // TODO: Add blockWasZero if it really saves time (nplanez is candidate for time win)
+//    blockWasZero, // The whole logical block (normally 64 counters) was zero before increment. Optional
+    wasZero,      // The counter was zero before increment
+    ok,           // Increment from non-zero without overflow
+    overflowed    // Overflow occurred due to the increment
+  }
 
   /**
    * Atomically sets the value to the given updated value if the current value {@code ==} the expected value.
@@ -77,13 +83,11 @@ public interface Incrementable {
       backend.set(index, value == incOverflow ? 0 : value);
     }
 
-    // This implementation should be in PackedInts.MutableImpl
-    // Note the guard against overflow and that the overflowed value is returned
     @Override
-    public long incrementAndGet(int index) {
+    public STATUS incrementStatus(int index) {
       final long value = backend.get(index)+1;
       backend.set(index, value == incOverflow ? 0 : value);
-      return value;
+      return value == 1 ? STATUS.wasZero : value == incOverflow ? STATUS.overflowed : STATUS.ok;
     }
 
     @Override

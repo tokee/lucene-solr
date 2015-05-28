@@ -18,7 +18,6 @@ package org.apache.solr.request.sparse;
  */
 
 import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.packed.NPlaneMutable;
 import org.apache.solr.SolrTestCaseJ4;
 import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.common.params.FacetParams;
@@ -27,7 +26,6 @@ import org.apache.solr.request.SolrQueryRequest;
 import org.junit.BeforeClass;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -167,6 +165,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
       params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.dualplane.toString());
       params.set(SparseKeys.COUNTING_THREADS, 2);
       params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+      params.set(SparseKeys.LOG_EXTENDED, true);
       params.set("indent", true);
       req.setParams(params);
       try {
@@ -192,9 +191,24 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     testFacetImplementation(SparseKeys.COUNTER_IMPL.nplane, SINGLE_DV_FIELD, "single_dv_", 2);
   }
 
+  public void testMultiThreadedNPlaneZSingleValueFaceting() throws Exception {
+    testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, SINGLE_DV_FIELD, "single_dv_", 2);
+  }
+
   // Failed consistably with -Dtests.seed=4AF7FD360658E93E or -Dtests.seed=B5814A333F9F734C (seems reproducible)
   public void testMultiThreadedNPlaneMultiValueFaceting() throws Exception {
     testFacetImplementation(SparseKeys.COUNTER_IMPL.nplane, MULTI_DV_FIELD, "multi_", 2);
+  }
+
+  public void testSingleThreadedNPlaneZMultiValueFaceting() throws Exception {
+    testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, MULTI_DV_FIELD, "multi_", 1);
+  }
+  public void testMultiThreadedNPlaneZMultiValueFaceting() throws Exception {
+    testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, MULTI_DV_FIELD, "multi_", 2);
+  }
+           // Possible fail with -Dtests.seed=319BCB8974E7AA81
+  public void testMultiThreadedNPlaneZMultiValueSparseFaceting() throws Exception {
+    testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, MULTI_DV_FIELD, "multi_", 2, "id:062", 1);
   }
 
   public void testTermsCount() throws Exception {
@@ -219,93 +233,110 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
           TERMS.split(",").length, getEntries(req, "int name..(" + PREFIX + "[^\"]*)").size());
     }
 
-    for (SparseKeys.COUNTER_IMPL impl: SparseKeys.COUNTER_IMPL.values()) {
-      //for (SparseKeys.COUNTER_IMPL impl: Arrays.asList(SparseKeys.COUNTER_IMPL.array)) {
-      SolrQueryRequest req = req("*:*");
-      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
-      params.set(FacetParams.FACET, true);
-      params.set(FacetParams.FACET_FIELD, String.format(Locale.ENGLISH, "{!terms=$%1$s__terms}%1$s", FIELD));
-      params.set(String.format(Locale.ENGLISH, "%s__terms", FIELD), TERMS);
-      params.set(FacetParams.FACET_LIMIT, LIMIT);
-      params.set(SparseKeys.SPARSE, true);
-      params.set(SparseKeys.COUNTER, impl.toString());
-      params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
-      params.set("indent", true);
-      req.setParams(params);
-      String sparse = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
-      assertEquals("Packed sparse faceting should give the expected number of results",
-          TERMS.split(",").length, getEntries(req, "int name..(" + PREFIX + "[^\"]*)").size());
-      assertEquals("Sparse counter implementation " + impl + " should match vanilla", vanilla, sparse);
+    for (double cutoff : new double[]{0.1, 1000}) {
+      for (SparseKeys.COUNTER_IMPL impl : SparseKeys.COUNTER_IMPL.values()) {
+        SolrQueryRequest req = req("*:*");
+        ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+        params.set(FacetParams.FACET, true);
+        params.set(FacetParams.FACET_FIELD, String.format(Locale.ENGLISH, "{!terms=$%1$s__terms}%1$s", FIELD));
+        params.set(String.format(Locale.ENGLISH, "%s__terms", FIELD), TERMS);
+        params.set(FacetParams.FACET_LIMIT, LIMIT);
+        params.set(SparseKeys.SPARSE, true);
+        params.set(SparseKeys.CUTOFF, "" + cutoff);
+        params.set(SparseKeys.COUNTER, impl.toString()); // Force sparse
+        params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+        params.set(SparseKeys.LOG_EXTENDED, true);
+        params.set("indent", true);
+        req.setParams(params);
+        String sparse = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+        assertEquals(
+            "Packed sparse faceting should give the expected number of results for " + impl + " with cutoff " + cutoff,
+            TERMS.split(",").length, getEntries(req, "int name..(" + PREFIX + "[^\"]*)").size());
+        assertEquals("Sparse counter implementation " + impl + " with cutoff " + cutoff + " should match vanilla",
+            vanilla, sparse);
+      }
     }
   }
 
   public void testFacetImplementation(
       SparseKeys.COUNTER_IMPL implementation, String field, String resultPrefix, int threads) throws Exception {
-    final int RUNS = 10;
+    testFacetImplementation(implementation, field, resultPrefix, threads, "*:*", -1);
+  }
+    public void testFacetImplementation(SparseKeys.COUNTER_IMPL implementation, String field, String resultPrefix,
+                                        int threads, String query, int expected) throws Exception {
+    final int RUNS = 10; // To raise the chance of triggering a race condition bug
     final int LIMIT = 10;
+    expected = expected == -1 ? LIMIT : expected;
 
-    for (int run = 1 ; run <= RUNS ; run++) {
-      String dry;
-      { // Dry run
-        SolrQueryRequest req = req("*:*");
-        ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
-        params.set(FacetParams.FACET, true);
-        params.set(FacetParams.FACET_FIELD, field);
-        params.set(FacetParams.FACET_LIMIT, LIMIT);
-        params.set(SparseKeys.SPARSE, false);
-        params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.array.toString());
-        params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
-        params.set("indent", true);
-        req.setParams(params);
-        dry = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
-        assertEquals("Plain sparse faceting should give the expected number of results in run #" + run,
-            LIMIT, getEntries(req, "int name..(" + resultPrefix + "[^\"]*)").size());
-      }
+    for (int run = 1; run <= RUNS; run++) {
+      for (int minTags: new int[]{1, 1000000}) { // non-sparse, sparse
+        String dry;
+        { // Dry run
+//          System.out.println(">>> dry run " + run);
+          SolrQueryRequest req = req(query);
+          ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+          params.set(FacetParams.FACET, true);
+          params.set(FacetParams.FACET_FIELD, field);
+          params.set(FacetParams.FACET_LIMIT, LIMIT);
+          params.set(FacetParams.FACET_MINCOUNT, 1);
+          params.set(SparseKeys.SPARSE, false);
+          params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.array.toString());
+          params.set(SparseKeys.MINTAGS, minTags);
+          params.set("indent", true);
+          req.setParams(params);
+          dry = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+//          assertEquals("Plain sparse faceting " + " with minTags=" + minTags + " should give the expected number of "
+//                  + "results in run #" + run + "\n" + dry,
+//              expected, getEntries(req, "int name..(" + resultPrefix + "[^\"]*)").size());
+          // The actual number of multi is random
+        }
 
-      String special;
-      { // Special impl non-threaded
-        SolrQueryRequest req = req("*:*");
-        ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
-        params.set(FacetParams.FACET, true);
-        params.set(FacetParams.FACET_FIELD, field);
-        params.set(FacetParams.FACET_LIMIT, LIMIT);
-        params.set(SparseKeys.SPARSE, true);
-        params.set(SparseKeys.COUNTER, implementation.toString());
-        params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
-        params.set("indent", true);
-        req.setParams(params);
-        special = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
-        assertEquals("Dual plane sparse faceting on " + field + " should give the expected number of results in run "
-            + run,
-            LIMIT, getEntries(req, "int name..(" + resultPrefix + "[^\"]*)").size());
-        assertEquals("The result from single threaded " + implementation + " faceting on " + field
-            + " should match expected in run " + run,
-            dry, special);
-      }
-
-      String specialT;
-      if (threads > 1) { // Special impl threaded
-        SolrQueryRequest req = req("*:*");
-        ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
-        params.set(FacetParams.FACET, true);
-        params.set(FacetParams.FACET_FIELD, field);
-        params.set(FacetParams.FACET_LIMIT, LIMIT);
-        params.set(SparseKeys.SPARSE, true);
-        params.set(SparseKeys.COUNTER, implementation.toString());
-        params.set(SparseKeys.COUNTING_THREADS, threads);
-        params.set(SparseKeys.COUNTING_THREADS_MINDOCS, 2);
-        params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
-        params.set("indent", true);
-        req.setParams(params);
-        specialT = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
-        assertEquals(
-            implementation + " sparse faceting with " + threads + " threads on field " + field + " should give the "
-                + "expected number of results in run " + run,
-            LIMIT, getEntries(req, "int name..(" + resultPrefix + "[^\"]*)").size());
-        assertEquals(
-            "The result from " + threads + " threaded " + implementation + " faceting on " + field
-                + " should match expected in run " + run,
-            dry, specialT);
+//        System.out.println(">>> single run " + run);
+        String special;
+        { // Special impl non-threaded
+          SolrQueryRequest req = req(query);
+          ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+          params.set(FacetParams.FACET, true);
+          params.set(FacetParams.FACET_FIELD, field);
+          params.set(FacetParams.FACET_LIMIT, LIMIT);
+          params.set(FacetParams.FACET_MINCOUNT, 1);
+          params.set(SparseKeys.SPARSE, true);
+          params.set(SparseKeys.COUNTER, implementation.toString());
+          params.set(SparseKeys.MINTAGS, minTags);
+          params.set(SparseKeys.CUTOFF, 10000);
+          params.set(SparseKeys.LOG_EXTENDED, true);
+          params.set("indent", true);
+          req.setParams(params);
+          special = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+          assertEquals("The result from single threaded " + implementation + " faceting on " + field
+                  + " with minTags=" + minTags + " should match expected in run " + run,
+              dry, special);
+        }
+//        System.out.println(">>> multi " + threads + " run " + run);
+        String specialT;
+        if (threads > 1) { // Special impl threaded
+          SolrQueryRequest req = req(query);
+          ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+          params.set(FacetParams.FACET, true);
+          params.set(FacetParams.FACET_FIELD, field);
+          params.set(FacetParams.FACET_LIMIT, LIMIT);
+          params.set(FacetParams.FACET_MINCOUNT, 1);
+          params.set(SparseKeys.SPARSE, true);
+          params.set(SparseKeys.COUNTER, implementation.toString());
+          params.set(SparseKeys.COUNTING_THREADS, threads);
+          params.set(SparseKeys.COUNTING_THREADS_MINDOCS, 2);
+          params.set(SparseKeys.MINTAGS, minTags);
+          params.set(SparseKeys.CUTOFF, 10000);
+          params.set(SparseKeys.LOG_EXTENDED, true);
+          params.set("indent", true);
+//          params.set("debug", "timing");
+          req.setParams(params);
+          specialT = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+          assertEquals(
+              "The result from " + threads + " threaded " + implementation + " faceting on " + field
+                  + " with minTags=" + minTags + " should match expected in run " + run,
+              dry, specialT);
+        }
       }
     }
   }
