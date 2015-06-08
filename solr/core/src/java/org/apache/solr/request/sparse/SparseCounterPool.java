@@ -1,5 +1,3 @@
-package org.apache.solr.request.sparse;
-
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
  * contributor license agreements.  See the NOTICE file distributed with
@@ -16,18 +14,27 @@ package org.apache.solr.request.sparse;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.apache.solr.request.sparse;
 
+import org.apache.lucene.util.BytesRefArray;
+import org.apache.lucene.util.packed.DualPlaneMutable;
+import org.apache.lucene.util.packed.PackedInts;
+import org.apache.lucene.util.packed.PackedOpportunistic;
+import org.apache.solr.common.util.NamedList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.text.DecimalFormat;
+import java.text.NumberFormat;
+import java.util.ArrayList;
 import java.util.LinkedList;
+import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.Callable;
 import java.util.concurrent.FutureTask;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-
-import org.apache.lucene.util.BytesRefArray;
-import org.apache.lucene.util.packed.PackedInts;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Maintains a pool of SparseCounters, taking care of allocation, used counter clearing and re-use.
@@ -66,6 +73,14 @@ public class SparseCounterPool {
    * cleanup-action before it returns, to avoid thread starvation in the thread pool.
    */
   private final LinkedList<ValueCounter> pool;
+
+  /**
+   * Holds a random instance of an instantiated counter to use as template.
+   * The counter might be in active use or in the pool.
+   * In reality this is only used by counters relying on NPlaneMutable.
+   */
+  private ValueCounter template = null;
+
   /**
    * The maximum amount of ValueCounters to keep in the pool.
    * If the setup is single-shard, the pool might not be fully filled is the background clearer is faster than the overall request rate.
@@ -86,66 +101,69 @@ public class SparseCounterPool {
   // The following properties are inherent to the searcher and should not change over the life of the pool, once updated.
   // maxCountForAny is a core property as it dictates both size & correctness of packed value counters.
   protected final String field;
+  protected final String description;
   private long maxCountForAny = -1;
   private long referenceCount = -1;
   private int maxDoc = -1;
   private int uniqueValues = -1;
   private boolean initialized = false;
 
+  private final List<TimeStat> timeStats = new ArrayList<>(); // Keeps track of all TimeStats and is used for debug & clears
+  private final List<NumStat> numStats = new ArrayList<>();   // Keeps track of all NumStats and is used for clears
+
   // Performance statistics
   private final TimeStat requestClears = new TimeStat("requestClear");
   private final TimeStat backgroundClears = new TimeStat("backgroundClear");
   private final TimeStat packedAllocations = new TimeStat("packedAllocation");
+  private final TimeStat nplaneAllocations = new TimeStat("nplaneAllocation");
   private final TimeStat intAllocations = new TimeStat("intAllocation");
+  private final TimeStat dualPlaneAllocations = new TimeStat("dualPlaneAllocation");
   private final TimeStat collections = new TimeStat("collect");
   private final TimeStat extractions = new TimeStat("extract");
   private final TimeStat resolvings = new TimeStat("resolve");
-
   private final TimeStat simpleFacetTotal = new TimeStat("simpleFacetTotal");
-  private final TimeStat termsListTotal = new TimeStat("termsListTotal");
-
-  private final TimeStat[] timeStats = new TimeStat[]{
-      requestClears, backgroundClears, packedAllocations, intAllocations, collections, extractions, resolvings,
-      simpleFacetTotal, termsListTotal};
+  private final TimeStat termsListTotal = new TimeStat("termsListFacetTotal");
+  private final TimeStat termsListLookup = new TimeStat("termsListLookup");
+  private final TimeStat termLookup = new TimeStat("termLookup", 1);
+  private final NumStat termLookupMissing = new NumStat("termLookupMissing");
+  public final TimeStat regexpMatches = new TimeStat("regexpChecks", 1);
 
   // Pool cleaning stats
-  private AtomicLong emptyReuses = new AtomicLong(0);
-  private AtomicLong filledReuses = new AtomicLong(0);
-  private AtomicLong filledFrees = new AtomicLong(0);
-  private AtomicLong emptyFrees = new AtomicLong(0);
+  private NumStat emptyReuses = new NumStat("emptyReuses");
+  private NumStat filledReuses = new NumStat("filledReuses");
+  private NumStat filledFrees = new NumStat("filledFrees");
+  private NumStat emptyFrees = new NumStat("emptyFrees");
 
   // Misc. stats
-  AtomicLong fallbacks = new AtomicLong(0);
-  String lastFallbackReason = "no fallbacks";
-  AtomicLong sparseTotalTime = new AtomicLong(0);
-  AtomicLong disables = new AtomicLong(0);
-  AtomicLong withinCutoffCount = new AtomicLong(0);
-  AtomicLong exceededCutoffCount = new AtomicLong(0);
+  NumStat disables = new NumStat("disables");
+  NumStat withinCutoffCount = new NumStat("withinCutoff");
+  NumStat exceededCutoffCount = new NumStat("exceededCutoff");
 
-  String lastTermsLookup = "N/A";
-  AtomicLong termsCountsLookups = new AtomicLong(0);
-  AtomicLong termsFallbackLookups = new AtomicLong(0);
+  String lastTermsListRequest = "N/A";
   String lastTermLookup = "N/A";
-  AtomicLong termCountsLookups = new AtomicLong(0);
-  AtomicLong termFallbackLookups = new AtomicLong(0);
 
-  AtomicLong cacheHits = new AtomicLong(0);
-  AtomicLong cacheMisses = new AtomicLong(0);
-
-  AtomicLong termTotalCountTime = new AtomicLong(0);
-  AtomicLong termTotalFallbackTime = new AtomicLong(0);
+  NumStat cacheHits = new NumStat("cacheHits");
+  NumStat cacheMisses = new NumStat("cacheMisses");
 
   /**
-   * The supervisor is shared between all pools under the same searcher. It normally has a single thread available for background cleaning.
+   * The supervisor is shared between all pools under the same searcher.
+   * It normally has a single thread available for background cleaning.
    */
   protected final ThreadPoolExecutor supervisor;
   private static final String NEEDS_CLEANING = "DIRTY";
 
   // Cached terms for fast ordinal lookup
   private BytesRefArray externalTerms = null;
+  // Optionally defined histogram of the number of counters with the given maxBits
+  private long[] histogram = null;
+  // Optionally defined histogram of the number of counters with the given bits needed by {@link NPlaneMutable}
+  // for setups with fast tracking on non-zero counters.
+  private long[] plusOneHistogram = null;
 
-  public SparseCounterPool(ThreadPoolExecutor janitorSupervisor, String field, int maxPoolSize, int minEmptyCounters) {
+  public SparseCounterPool(ThreadPoolExecutor janitorSupervisor, String field, String description,
+                           int maxPoolSize, int minEmptyCounters) {
     this.field = field;
+    this.description = description;
     supervisor = janitorSupervisor;
     this.maxPoolSize = maxPoolSize;
     this.minEmptyCounters = minEmptyCounters;
@@ -155,11 +173,12 @@ public class SparseCounterPool {
   /**
    * The field properties determine the layout of the sparse counters and is part of the sparse/non-sparse estimation.
    * This method must be called before calling {@link #acquire}.  It should only be called once.
-   * @param uniqueValues       the number of unique values in the field. This number must be specified and must be correct.
-   * @param maxCountForAny the maximum value that any individual counter can reach.  If this value is not determined, -1 should be used.
-   *                                           if -1 is specified, this number can be updated at a later time.
-   * @param maxDoc                the maxCount from the searcher.  Must be specified, should be correct.
-   * @param references            the number of references from documents to terms in the facet field.  Must be specified, should be correct.
+   * @param uniqueValues   the number of unique values in the field. This number must be specified and must be correct.
+   * @param maxCountForAny the maximum value that any individual counter can reach.  If this value is not determined,
+   *                       -1 should be used. If -1 is specified, this number can be updated at a later time.
+   * @param maxDoc         the maxCount from the searcher.  Must be specified, should be correct.
+   * @param references     the number of references from documents to terms in the facet field.  Must be specified,
+   *                       should be correct.
    */
   public synchronized void setFieldProperties(int uniqueValues, long maxCountForAny, int maxDoc, long references) {
     if (initialized) {
@@ -175,36 +194,26 @@ public class SparseCounterPool {
   /**
    * Delivers a counter ready for updates. The type of counter will be chosen based on uniqueTerms, maxCountForAny and
    * the general Sparse setup from sparseKeys. This is the recommended way to get sparse counters.
+   * </p><p>
+   * Note: It is possible that this returns null. This can only happen for implementation == nplane.
+   *       In that case, it is the responsibility of the caller to use {@link #addAndReturn instead}.
    * @param sparseKeys setup for the Sparse system as well as the specific call.
-   * @return a counter ready for updates.
+   * @param implementation the counter implementation to acquire.
+   * @return a counter ready for updates or null if a counter could not be created.
    */
-  public ValueCounter acquire(SparseKeys sparseKeys) {
-    if (!initialized) {
-      throw new IllegalStateException("The pool for field '" + field +
-          "' has not been initialized (call setFieldProperties for initialization)");
-    }
-    if (maxCountForAny <= 0 && sparseKeys.packed) {
-      // We have an empty facet. To avoid problems with the packed structure, we set the maxCountForAny to 1
-      maxCountForAny = 1;
-//      throw new IllegalStateException("Attempted to request sparse counter with maxCountForAny=" + maxCountForAny);
-    }
-    String structureKey = createStructureKey(sparseKeys);
-    synchronized (pool) {
-      // Did the structure change since last acquire (index updated)?
-      if (!structureKey.equals(this.structureKey) && !pool.isEmpty()) {
-        pool.clear();
-      }
-      this.structureKey = structureKey;
-    }
-
-    ValueCounter vc = getCounter(sparseKeys.cacheToken);
+  public ValueCounter acquire(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
+    ValueCounter vc = getCounter(sparseKeys, implementation);
     if (vc == null) { // Got nothing, so we allocate a new one
-      return createCounter(sparseKeys);
+      ValueCounter newCounter = createCounter(sparseKeys, implementation);
+      if (template == null) {
+        template = newCounter;
+      }
+      return newCounter;
     }
 
     if (sparseKeys.cacheToken == null) {
       if (vc.getContentKey() == null) { // Asked for empty, got empty
-        emptyReuses.incrementAndGet();
+        emptyReuses.inc();
         return vc;
       }
       // Asked for empty, got filled
@@ -215,46 +224,179 @@ public class SparseCounterPool {
     }
 
     if (vc.getContentKey() == null) { // Asked for filled, got empty
-      emptyReuses.incrementAndGet();
-      cacheMisses.incrementAndGet();
+      emptyReuses.inc();
+      cacheMisses.inc();
       return vc;
     } else if (sparseKeys.cacheToken.equals(vc.getContentKey())) { // Asked for filled, got match
-      cacheHits.incrementAndGet();
+      cacheHits.inc();
       return vc;
     }
     // Asked for filled, got wrong filled (might just be a NEEDS_CLEANING)
-    cacheMisses.incrementAndGet();
+    cacheMisses.inc();
     final long clearTime = System.nanoTime();
     vc.clear();
     requestClears.incRel(clearTime);
     return vc;
   }
 
-  private String createStructureKey(SparseKeys sparseKeys) {
-    return usePacked(sparseKeys) ?
-        SparseCounterPacked.createStructureKey(
-            uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked) :
-        SparseCounterInt.createStructureKey(uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction);
+  /**
+   * Provides the pool with a new counter created from the outside, registers the counter in the system and returns it.
+   *
+   * @param sparseKeys setup for the Sparse system as well as the specific call.
+   * @param implementation the implementation of the counter to add.
+   * @param newVC the counter to add.
+   * @param allocateStartTime marker set just before collecting needed statistics and allocating the counter.
+   * @return the given counter.
+   */
+  public ValueCounter addAndReturn(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation, ValueCounter newVC,
+                                   long allocateStartTime) {
+    // Checking for existing and potential reset of the structureKey and pool
+    ValueCounter vc = getCounter(sparseKeys, implementation);
+    if (vc != null) {
+      log.info("addAndReturn: An available counter " + vc.getClass().getSimpleName()
+          + " already existed, but was discarded");
+    }
+    template = newVC;
+    switch (implementation) {
+      case array:
+        intAllocations.incRel(allocateStartTime);
+        break;
+      case packed:
+        packedAllocations.incRel(allocateStartTime);
+        break;
+      case dualplane:
+        dualPlaneAllocations.incRel(allocateStartTime);
+        break;
+      case nplane:
+        nplaneAllocations.incRel(allocateStartTime);
+        break;
+      case nplanez:
+        nplaneAllocations.incRel(allocateStartTime);
+        break;
+      default: throw new UnsupportedOperationException(
+          "Unable to add statistics for counter implementation " + implementation);
+    }
+    return newVC;
   }
 
-  private boolean usePacked(SparseKeys sparseKeys) {
-    return ((sparseKeys.packed && maxCountForAny != -1 &&
-        PackedInts.bitsRequired(maxCountForAny) <= sparseKeys.packedLimit)) ||
-        maxCountForAny > Integer.MAX_VALUE;
+  private String createStructureKey(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
+    switch (implementation) {
+      case array:
+        return SparseCounterInt.createStructureKey(
+            uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction);
+      case packed:
+        return sparseKeys.countingThreads == 1 ?
+            SparseCounterPacked.createStructureKey(
+                uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked) :
+            SparseCounterThreaded.createStructureKey(
+                uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked,
+                sparseKeys.counter);
+      case dualplane:
+      case nplane: // TODO: Add split/spank/max etc
+        return SparseCounterThreaded.createStructureKey(
+            uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked,
+            sparseKeys.counter);
+      case nplanez:
+        return SparseCounterBitmap.createStructureKey(
+            uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked,
+            sparseKeys.counter);
+      default: throw new UnsupportedOperationException(
+          "Counter implementation '" + implementation + "' is not supported");
+    }
   }
 
-  private ValueCounter createCounter(SparseKeys sparseKeys) {
+  public boolean usePacked(SparseKeys sparseKeys) {
+    // TODO: Add support for the other counters
+    return sparseKeys.counter != SparseKeys.COUNTER_IMPL.array &&
+        (((maxCountForAny != -1 && PackedInts.bitsRequired(maxCountForAny) <= sparseKeys.packedLimit)) ||
+            maxCountForAny > Integer.MAX_VALUE);
+  }
+
+  private ValueCounter createCounter(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
     final long allocateTime = System.nanoTime();
     ValueCounter vc;
-    if (usePacked(sparseKeys)) {
-      vc = new SparseCounterPacked(
-          uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
-      packedAllocations.incRel(allocateTime);
-    } else {
-      vc = new SparseCounterInt(
-          uniqueValues, maxCountForAny == -1 ? Integer.MAX_VALUE : maxCountForAny, sparseKeys.minTags,
-          sparseKeys.fraction, sparseKeys.maxCountsTracked);
-      intAllocations.incRel(allocateTime);
+    switch (implementation) {
+      case array: {
+        vc = new SparseCounterInt(
+            uniqueValues, maxCountForAny == -1 ? Integer.MAX_VALUE : maxCountForAny, sparseKeys.minTags,
+            sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        intAllocations.incRel(allocateTime);
+        break;
+      }
+      case packed: {
+        if (sparseKeys.countingThreads == 1) {
+          vc = new SparseCounterPacked(
+              uniqueValues, maxCountForAny, sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        } else {
+          PackedInts.Mutable counts = PackedOpportunistic.create(uniqueValues, PackedInts.bitsRequired(maxCountForAny));
+          vc = new SparseCounterThreaded(implementation, counts, maxCountForAny, sparseKeys.minTags,
+              sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        }
+        packedAllocations.incRel(allocateTime);
+        break;
+      }
+      case dualplane: {
+        if (getHistogram() == null) {
+          throw new IllegalStateException(
+              "Attempted to allocate dualplane counter, but the required histogram did not exist");
+        }
+        PackedInts.Mutable counts = DualPlaneMutable.create(getHistogram());
+        vc = new SparseCounterThreaded(implementation, counts, maxCountForAny, sparseKeys.minTags,
+            sparseKeys.fraction, sparseKeys.maxCountsTracked);
+        dualPlaneAllocations.incRel(allocateTime);
+        break;
+      }
+      case nplane: {
+        synchronized (pool) {
+          // nplane needs a template in the form of an already existing nplane
+          if (template == null) {
+            return null; // The caller needs to create the counter from scratch
+          }
+          if (!(template instanceof SparseCounterThreaded)) {
+            throw new IllegalStateException(
+                "Logic error: nplane counting was requested and an a template existed, but the template was a "
+                    + template.getClass().getSimpleName() + " where " + SparseCounterThreaded.class.getSimpleName()
+                    + " was required");
+          }
+          SparseCounterThreaded scp = (SparseCounterThreaded)template;
+          if (scp.counterImpl != implementation) {
+            throw new IllegalStateException(
+                "Logic error: nplane counting was requested and an a template existed, but the template contained a "
+                    + "counter with implementation " + scp.counterImpl);
+          }
+
+          ValueCounter counter = scp.createSibling();
+          nplaneAllocations.incRel(allocateTime);
+          return counter;
+        }
+      }
+      case nplanez: {
+        synchronized (pool) {
+          // nplane needs a template in the form of an already existing nplane
+          if (template == null) {
+            return null; // The caller needs to create the counter from scratch
+          }
+          if (!(template instanceof SparseCounterBitmap)) {
+            throw new IllegalStateException(
+                "Logic error: nplanez counting was requested and an a template existed, but the template was a "
+                    + template.getClass().getSimpleName() + " where " + SparseCounterBitmap.class.getSimpleName()
+                    + " was required");
+          }
+          SparseCounterBitmap scp = (SparseCounterBitmap)template;
+          if (scp.counterImpl != implementation) {
+            throw new IllegalStateException(
+                "Logic error: nplanez counting was requested and an a template existed, but the template contained a "
+                    + "counter with implementation " + scp.counterImpl);
+          }
+
+          ValueCounter counter = scp.createSibling();
+          nplaneAllocations.incRel(allocateTime);
+          return counter;
+        }
+      }
+
+      default: throw new UnsupportedOperationException(
+          "Counter implementation '" + implementation + "' is not supported");
     }
     return vc;
   }
@@ -268,11 +410,11 @@ public class SparseCounterPool {
    */
   public void release(ValueCounter counter, SparseKeys sparseKeys) {
     if (counter.explicitlyDisabled()) {
-      disables.incrementAndGet();
+      disables.inc();
     }
     if (structureKey != null && !counter.getStructureKey().equals(structureKey)) {
       // Setup changed, cannot use the counter anymore
-      filledFrees.incrementAndGet();
+      filledFrees.inc();
       return;
     }
     if (counter.getContentKey() != null) {
@@ -284,6 +426,9 @@ public class SparseCounterPool {
     }
     synchronized (pool) {
       pool.add(counter);
+      if (template == null) {
+        template = counter;
+      }
     }
     triggerJanitor();
   }
@@ -296,10 +441,13 @@ public class SparseCounterPool {
     synchronized (pool) {
       if ((structureKey != null && !counter.getStructureKey().equals(structureKey)) || pool.size() >= maxPoolSize) {
         // Setup changed or pool full. Skip insert!
-        emptyFrees.incrementAndGet();
+        emptyFrees.inc();
         return;
       }
       pool.add(counter);
+      if (template == null) {
+        template = counter;
+      }
       structureKey = counter.getStructureKey();
     }
   }
@@ -401,50 +549,27 @@ public class SparseCounterPool {
   public void clear() {
     synchronized (pool) {
       pool.clear();
+      template = null;
       // TODO: Find a clean way to remove non-started tasks from the cleaner
       structureKey = "discardResultsFromBackgroundClears";
-      emptyReuses.set(0);
-      filledReuses.set(0);
-      // No reset of maxCountFor Any as it is potentially heavy to calculate
-//      maxCountForAny.set(-1);
-      filledFrees.set(0);
-      emptyFrees.set(0);
 
-      fallbacks.set(0);
-      sparseTotalTime.set(0);
-      withinCutoffCount.set(0);
-      disables.set(0);
-      exceededCutoffCount.set(0);
-      lastFallbackReason = "no fallbacks";
-
-      lastTermsLookup = "N/A";
-      termsCountsLookups.set(0);
-      termsFallbackLookups.set(0);
+      lastTermsListRequest = "N/A";
       lastTermLookup = "N/A";
-      termCountsLookups.set(0);
-      termFallbackLookups.set(0);
-
-      cacheHits.set(0);
-      cacheMisses.set(0);
-
-      termTotalCountTime.set(0);
-      termTotalFallbackTime.set(0);
 
       for (TimeStat ts: timeStats) {
         ts.clear();
       }
+      for (NumStat ns: numStats) {
+        ns.clear();
+      }
     }
   }
 
-  public void incFallbacks(String reason) {
-    fallbacks.incrementAndGet();
-    lastFallbackReason = reason;
-  }
   public void incWithinCount() {
-    withinCutoffCount.incrementAndGet();
+    withinCutoffCount.inc();
   }
   public void incExceededCount() {
-    exceededCutoffCount.incrementAndGet();
+    exceededCutoffCount.inc();
   }
   public void incCollectTimeRel(long startTimeNS) {
     collections.incRel(startTimeNS);
@@ -461,29 +586,16 @@ public class SparseCounterPool {
   public void incTermResolveTimeRel(long startTimeNS) {
     resolvings.incRel(startTimeNS);
   }
-  public void incTermsLookup(String terms, boolean countsStructure) {
-    lastTermsLookup = terms;
-    if (countsStructure) {
-      termsCountsLookups.incrementAndGet();
-    } else {
-      termsFallbackLookups.incrementAndGet();
-    }
+  public void incTermsListLookupRel(String terms, String lastTerm, int existing, int nonExisting, long startTimeNS) {
+    lastTermsListRequest = terms;
+    lastTermLookup = lastTerm;
+    termsListLookup.incRel(startTimeNS);
+    termLookup.incRel(existing, startTimeNS);
+    termLookupMissing.inc(nonExisting);
   }
 
   public long getMaxCountForAny() {
     return maxCountForAny;
-  }
-
-  // Nanoseconds
-  public void incTermLookup(String term, boolean countsStructure, long time) {
-    lastTermLookup = term;
-    if (countsStructure) {
-      termCountsLookups.incrementAndGet();
-      termTotalCountTime.addAndGet(time);
-    } else {
-      termFallbackLookups.incrementAndGet();
-      termTotalFallbackTime.addAndGet(time);
-    }
   }
 
   public String listCounters() {
@@ -505,40 +617,101 @@ public class SparseCounterPool {
   public String toString() {
     final int pendingClears = supervisor.getQueue().size() + supervisor.getActiveCount();
     final int poolSize = pool.size();
-    final int cleanerCoreSize = supervisor.getCorePoolSize();
+//    final int cleanerCoreSize = supervisor.getCorePoolSize();
     return String.format(
-        "sparse statistics: field(name=%s, uniqTerms=%d, maxDoc=%d, refs=%d, maxCountForAny=%d)," +
-            "%s, fallbacks=%d (last: %s), " + // simpleFacetTotal
+        "sparse statistics: field(name=%s, description='%s', uniqTerms=%d, maxDoc=%d, refs=%d, maxCountForAny=%d)," +
+            "%s, " + // simpleFacetTotal, fallbacks
             "%s, %s, %s, " + // collect, extract, resolve
-            "disables=%d,  withinCutoff=%d, " +
-            "exceededCutoff=%d, SCPool(cached=%d/%d, emptyReuses=%d, " +
-            "%s, %s, " + // packedAllocations, intAllocations
-
-            "%s, %s, currentBackgroundCleans=%d, " + // requestClears, backgroundClears
-            "cache(hits=%d, misses=%d)" +
-            "filledFrees=%d, emptyFrees=%d), terms(count=%d, fallback=%d, " +
-            "last#=%d), " +
-            "term(count=%d (%.1fms avg), fallback=%d (%.1fms avg), last=%s)",
-        field, uniqueValues, maxDoc, referenceCount, maxCountForAny,
-        simpleFacetTotal, fallbacks.get(), lastFallbackReason,
+            "%s, %s, " + // disables,  withinCutoff
+            "exceededCutoff=%d, SCPool(cached=%d/%d, currentBackgroundClears=%d, %s, " + // emptyReuses
+            "%s, %s, %s, %s, " + // packedAllocations, intAllocations, dualPlaneAllocations, nplaneAllocations
+            "%s, " + // regexpMatches
+            "%s, %s, " + // requestClears, backgroundClears
+            "cache(hits=%d, misses=%d, %s, %s), " + // filledFrees, emptyFrees
+            "terms(%s, last#=%d, %s, %s, last=%s, cached=%s)",  // termsListLookup, termLookup, termLookupMissing
+        field, description, uniqueValues, maxDoc, referenceCount, maxCountForAny,
+        simpleFacetTotal,
         collections, extractions, resolvings,
-        disables.get(), withinCutoffCount.get(),
-        exceededCutoffCount.get() - disables.get(), poolSize, maxPoolSize, emptyReuses.get(),
-        packedAllocations, intAllocations,
+        disables, withinCutoffCount,
+        exceededCutoffCount.get() - disables.get(), poolSize, maxPoolSize, pendingClears, emptyReuses,
+        packedAllocations, intAllocations, dualPlaneAllocations, nplaneAllocations,
+        regexpMatches,
+        requestClears, backgroundClears,
+        cacheHits.get(), cacheMisses.get(), filledFrees, emptyFrees,
+        termsListLookup, count(lastTermsListRequest, ','), termLookup, termLookupMissing, lastTermLookup,
+        externalTerms == null ? "no" : Integer.toString(externalTerms.size()));
+  }
 
-        requestClears, backgroundClears, pendingClears,
-        cacheHits.get(), cacheMisses.get(),
-        filledFrees.get(), emptyFrees.get(), termsCountsLookups.get(), termsFallbackLookups.get(),
-        lastTermsLookup.split(",").length,
-        termCountsLookups.get(), divMdouble(termTotalCountTime.get(), termCountsLookups.get()),
-        termFallbackLookups.get(), divMdouble(termTotalFallbackTime.get(), termFallbackLookups.get()), lastTermLookup);
+  public int getUniqueValues() {
+    return uniqueValues;
   }
-  final static int M = 1000000;
-  private long divMint(long numerator, long denominator) {
-    return denominator == 0 ? 0 : numerator / denominator / M;
+
+  public void setUniqueValues(int uniqueValues) {
+    this.uniqueValues = uniqueValues;
   }
-  private double divMdouble(long numerator, long denominator) {
-    return denominator == 0 ? 0 : numerator * 1.0 / denominator / M;
+
+  private int count(String str, char c) {
+    int count = 0;
+    for (int i = 0 ; i < str.length() ; i++) {
+      if (str.charAt(i) == c) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  public NamedList<Object> getStats() {
+    final NamedList<Object> stats = new NamedList<>();
+
+    {
+      final NamedList<Object> fieldStats = new NamedList<>();
+      fieldStats.add("name", field);
+      fieldStats.add("description", description);
+      fieldStats.add("uniqueTerms", uniqueValues);
+      fieldStats.add("maxDoc", maxDoc);
+      fieldStats.add("references", referenceCount);
+      fieldStats.add("maxCountForAny", maxCountForAny);
+      stats.add("field", fieldStats);
+    }
+    {
+      final NamedList<Object> perf = new NamedList<>();
+      for (TimeStat ts: timeStats) {
+        ts.debug(perf);
+      }
+      perf.add("currentBackgroundCleans", supervisor.getQueue().size() + supervisor.getActiveCount());
+      stats.add("performance", perf);
+    }
+    {
+      final NamedList<Object> calls = new NamedList<>();
+      disables.debug(calls);
+      withinCutoffCount.debug(calls);
+      exceededCutoffCount.debug(calls);
+      stats.add("calls", calls);
+    }
+    {
+      final NamedList<Object> cache = new NamedList<>();
+      cache.add("content", pool.size() + "/" + maxPoolSize);
+      emptyReuses.debug(cache);
+      emptyFrees.debug(cache);
+      filledReuses.debug(cache);
+      filledFrees.debug(cache);
+      stats.add("cache", cache);
+    }
+    {
+      final NamedList<Object> terms = new NamedList<>();
+      //"terms(%s, last#=%d, %s, %s, last=%s)",  // termsListLookup, termLookup, termLookupMissing
+      termsListLookup.debug(terms);
+      terms.add("termsListLookupLastCount", count(lastTermsListRequest, ','));
+      termLookup.debug(terms);
+      termLookupMissing.debug(terms);
+      terms.add("termLookupLast", lastTermLookup);
+      terms.add("cached", externalTerms == null ? "None" : Integer.toString(externalTerms.size()));
+      stats.add("termLookups", terms);
+    }
+
+    final NamedList<Object> statsWrap = new NamedList<>();
+    statsWrap.add(field, stats);
+    return statsWrap;
   }
 
   /**
@@ -546,19 +719,46 @@ public class SparseCounterPool {
    * If there is nothing to do, the Janitor will finish very quickly.
    */
   private void triggerJanitor() {
-    supervisor.execute(new FutureTask<ValueCounter>(new SparsePoolJanitor()));
+    supervisor.execute(new FutureTask<>(new SparsePoolJanitor()));
   }
 
   public void setMinEmptyCounters(int minEmptyCounters) {
     this.minEmptyCounters = minEmptyCounters;
   }
 
-        // Find the best candidate for re-use. Priority chain is:
-        // - Matching cache-key
-        // - Empty counter
-        // - NEEDS_CLEANING
-        // - Filled counter, with non-matching cache-key
+  /**
+   * Locates the best matching counter and return it. Order of priority is<br/>
+   * Filled counter matching the given contentKey (if contentKey is != null)<br/>
+   * Empty counter<br/>
+   * Counter marked {@link #NEEDS_CLEANING}<br/>
+   * Filled counter not matching contentKey.
+   * @param sparseKeys description of the counter needed.
+   * @return a counter removed from the pool if the pool is {@code !pool.isEmpty()}.
+   */
+  private ValueCounter getCounter(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
+    checkConsistency(sparseKeys, implementation);
+    return getCounter(sparseKeys.cacheToken);
+  }
 
+  private void checkConsistency(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
+    if (!initialized) {
+      throw new IllegalStateException("The pool for field '" + field +
+          "' has not been initialized (call setFieldProperties for initialization)");
+    }
+    if (maxCountForAny <= 0 && sparseKeys.counter != SparseKeys.COUNTER_IMPL.array) {
+      // We have an empty facet. To avoid problems with the packed structure, we set the maxCountForAny to 1
+      maxCountForAny = 1;
+    }
+    String structureKey = createStructureKey(sparseKeys, implementation);
+    synchronized (pool) {
+      // Did the structure change since last acquire (index updated)?
+      if (!structureKey.equals(this.structureKey)) {
+        pool.clear();
+        template = null;
+      }
+      this.structureKey = structureKey;
+    }
+  }
 
   /**
    * Locates the best matching counter and return it. Order of priority is<br/>
@@ -636,9 +836,9 @@ public class SparseCounterPool {
           }
           pool.remove(candidate);
           if (candidate.getContentKey() == null) {
-            emptyFrees.incrementAndGet();
+            emptyFrees.inc();
           } else {
-            filledFrees.incrementAndGet();
+            filledFrees.inc();
           }
           continue;
         }
@@ -660,6 +860,22 @@ public class SparseCounterPool {
       }
     }
     return null;
+  }
+
+  public long[] getHistogram() {
+    return histogram;
+  }
+
+  public void setHistogram(long[] histogram) {
+    this.histogram = histogram;
+  }
+
+  public void setPlusOneHistogram(long[] plusOneHistogram) {
+    this.plusOneHistogram = plusOneHistogram;
+  }
+
+  public long[] getPlusOneHistogram() {
+    return plusOneHistogram;
   }
 
   /**
@@ -696,30 +912,96 @@ public class SparseCounterPool {
   /**
    * Helper class for tracking calls and time spend on a task.
    */
-  private class TimeStat {
-    private final String name;
+  public class TimeStat {
+    public final String name;
+    public final int fractionDigits;
+    public final NumberFormat numberFormat;
     private long calls = 0;
     private long ns = 0;
-    private final long M = 1000000;
+    private long lastNS = -1000000;
+    private final double M = 1000000.0;
 
     private TimeStat(String name) {
+      this(name, 0);
+    }
+
+    public TimeStat(String name, int fractionDigits) {
       this.name = name;
+      this.fractionDigits = fractionDigits;
+      numberFormat = DecimalFormat.getInstance(Locale.ENGLISH);
+      numberFormat.setMinimumFractionDigits(fractionDigits);
+      numberFormat.setMaximumFractionDigits(fractionDigits);
+      timeStats.add(this);
     }
-    public synchronized void incRel(long startTimeNS) {
+
+    public synchronized void incRel(final long startTimeNS) {
       calls++;
-      ns += (System.nanoTime() - startTimeNS);
+      lastNS = System.nanoTime() - startTimeNS;
+      ns += lastNS;
     }
-    public synchronized void incAbs(long measuredTimeNS) {
-      calls++;
-      ns += measuredTimeNS;
+    public synchronized void incRel(final int calls, final long startTimeNS) {
+      this.calls += calls;
+      final long totNS = System.nanoTime() - startTimeNS;
+      if (calls != 0) {
+        lastNS = totNS / calls;
+      }
+      ns += totNS;
     }
     public synchronized void clear() {
       calls = 0;
       ns = 0;
+      lastNS = -1000000;
     }
 
     public synchronized String toString() {
-      return name + "(calls=" + calls + ", avg=" + (calls == 0 ? "N/A" : ns / M / calls) + ", tot=" + ns / M + ")";
+      return name + "(" + stats() + ")";
+    }
+    public String stats() {
+      if (calls == 0) {
+        return "calls=0";
+      }
+      return "calls=" + calls + ", avg=" + avg() + "ms" + ", total=" + numberFormat.format(ns / M) +
+          "ms, last=" + numberFormat.format(lastNS / M) + "ms";
+    }
+
+    private String avg() {
+      return calls == 0 ? "N/A" : numberFormat.format(ns / M / calls);
+    }
+
+    public void debug(NamedList<Object> debug) {
+      debug.add(name, stats());
+    }
+  }
+  
+  private class NumStat {
+    public final String name;
+    private AtomicLong calls = new AtomicLong(0);
+
+    private NumStat(String name) {
+      this.name = name;
+      numStats.add(this);
+    }
+    
+    public void inc() {
+      calls.incrementAndGet();
+    }
+    public void inc(long delta) {
+      calls.addAndGet(delta);
+    }
+    public long get() {
+      return calls.get();
+    }
+    
+    public void clear() {
+      calls.set(0);
+    }
+    
+    public String toString() {
+      return name + "=" + calls.get();
+    }
+
+    public void debug(NamedList<Object> debug) {
+      debug.add(name, calls.get());
     }
   }
 }

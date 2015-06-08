@@ -1,27 +1,26 @@
-<!--
-  Licensed to the Apache Software Foundation (ASF) under one or more
-  contributor license agreements.  See the NOTICE file distributed with
-  this work for additional information regarding copyright ownership.
-  The ASF licenses this file to You under the Apache License, Version 2.0
-  (the "License"); you may not use this file except in compliance with
-  the License.  You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
-  Unless required by applicable law or agreed to in writing, software
-  distributed under the License is distributed on an "AS IS" BASIS,
-  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  See the License for the specific language governing permissions and
-  limitations under the License.
-  -->
-
 <!doctype html public "-//w3c//dtd html 4.0 transitional//en">
+<!--
+ Licensed to the Apache Software Foundation (ASF) under one or more
+ contributor license agreements.  See the NOTICE file distributed with
+ this work for additional information regarding copyright ownership.
+ The ASF licenses this file to You under the Apache License, Version 2.0
+ (the "License"); you may not use this file except in compliance with
+ the License.  You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+-->
 <html>
 <head>
    <meta http-equiv="Content-Type" content="text/html; utf-8">
 </head>
 <body>
-<!-- <h2> -->
+<h2>
 <p>
 Helper classes for sparse faceting. See <a href="https://issues.apache.org/jira/browse/SOLR-5894">SOLR-5894</a> for initial JIRA issue.
 </p>
@@ -31,7 +30,7 @@ Field Cache faceting with Strings and sort=count uses a counter for each unique 
 </p><p>
 The sparse counters holds a counter for each unique facet value together with a smaller pointer list. The pointers are indexes in the counter list. When a counter is increased for the first time, its index is added to the pointer list. When it is time to iterate the updated counters, only the counters referenced in the pointer list are visited. Aster usage, the counters are cleaned by setting the updated counters to 0 and the length of the pointer list to 0.
 </p><p>
-If the number of updated counters exceed the pointer list size, the whole counter structure is marked as non-sparse and iteration will be done over all counters. The time spend maintaining the pointer structure up to that point is the wasted, so sparse faceting attempts to guess if this will happen. Under the naï¿½ve assumption that references from documents to field values are of uniform distribution, the formula <code>hitcount/maxdoc*total_references</code> is used to calculate the expected number of updated counters. If this exceeds the number of allocated pointers, the counter structure is marked as non-sparse from the beginning. See <a href="http://sbdevel.wordpress.com/2014/04/04/sparse-facet-counting-without-the-downsides/">Sparse facet counting without the downsides</a> for details.
+If the number of updated counters exceed the pointer list size, the whole counter structure is marked as non-sparse and iteration will be done over all counters. The time spend maintaining the pointer structure up to that point is the wasted, so sparse faceting attempts to guess if this will happen. Under the naïve assumption that references from documents to field values are of uniform distribution, the formula <code>hitcount/maxdoc*total_references</code> is used to calculate the expected number of updated counters. If this exceeds the number of allocated pointers, the counter structure is marked as non-sparse from the beginning. See <a href="http://sbdevel.wordpress.com/2014/04/04/sparse-facet-counting-without-the-downsides/">Sparse facet counting without the downsides</a> for details.
 </p>
 
 <h2>Counter caching</h2>

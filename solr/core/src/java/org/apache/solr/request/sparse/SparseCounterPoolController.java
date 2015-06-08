@@ -17,6 +17,11 @@ package org.apache.solr.request.sparse;
  * limitations under the License.
  */
 
+import org.apache.solr.common.util.NamedList;
+import org.apache.solr.search.CacheRegenerator;
+import org.apache.solr.search.SolrCache;
+import org.apache.solr.search.SolrIndexSearcher;
+
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.LinkedHashMap;
@@ -25,11 +30,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import org.apache.solr.common.util.NamedList;
-import org.apache.solr.search.CacheRegenerator;
-import org.apache.solr.search.SolrCache;
-import org.apache.solr.search.SolrIndexSearcher;
 
 /**
  * Keeps track of all SparseCounterPools used by the Sparse faceting system.
@@ -81,10 +81,10 @@ public class SparseCounterPoolController implements SolrCache<String, SparseCoun
    * @param maxPoolSize the maximum size of the pool for the field.
    * @return a pool of {@link ValueCounter}s.
    */
-  public SparseCounterPool acquire(String field, int maxPoolSize, int minEmptyCounters) {
+  public SparseCounterPool acquire(String field, String description, int maxPoolSize, int minEmptyCounters) {
     SparseCounterPool pool = pools.get(field);
     if (pool == null) {
-      pool = new SparseCounterPool(janitorSupervisor, field, maxPoolSize, minEmptyCounters);
+      pool = new SparseCounterPool(janitorSupervisor, field, description, maxPoolSize, minEmptyCounters);
       pools.put(field, pool);
     } else {
       pool.setMaxPoolSize(maxPoolSize);

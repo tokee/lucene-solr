@@ -17,26 +17,27 @@ package org.apache.solr.request.sparse;
  * limitations under the License.
  */
 
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+
+import org.apache.lucene.util.Incrementable;
+import org.apache.lucene.util.packed.NPlaneMutable;
 import org.apache.lucene.util.packed.PackedInts;
 
 /**
- * Re-usable sparse counter. Works on the same principle as {@link SparseCounterInt}, but uses
- * a PackedInts.Mutable instead of an int[] for counting. This means less memory overhead and in some cases a
- * performance overhead.
- * </p><p>
- * This class is optionally thread safe with regard to increments.
- * </p><p>
- * Tight-loop methods are final to help the compiler make optimizations.
+ * Re-usable sparse counter. A mirror of {@link org.apache.solr.request.sparse.SparseCounterPacked} with thread-safe
+ * increments and sets. For single-threaded usage, this class is slower than SparseCounterPacked.
  */
-public class SparseCounterPacked implements ValueCounter {
-  private final PackedInts.Mutable counts;  // One counter/tag
+public class SparseCounterThreaded implements ValueCounter {
+  final PackedInts.Mutable counts;  // One counter/tag
+  private final Incrementable countsInc; // Wrapper around or same-reference as counts
   private final int[] tracker; // Tracker not PackedInts.Mutable as it should be relatively small
   private final int tracksMax; // The maximum amount of trackers (tracker.length)
-  // TODO: Remove the zero counter as it is replaced by missing
-  private long zeroCounter = 0; // The counter at index 0 is special as it can exceed the maxValue of {@link #counts}
+  public final SparseKeys.COUNTER_IMPL counterImpl; // Used for key generation
 
-  private int tracksPos;       // The current amount of tracker entries. Setting this to 0 works as a tracker clear
-  private int missing = 0;
+  // The current amount of tracker entries. Setting this to 0 works as a tracker clear
+  private AtomicInteger tracksPos = new AtomicInteger(0);
+  private AtomicLong missing = new AtomicLong(0);
 
   private final long maxCountForAny;    // The maximum count that it is possible to reach. Intended to PackedInts
   private final int minCountsForSparse; // The minimum amount of unique tags in order to perform sparse tracking at all
@@ -47,28 +48,35 @@ public class SparseCounterPacked implements ValueCounter {
   private String contentKey = null;
 
   /**
-   * @param counts            the number of counts to track.
-   * @param maxCountForAny    the maximum amount any count can reach.
+   * @param counts            a update-thread-safe counter. Must implement {@link org.apache.lucene.util.Incrementable}.
+   * @param maxCountGlobal    the maximum amount any count can reach.
    * @param minCountsForSparse count must be >= this in order for sparse counting to be activated.
    * @param fraction          the cut-off point between sparse and non-sparse counting.
-   * @param maxCountTracked   if any count reaches this number, it is not tracked anymore. -1 disables this.
+   * @param maxCountExplicit  if any count reaches this number, it is not tracked anymore. -1 disables this.
    *                          if specified, it is highly recommended to set this to 2^n-1, with 7, 255 and 65535
    *                          being the fastest.
    */
-  public SparseCounterPacked(
-      int counts, long maxCountForAny, int minCountsForSparse, double fraction, long maxCountTracked) {
-    //this.counts = PackedInts.getMutable(counts, PackedInts.bitsRequired(maxCountForAny), PackedInts.FAST);
-    this.counts = PackedInts.getMutable(counts, PackedInts.bitsRequired(
-        maxCountTracked == -1 ? maxCountForAny : Math.min(maxCountTracked, maxCountForAny)), PackedInts.FAST);
-    this.maxCountForAny = maxCountForAny;
+  public SparseCounterThreaded(SparseKeys.COUNTER_IMPL counterImpl, PackedInts.Mutable counts, long maxCountGlobal,
+                               int minCountsForSparse, double fraction, long maxCountExplicit) {
+    this.counterImpl = counterImpl;
+    this.counts = counts;
+    if (!(counts instanceof Incrementable)) {
+      throw new UnsupportedOperationException("The given counter must implement Incrementable but was " + counts);
+    }
+    this.countsInc = (Incrementable)counts;
+    this.maxCountForAny = maxCountGlobal;
     this.minCountsForSparse = minCountsForSparse;
     this.fraction = fraction;
-    this.maxCountTracked = maxCountTracked;
-    if (counts < minCountsForSparse) {
+    this.maxCountTracked = maxCountExplicit;
+    if (maxCountExplicit != -1 && maxCountExplicit != Integer.MAX_VALUE && !countsInc.hasCompareAndSet()) {
+      throw new IllegalArgumentException("The given counter does not support compareAndGet and maxCountTracked was "
+          + maxCountExplicit + ". Explicit maxCountTracked requires compareAndGet: " + counts);
+    }
+    if (counts.size() < minCountsForSparse) {
       tracksMax = 0;
       tracker = null;
     } else {
-      tracksMax = (int) (counts * fraction);
+      tracksMax = (int) (counts.size() * fraction);
 //      tracker = PackedInts.getMutable(tracksMax, PackedInts.bitsRequired(counts), PackedInts.FAST);
       tracker = new int[tracksMax];
     }
@@ -76,20 +84,23 @@ public class SparseCounterPacked implements ValueCounter {
 
   @Override
   public ValueCounter createSibling() {
-    SparseCounterPacked newCounter = new SparseCounterPacked(
-        counts.size(), maxCountForAny, minCountsForSparse, fraction, maxCountTracked);
+    SparseCounterThreaded newCounter = new SparseCounterThreaded(
+        counterImpl, NPlaneMutable.newFromTemplate(counts), maxCountForAny, minCountsForSparse,
+        fraction, maxCountTracked);
     newCounter.setContentKey(getContentKey());
     return newCounter;
   }
 
   /*
-   * Constructs an ID which is unique for the given layout. Used for lookup of cached counters in
-   * {@link SparseCounterPool}.
-   */
+     * Constructs an ID which is unique for the given layout. Used for lookup of cached counters in
+     * {@link SparseCounterPool}.
+     */
   public static String createStructureKey(
-      int counts, long maxCountForAny, int minCountForSparse, double fraction, long maxCountTracked) {
-    return "SparseCounterPacked(counts" + counts + "maxCountForAny" + maxCountForAny
-        + "minCountsForSparse" + minCountForSparse + "fraction" + fraction + "maxCountTracked" + maxCountTracked + ")";
+      int counts, long maxCountForAny, int minCountForSparse, double fraction, long maxCountTracked,
+      SparseKeys.COUNTER_IMPL counter) {
+    return "SparseCounterThreaded(counts" + counts + "maxCountForAny" + maxCountForAny
+        + "minCountsForSparse" + minCountForSparse + "fraction" + fraction + "maxCountTracked" + maxCountTracked
+        + "counter=" + counter +")";
   }
 
   /**
@@ -98,7 +109,8 @@ public class SparseCounterPacked implements ValueCounter {
   @Override
   public String getStructureKey() {
     //return SparseCounter.createStructureKey(counts.size(), maxCountForAny, minCountsForSparse, fraction);
-    return SparseCounterPacked.createStructureKey(counts.size(), maxCountForAny, minCountsForSparse, fraction, maxCountTracked);
+    return SparseCounterThreaded.createStructureKey(counts.size(), maxCountForAny,
+        minCountsForSparse, fraction, maxCountTracked, counterImpl);
   }
 
   /**
@@ -106,90 +118,79 @@ public class SparseCounterPacked implements ValueCounter {
    * @param counter the index of the counter to increment.
    */
   @Override
+  // This implementation has the potential of adding multiple identical entries to the
+  // tracking structure for high contention multi-threading.
+  // This only affects performance, not validity of the end result.
   public final void inc(int counter) {
-    if (counter == 0) {
-      zeroCounter++;
-      if (zeroCounter == 1 && tracksPos != tracksMax) {
-        tracker[tracksPos++] = counter;
-      }
-      return;
-    }
-
-    final long oldValue = counts.get(counter);
-    if (maxCountTracked == -1 || oldValue != maxCountTracked) {
-      counts.set(counter, oldValue+1);
-      if (oldValue == 0 && tracksPos != tracksMax) {
-        tracker[tracksPos++] = counter;
-      }
-    }
-  }
-
-
-
-  @Override
-  public boolean hasThreadSafeInc() {
-    return false;
-  }
-  /**
-   * Increments the given counter with the given value.
-   * If the value added is negative and the counter reaches 0, it will still be treated as an updated counter by the
-   * sparse logic. This has no impact on functionality and will only result in a minuscule decrease of performance.
-   * @param counter the index of the counter to increment.
-   * @param value   the value to add to the counter.
-   */
-  private void inc(int counter, long value) {
-    if (counter == 0) {
-      zeroCounter += value;
-      if (zeroCounter == value && tracksPos != tracksMax) {
-        tracker[tracksPos++] = counter;
-      }
-      return;
-    }
-
-    long oldValue = counts.get(counter);
+    // No explicit max set for the for counters (this is the standard case)
     if (maxCountTracked == -1) {
-      counts.set(counter, oldValue+value);
-      if (oldValue == 0 && tracksPos != tracksMax) {
-        tracker[tracksPos++] = counter;
+      if (tracksPos.get() >= tracksMax) {
+       // The tracker has been exceeded or disabled, so we just update the value (very fast)
+        countsInc.increment(counter);
+        return;
       }
-    } else {
-      final int newVal = (int) (oldValue + value);
-      counts.set(counter, newVal > maxCountTracked ? maxCountTracked : newVal);
-      if (oldValue == 0 && tracksPos != tracksMax) {
-        tracker[tracksPos++] = counter;
+      // We want to track changes to counters to maintain the sparse structure
+
+      if (countsInc.incrementStatus(counter) == Incrementable.STATUS.wasZero) {
+        // This is the first update of the counter, so we add it to the tracker
+        final int oldTracksPos = tracksPos.getAndIncrement();
+        if (oldTracksPos < tracksMax) {
+          tracker[oldTracksPos] = counter;
+        }
       }
+      return;
+    }
+
+    // There is an explicit max (facet.sparse.maxtracked). We must avoid blowing through
+    // the ceiling
+    while (true) {
+      final long oldValue = counts.get(counter);
+      if (oldValue >= maxCountTracked) { // Max reached: Skip update
+        return;
+      }
+      // Try to set the increased counter value opportunistically
+      if (!countsInc.compareAndSet(counter, oldValue, oldValue+1)) {
+        // There was a collision; another thread updated the counter before we did: Start over
+        continue;
+      }
+      if (oldValue == 0 && tracksPos.get() < tracksMax) {
+        // This was the first update of the counter: Track it
+        final int oldTracksPos = tracksPos.getAndIncrement();
+        if (oldTracksPos < tracksMax) {
+          tracker[oldTracksPos] = counter;
+        }
+      }
+      break;
     }
   }
 
   @Override
   public void incMissing() {
-    missing++;
+    missing.incrementAndGet();
   }
 
   @Override
   public long getMissing() {
-    return missing;
+    return missing.get();
+  }
+
+  @Override
+  public boolean hasThreadSafeInc() {
+    return false;
   }
 
   @Override
   public final void set(int counter, long value) {
-    if (counter == 0) {
-      long oldValue = zeroCounter;
-      zeroCounter = value;
-      if (oldValue == 0 && tracksPos != tracksMax) {
-        tracker[tracksPos++] = counter;
-      }
-      return;
-    }
-
+    // getAndSet would be nice here to guard against double tracking with concurrent
+    // setting of a value to the same counter
     long oldValue = counts.get(counter);
-    if (maxCountTracked == -1) {
-      counts.set(counter, value);
-    } else {
-      counts.set(counter, value > maxCountTracked ? maxCountTracked : value);
-    }
-    if (oldValue == 0 && value != 0 && tracksPos != tracksMax) {
-      tracker[tracksPos++] = counter;
+    counts.set(counter, value);
+    if (oldValue == 0) {
+      // Update tracker
+      final int oldTracksPos = tracksPos.getAndIncrement();
+      if (oldTracksPos < tracksMax) {
+        tracker[oldTracksPos] = 0;
+      }
     }
   }
 
@@ -199,17 +200,16 @@ public class SparseCounterPacked implements ValueCounter {
    */
   @Override
   public void clear() {
-    if (tracksPos == tracksMax) {
+    if (tracksPos.get() >= tracksMax) {
       counts.clear();
     } else {
-      for (int i = 0 ; i < tracksPos ; i++) {
+      for (int i = 0 ; i < tracksPos.get() ; i++) {
         counts.set(tracker[i],  0);
       }
     }
     explicitlyDisabled = false;
-    tracksPos = 0;
-    zeroCounter = 0;
-    missing = 0;
+    tracksPos.set(0);
+    missing.set(0);
     setContentKey(null);
   }
 
@@ -238,7 +238,7 @@ public class SparseCounterPacked implements ValueCounter {
    */
   @Override
   public final long get(int counter) {
-    return counter == 0 ? zeroCounter : counts.get(counter);
+    return counts.get(counter);
   }
 
   // This code should be kept in sync with SparseCounterInt.iterate
@@ -251,7 +251,7 @@ public class SparseCounterPacked implements ValueCounter {
           start, end, minValue, size()));
     }
 
-    if (tracksPos == tracksMax || doNegative) { // Not sparse or very big (normally the same thing)
+    if (tracksPos.get() >= tracksMax || doNegative) { // Not sparse or very big (normally the same thing)
       callback.setOrdered(true);
       for (int counter = start ; counter < end ; counter++) {
         final long value = get(counter);
@@ -266,7 +266,7 @@ public class SparseCounterPacked implements ValueCounter {
     callback.setOrdered(false);
     boolean filled = false;
     final int sparseMinValue = Math.max(minValue, 1);
-    for (int t = 0 ; t < tracksPos ; t++) {
+    for (int t = 0 ; t < tracksPos.get() ; t++) {
       final int counter = tracker[t];
       long value = get(counter);
       if (counter >= start && counter <= end && value >= sparseMinValue) {
@@ -291,7 +291,7 @@ public class SparseCounterPacked implements ValueCounter {
    */
   @Override
   public void disableSparseTracking() {
-    tracksPos = tracksMax;
+    tracksPos.set(tracksMax);
     explicitlyDisabled = true;
   }
 
@@ -302,7 +302,7 @@ public class SparseCounterPacked implements ValueCounter {
 
   @Override
   public String toString() {
-    return "SparseCounterPacked(counts=" + counts.size() + ", bpv=" + counts.getBitsPerValue()
+    return "SparseCounterThreaded(counter=" + counts + ", counts=" + counts.size() + ", bpv=" + counts.getBitsPerValue()
         + ", trackers=" + tracksPos + "/" + tracksMax + ", maxCountForAny=" + maxCountForAny
         + ", minCountsForSparse=" + minCountsForSparse + ", fraction=" + fraction + ", explicitly disabled="
         + explicitlyDisabled + ')';
