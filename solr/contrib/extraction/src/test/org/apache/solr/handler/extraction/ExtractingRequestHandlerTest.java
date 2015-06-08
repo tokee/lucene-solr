@@ -107,6 +107,8 @@ public class ExtractingRequestHandlerTest extends SolrTestCaseJ4 {
     //assertQ(req("+id:simple2 +t_content_type:[* TO *]"), "//*[@numFound='1']");
     assertQ(req("+id:simple2 +t_href:[* TO *]"), "//*[@numFound='1']");
     assertQ(req("+id:simple2 +t_abcxyz:[* TO *]"), "//*[@numFound='1']");
+    assertQ(req("+id:simple2 +t_content:serif"), "//*[@numFound='0']"); // make sure <style> content is excluded
+    assertQ(req("+id:simple2 +t_content:blur"), "//*[@numFound='0']"); // make sure <script> content is excluded
 
     // load again in the exact same way, but boost one field
     loadLocal("extraction/simple.html",
@@ -122,16 +124,6 @@ public class ExtractingRequestHandlerTest extends SolrTestCaseJ4 {
     assertQ(req("t_href:http"), "//*[@numFound='2']");
     assertQ(req("t_href:http"), "//doc[1]/str[.='simple3']");
     assertQ(req("+id:simple3 +t_content_type:[* TO *]"), "//*[@numFound='1']");//test lowercase and then uprefix
-
-    // test capture
-     loadLocal("extraction/simple.html",
-      "literal.id","simple4",
-      "uprefix", "t_",
-      "capture","p",     // capture only what is in the title element
-      "commit", "true"
-    );
-    assertQ(req("+id:simple4 +t_content:Solr"), "//*[@numFound='1']");
-    assertQ(req("+id:simple4 +t_p:\"here is some text\""), "//*[@numFound='1']");
 
     loadLocal("extraction/version_control.xml", "fmap.created", "extractedDate", "fmap.producer", "extractedProducer",
             "fmap.creator", "extractedCreator", "fmap.Keywords", "extractedKeywords",
@@ -183,6 +175,33 @@ public class ExtractingRequestHandlerTest extends SolrTestCaseJ4 {
 
   }
 
+  @Test
+  public void testCapture() throws Exception {
+    loadLocal("extraction/simple.html",
+        "literal.id","capture1",
+        "uprefix","t_",
+        "capture","div",
+        "fmap.div", "foo_t",
+        "commit", "true"
+    );
+    assertQ(req("+id:capture1 +t_content:Solr"), "//*[@numFound='1']");
+    assertQ(req("+id:capture1 +foo_t:\"here is some text in a div\""), "//*[@numFound='1']");
+
+    loadLocal("extraction/simple.html",
+        "literal.id", "capture2",
+        "captureAttr", "true",
+        "defaultField", "text",
+        "fmap.div", "div_t",
+        "fmap.a", "anchor_t",
+        "capture", "div",
+        "capture", "a",
+        "commit", "true"
+    );
+    assertQ(req("+id:capture2 +text:Solr"), "//*[@numFound='1']");
+    assertQ(req("+id:capture2 +div_t:\"here is some text in a div\""), "//*[@numFound='1']");
+    assertQ(req("+id:capture2 +anchor_t:http\\://www.apache.org"), "//*[@numFound='1']");
+    assertQ(req("+id:capture2 +anchor_t:link"), "//*[@numFound='1']");
+  }
 
   @Test
   public void testDefaultField() throws Exception {
@@ -284,6 +303,74 @@ public class ExtractingRequestHandlerTest extends SolrTestCaseJ4 {
     assertU(commit());
     assertQ(req("extractionLiteral:one"), "//*[@numFound='1']");
 
+  }
+
+  public void testLiteralDefaults() throws Exception {
+
+    // sanity check config
+    loadLocalFromHandler("/update/extract/lit-def",
+                         "extraction/simple.html",
+                         "literal.id", "lit-def-simple");
+    assertU(commit());
+    assertQ(req("q", "id:lit-def-simple")
+            , "//*[@numFound='1']"
+            , "count(//arr[@name='foo_s']/str)=1"
+            , "//arr[@name='foo_s']/str[.='x']"
+            , "count(//arr[@name='bar_s']/str)=1"
+            , "//arr[@name='bar_s']/str[.='y']"
+            , "count(//arr[@name='zot_s']/str)=1"
+            , "//arr[@name='zot_s']/str[.='z']"
+            ); 
+    
+    // override the default foo_s
+    loadLocalFromHandler("/update/extract/lit-def",
+                         "extraction/simple.html",
+                         "literal.foo_s", "1111",
+                         "literal.id", "lit-def-simple");
+    assertU(commit());
+    assertQ(req("q", "id:lit-def-simple")
+            , "//*[@numFound='1']"
+            , "count(//arr[@name='foo_s']/str)=1"
+            , "//arr[@name='foo_s']/str[.='1111']"
+            , "count(//arr[@name='bar_s']/str)=1"
+            , "//arr[@name='bar_s']/str[.='y']"
+            , "count(//arr[@name='zot_s']/str)=1"
+            , "//arr[@name='zot_s']/str[.='z']"
+            ); 
+
+    // pre-pend the bar_s
+    loadLocalFromHandler("/update/extract/lit-def",
+                         "extraction/simple.html",
+                         "literal.bar_s", "2222",
+                         "literal.id", "lit-def-simple");
+    assertU(commit());
+    assertQ(req("q", "id:lit-def-simple")
+            , "//*[@numFound='1']"
+            , "count(//arr[@name='foo_s']/str)=1"
+            , "//arr[@name='foo_s']/str[.='x']"
+            , "count(//arr[@name='bar_s']/str)=2"
+            , "//arr[@name='bar_s']/str[.='2222']"
+            , "//arr[@name='bar_s']/str[.='y']"
+            , "count(//arr[@name='zot_s']/str)=1"
+            , "//arr[@name='zot_s']/str[.='z']"
+            ); 
+
+    // invariant zot_s can not be changed
+    loadLocalFromHandler("/update/extract/lit-def",
+                         "extraction/simple.html",
+                         "literal.zot_s", "3333",
+                         "literal.id", "lit-def-simple");
+    assertU(commit());
+    assertQ(req("q", "id:lit-def-simple")
+            , "//*[@numFound='1']"
+            , "count(//arr[@name='foo_s']/str)=1"
+            , "//arr[@name='foo_s']/str[.='x']"
+            , "count(//arr[@name='bar_s']/str)=1"
+            , "//arr[@name='bar_s']/str[.='y']"
+            , "count(//arr[@name='zot_s']/str)=1"
+            , "//arr[@name='zot_s']/str[.='z']"
+            ); 
+    
   }
 
   @Test
@@ -390,14 +477,25 @@ public class ExtractingRequestHandlerTest extends SolrTestCaseJ4 {
     ExtractingRequestHandler handler = (ExtractingRequestHandler) h.getCore().getRequestHandler("/update/extract");
     assertTrue("handler is null and it shouldn't be", handler != null);
     SolrQueryResponse rsp = loadLocal("extraction/example.html",
-            ExtractingParams.XPATH_EXPRESSION, "/xhtml:html/xhtml:body/xhtml:a/descendant:node()",
+            ExtractingParams.XPATH_EXPRESSION, "/xhtml:html/xhtml:body/xhtml:a/descendant::node()",
             ExtractingParams.EXTRACT_ONLY, "true"
     );
     assertTrue("rsp is null and it shouldn't be", rsp != null);
     NamedList list = rsp.getValues();
     String val = (String) list.get("example.html");
-    val = val.trim();
-    assertTrue(val + " is not equal to " + "linkNews", val.equals("linkNews") == true);//there are two <a> tags, and they get collapesd
+    assertEquals("News", val.trim()); //there is only one matching <a> tag
+
+    loadLocal("extraction/example.html",
+        "literal.id", "example1",
+        "captureAttr", "true",
+        "defaultField", "text",
+        "capture", "div",
+        "fmap.div", "foo_t",
+        "boost.foo_t", "3",
+        "xpath", "/xhtml:html/xhtml:body/xhtml:div//node()",
+        "commit", "true"
+    );
+    assertQ(req("+id:example1 +foo_t:\"here is some text in a div\""), "//*[@numFound='1']");
   }
 
   /** test arabic PDF extraction is functional */
@@ -608,7 +706,9 @@ public class ExtractingRequestHandlerTest extends SolrTestCaseJ4 {
     assertQ(req("wdf_nocase:\"Test password protected word doc\""), "//*[@numFound='2']");
   }
   
-  SolrQueryResponse loadLocal(String filename, String... args) throws Exception {
+  SolrQueryResponse loadLocalFromHandler(String handler, String filename, 
+                                         String... args) throws Exception {
+                              
     LocalSolrQueryRequest req = (LocalSolrQueryRequest) req(args);
     try {
       // TODO: stop using locally defined streams once stream.file and
@@ -616,10 +716,14 @@ public class ExtractingRequestHandlerTest extends SolrTestCaseJ4 {
       List<ContentStream> cs = new ArrayList<>();
       cs.add(new ContentStreamBase.FileStream(getFile(filename)));
       req.setContentStreams(cs);
-      return h.queryAndResponse("/update/extract", req);
+      return h.queryAndResponse(handler, req);
     } finally {
       req.close();
     }
+  }
+
+  SolrQueryResponse loadLocal(String filename, String... args) throws Exception {
+    return loadLocalFromHandler("/update/extract", filename, args);
   }
 
 

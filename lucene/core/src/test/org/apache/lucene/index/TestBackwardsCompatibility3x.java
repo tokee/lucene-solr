@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Random;
 
 import org.apache.lucene.analysis.MockAnalyzer;
+import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.document.BinaryDocValuesField;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.DoubleDocValuesField;
@@ -53,6 +54,9 @@ import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.store.BaseDirectoryWrapper;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.IOContext;
+import org.apache.lucene.store.IndexOutput;
+import org.apache.lucene.store.MockDirectoryWrapper;
 import org.apache.lucene.store.RAMDirectory;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
@@ -1012,6 +1016,73 @@ public class TestBackwardsCompatibility3x extends LuceneTestCase {
       writer.addDocument(new Document());
       writer.commit();
       writer.close();
+      dir.close();
+    }
+  }
+
+  // LUCENE-6279
+  public void testLeftoverUpgradedFile() throws Exception {
+    Directory dir = newDirectory(random(), oldIndexDirs.get("362.cfs"));
+    if (dir instanceof MockDirectoryWrapper) {
+      // We intentionally double-write the upgrade marker file:
+      ((MockDirectoryWrapper) dir).setPreventDoubleWrite(false);
+    }
+    IndexWriter writer = new IndexWriter(dir, newIndexWriterConfig(new MockAnalyzer(random())));
+
+    // Create errant leftover file, after opening IW but before closing IW:
+    IndexOutput out = dir.createOutput("_0_upgraded.si", IOContext.DEFAULT);
+    CodecUtil.writeHeader(out, "SegmentInfo3xUpgrade", 0);
+    out.close();
+
+    writer.addDocument(new Document());
+    writer.close();
+
+    // Causes FNFE on _0.si during check index before the fix:
+    dir.close();
+  }
+
+  // LUCENE-6287: copy this back to a 3.6.x checkout, run it, then cd to
+  // the index dir and run "zip manysegments.362.zip *" and copy to this dir:
+  /*
+  public void testCreateManySegmentsIndex() throws Exception {
+    // we use a real directory name that is not cleaned up, because this method is only used to create backwards indexes:
+    File indexDir = new File(LuceneTestCase.TEMP_DIR, "manysegments");
+    System.out.println("TEST: indexDir " + indexDir);
+    _TestUtil.rmDir(indexDir);
+    Directory dir = newFSDirectory(indexDir);
+    IndexWriterConfig conf = new IndexWriterConfig(TEST_VERSION_CURRENT, new WhitespaceAnalyzer(TEST_VERSION_CURRENT))
+      .setMaxBufferedDocs(2);
+    TieredMergePolicy tmp = (TieredMergePolicy) conf.getMergePolicy();
+    tmp.setSegmentsPerTier(1000);
+    tmp.setFloorSegmentMB(.0000001);
+    IndexWriter writer = new IndexWriter(dir, conf);
+    //writer.setInfoStream(System.out);
+    
+    for(int i=0;i<200;i++) {
+      Document doc = new Document();
+      doc.add(new Field("content", "doc " + i, Field.Store.YES, Field.Index.ANALYZED, Field.TermVector.WITH_POSITIONS_OFFSETS));
+      writer.addDocument(doc);
+    }
+    assertEquals("wrong doc count", 200, writer.maxDoc());
+    writer.close();
+    dir.close();
+  }
+  */
+
+  static final String manySegments3xIndex = "manysegments.362.zip";
+
+  // LUCENE-6287
+  public void testMergeDuringUpgrade() throws Exception {
+    // NOTE: this fails only rarely
+    for(int i=0;i<10;i++) {
+      File indexPath = createTempDir("manysegments.362");
+      TestUtil.unzip(getDataFile(manySegments3xIndex), indexPath);
+      Directory dir = newFSDirectory(indexPath);
+      IndexWriterConfig conf = new IndexWriterConfig(TEST_VERSION_CURRENT, new MockAnalyzer(random()));
+      IndexWriter writer = new IndexWriter(dir, conf);
+      writer.addDocument(new Document());
+      writer.commit();
+      writer.rollback();
       dir.close();
     }
   }

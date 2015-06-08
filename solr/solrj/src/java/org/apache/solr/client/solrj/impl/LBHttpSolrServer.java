@@ -221,7 +221,12 @@ public class LBHttpSolrServer extends SolrServer {
     this.parser = parser;
     if (httpClient == null) {
       ModifiableSolrParams params = new ModifiableSolrParams();
-      params.set(HttpClientUtil.PROP_USE_RETRY, false);
+      if (solrServerUrl.length > 1) {
+        // we prefer retrying another server
+        params.set(HttpClientUtil.PROP_USE_RETRY, false);
+      } else {
+        params.set(HttpClientUtil.PROP_USE_RETRY, true);
+      }
       this.httpClient = HttpClientUtil.createClient(params);
     } else {
       this.httpClient = httpClient;
@@ -470,7 +475,7 @@ public class LBHttpSolrServer extends SolrServer {
     Map<String,ServerWrapper> justFailed = null;
 
     for (int attempts=0; attempts<maxTries; attempts++) {
-      int count = counter.incrementAndGet();      
+      int count = counter.incrementAndGet() & Integer.MAX_VALUE;
       ServerWrapper wrapper = serverList[count % serverList.length];
       wrapper.lastUsed = System.currentTimeMillis();
 

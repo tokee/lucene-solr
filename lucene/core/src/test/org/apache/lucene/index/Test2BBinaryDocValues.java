@@ -25,19 +25,20 @@ import org.apache.lucene.store.ByteArrayDataInput;
 import org.apache.lucene.store.ByteArrayDataOutput;
 import org.apache.lucene.store.MockDirectoryWrapper;
 import org.apache.lucene.util.BytesRef;
-import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Monster;
 import org.apache.lucene.util.LuceneTestCase.SuppressCodecs;
+import org.apache.lucene.util.LuceneTestCase.SuppressSysoutChecks;
+import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.TimeUnits;
-
 import com.carrotsearch.randomizedtesting.annotations.TimeoutSuite;
 
 @SuppressCodecs({"SimpleText", "Memory", "Direct", "Lucene3x"})
 @TimeoutSuite(millis = 80 * TimeUnits.HOUR)
 @Monster("takes ~ 45 minutes")
+@SuppressSysoutChecks(bugUrl = "Stuff gets printed.")
 public class Test2BBinaryDocValues extends LuceneTestCase {
   
-  // indexes Integer.MAX_VALUE docs with a fixed binary field
+  // indexes IndexWriter.MAX_DOCS docs with a fixed binary field
   public void testFixedBinary() throws Exception {
     BaseDirectoryWrapper dir = newFSDirectory(createTempDir("2BFixedBinary"));
     if (dir instanceof MockDirectoryWrapper) {
@@ -58,7 +59,7 @@ public class Test2BBinaryDocValues extends LuceneTestCase {
     BinaryDocValuesField dvField = new BinaryDocValuesField("dv", data);
     doc.add(dvField);
     
-    for (int i = 0; i < Integer.MAX_VALUE; i++) {
+    for (int i = 0; i < IndexWriter.MAX_DOCS; i++) {
       bytes[0] = (byte)(i >> 24);
       bytes[1] = (byte)(i >> 16);
       bytes[2] = (byte)(i >> 8);
@@ -96,7 +97,7 @@ public class Test2BBinaryDocValues extends LuceneTestCase {
     dir.close();
   }
   
-  // indexes Integer.MAX_VALUE docs with a variable binary field
+  // indexes IndexWriter.MAX_DOCS docs with a variable binary field
   public void testVariableBinary() throws Exception {
     BaseDirectoryWrapper dir = newFSDirectory(createTempDir("2BVariableBinary"));
     if (dir instanceof MockDirectoryWrapper) {
@@ -118,7 +119,7 @@ public class Test2BBinaryDocValues extends LuceneTestCase {
     BinaryDocValuesField dvField = new BinaryDocValuesField("dv", data);
     doc.add(dvField);
     
-    for (int i = 0; i < Integer.MAX_VALUE; i++) {
+    for (int i = 0; i < IndexWriter.MAX_DOCS; i++) {
       encoder.reset(bytes);
       encoder.writeVInt(i % 65535); // 1, 2, or 3 bytes
       data.length = encoder.getPosition();

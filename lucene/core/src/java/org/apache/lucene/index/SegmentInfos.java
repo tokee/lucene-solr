@@ -342,6 +342,7 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
     try {
       final int format = input.readInt();
       final int actualFormat;
+      long totalDocs = 0;
       if (format == CodecUtil.CODEC_MAGIC) {
         // 4.0+
         actualFormat = CodecUtil.checkHeaderNoMagic(input, "segments", VERSION_40, VERSION_49);
@@ -357,6 +358,7 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
           //System.out.println("SIS.read seg=" + seg + " codec=" + codec);
           SegmentInfo info = codec.segmentInfoFormat().getSegmentInfoReader().read(directory, segName, IOContext.READ);
           info.setCodec(codec);
+          totalDocs += info.getDocCount();
           long delGen = input.readLong();
           int delCount = input.readInt();
           if (delCount < 0 || delCount > info.getDocCount()) {
@@ -415,6 +417,7 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
         Codec codec = Codec.forName("Lucene3x");
         for (SegmentCommitInfo info : this) {
           info.info.setCodec(codec);
+          totalDocs += info.info.getDocCount();
         }
       }
 
@@ -427,6 +430,11 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
           throw new CorruptIndexException("checksum mismatch in segments file (resource: " + input + ")");
         }
         CodecUtil.checkEOF(input);
+      }
+
+      // LUCENE-6299: check we are in bounds
+      if (totalDocs > IndexWriter.getActualMaxDocs()) {
+        throw new CorruptIndexException("Too many documents: an index cannot exceed " + IndexWriter.getActualMaxDocs() + " but readers have total maxDoc=" + totalDocs + " (resource: " + input + ")");
       }
 
       success = true;
@@ -508,7 +516,7 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
         assert si.dir == directory;
 
         // If this segment is pre-4.x, perform a one-time
-        // "ugprade" to write the .si file for it:
+        // "upgrade" to write the .si file for it:
         Version version = si.getVersion();
         if (version == null || version.onOrAfter(Version.LUCENE_4_0_0_ALPHA) == false) {
 
@@ -566,6 +574,14 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   private static boolean segmentWasUpgraded(Directory directory, SegmentInfo si) {
     // Check marker file:
     String markerFileName = IndexFileNames.segmentFileName(si.name, "upgraded", Lucene3xSegmentInfoFormat.UPGRADED_SI_EXTENSION);
+
+    // LUCENE-6279: don't rely solely on existence of the marker file; also require that we see the marker
+    // file in our si.files(), which means we did previously at least attempt to write it:
+    if (si.files().contains(markerFileName) == false) {
+      return false;
+    }
+
+    // Also verify the marker file exists and has the proper header:
     IndexInput in = null;
     try {
       in = directory.openInput(markerFileName, IOContext.READONCE);
@@ -580,6 +596,7 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
         IOUtils.closeWhileHandlingException(in);
       }
     }
+
     return false;
   }
 
@@ -1155,11 +1172,13 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   /** Returns sum of all segment's docCounts.  Note that
    *  this does not include deletions */
   public int totalDocCount() {
-    int count = 0;
+    long count = 0;
     for(SegmentCommitInfo info : this) {
       count += info.info.getDocCount();
     }
-    return count;
+    // we should never hit this, checks should happen elsewhere...
+    assert count <= IndexWriter.getActualMaxDocs();
+    return (int) count;
   }
 
   /** Call this before committing if changes have been made to the
