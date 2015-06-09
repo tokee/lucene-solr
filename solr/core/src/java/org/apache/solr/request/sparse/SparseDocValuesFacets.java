@@ -45,8 +45,10 @@ import org.apache.lucene.search.Filter;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefArray;
+import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.CharsRef;
 import org.apache.lucene.util.Counter;
+import org.apache.lucene.util.LongValues;
 import org.apache.lucene.util.UnicodeUtil;
 import org.apache.lucene.util.packed.NPlaneMutable;
 import org.apache.lucene.util.packed.PackedInts;
@@ -245,7 +247,7 @@ public class SparseDocValuesFacets {
       int sortedIdxEnd = queue.size() + 1;
       final long[] sorted = queue.sort(collectCount);
 
-      BytesRef br = new BytesRef(10);
+      BytesRef br = new BytesRef();
       for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
         long pair = sorted[i];
         int c = (int)(pair >>> 32);
@@ -336,6 +338,10 @@ public class SparseDocValuesFacets {
      */
     public Lookup cloneToThread() throws IOException {
       return new Lookup(searcher, schemaField);
+    }
+
+    public int getGlobalOrd(int subIndex, int term) {
+      return ordinalMap == null ? term : (int) ordinalMap.getGlobalOrds(subIndex).get(term);
     }
   }
 
@@ -466,7 +472,7 @@ public class SparseDocValuesFacets {
         if (schemaField.multiValued()) {
           SortedSetDocValues sub = leaf.reader().getSortedSetDocValues(fieldName);
           if (sub == null) {
-            sub = DocValues.EMPTY_SORTED_SET;
+            sub = DocValues.emptySortedSet();
           }
           final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
           if (singleton != null) {
@@ -480,7 +486,7 @@ public class SparseDocValuesFacets {
         } else {
           SortedDocValues sub = leaf.reader().getSortedDocValues(fieldName);
           if (sub == null) {
-            sub = DocValues.EMPTY_SORTED;
+            sub = DocValues.emptySorted();
           }
           refCount.addAndGet(accumSingle(sparseKeys, counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex,
               lookup, System.nanoTime()-startTime));
@@ -521,17 +527,21 @@ public class SparseDocValuesFacets {
         // Fill term cache
         brf = new BytesRefArray(Counter.newCounter()); // TODO: Incorporate this in the overall counters
         for (int ord = 0; ord < si.getValueCount(); ord++) {
-          si.lookupOrd(ord, br);
+          br = si.lookupOrd(ord);
           ft.indexedToReadable(br, charsRef);
           brf.append(new BytesRef(charsRef)); // Is the object allocation avoidable?
         }
         pool.setExternalTerms(brf);
       }
-      return brf.get(br, ordinal).utf8ToString();
+      // TODO: make more efficient by not creating BytesRefBuilder all the time and pass as input param?
+      BytesRefBuilder brb = new BytesRefBuilder();
+      brb.append(br);
+      return brf.get(brb, ordinal).utf8ToString();
+//      return brf.get(br, ordinal).utf8ToString();
     }
     pool.setExternalTerms(null); // Make sure the memory is freed
     // No cache, so lookup directly
-    si.lookupOrd(ordinal, br);
+    br = si.lookupOrd(ordinal);
     ft.indexedToReadable(br, charsRef);
     return charsRef.toString();
   }
@@ -726,7 +736,7 @@ public class SparseDocValuesFacets {
       docs++;
       int term = si.getOrd(doc);
       if (lookup.ordinalMap != null && term >= 0) {
-        term = (int) lookup.ordinalMap.getGlobalOrd(subIndex, term);
+        term = lookup.getGlobalOrd(subIndex, term);
       }
       int arrIdx = term-startTermIndex;
       if (arrIdx>=0 && arrIdx<counts.size()) {
@@ -756,7 +766,7 @@ public class SparseDocValuesFacets {
       SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedSetDocValues ssi, DocIdSetIterator disi,
       int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS) throws IOException {
     final long startTime = System.nanoTime();
-    if (ssi == DocValues.EMPTY_SORTED_SET) {
+    if (ssi == DocValues.emptySortedSet()) {
       return 0; // Nothing to process; return immediately
     }
     int doc;
@@ -784,9 +794,7 @@ public class SparseDocValuesFacets {
       }
 
       do {
-        if (lookup.ordinalMap != null) {
-          term = (int) lookup.ordinalMap.getGlobalOrd(subIndex, term);
-        }
+        term = lookup.getGlobalOrd(subIndex, term);
         int arrIdx = term - startTermIndex;
 
         if (arrIdx >= 0 && arrIdx < counts.size()) {

@@ -102,6 +102,7 @@ import org.apache.solr.request.LocalSolrQueryRequest;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.request.SolrRequestInfo;
 import org.apache.solr.request.UnInvertedField;
+import org.apache.solr.request.sparse.SparseCounterPool;
 import org.apache.solr.request.sparse.SparseCounterPoolController;
 import org.apache.solr.request.sparse.SparseKeys;
 import org.apache.solr.response.SolrQueryResponse;
@@ -273,7 +274,8 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable,SolrIn
       if (documentCache!=null) clist.add(documentCache);
 
       if (solrConfig.userCacheConfigs == null) {
-        cacheMap = noGenericCaches;
+//        cacheMap = noGenericCaches;
+        cacheMap = new HashMap<>(); // We always need the SparseCounterPoolController so we cannot use a shared map
       } else {
         cacheMap = new HashMap<>(solrConfig.userCacheConfigs.length);
         for (CacheConfig userCacheConfig : solrConfig.userCacheConfigs) {
@@ -292,7 +294,8 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable,SolrIn
       queryResultCache=null;
       documentCache=null;
       fieldValueCache=null;
-      cacheMap = noGenericCaches;
+//      cacheMap = noGenericCaches;
+      cacheMap = new HashMap<>(); // We always need the SparseCounterPoolController so we cannot use a shared map
       cacheList= noCaches;
     }
 

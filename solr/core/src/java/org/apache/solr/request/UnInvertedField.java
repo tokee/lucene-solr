@@ -239,12 +239,6 @@ public class UnInvertedField extends DocTermOrds {
     }
 
     final boolean isProbablySparse = pool.isProbablySparse(baseSize, sparseKeys);
-    if (!isProbablySparse && sparseKeys.fallbackToBase) { // Fallback to standard
-      pool.incFallbacks(pool.getNotSparseReason(baseSize, sparseKeys));
-      return termList == null ?
-          getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, pool, field, termList, baseDocs);
-    }
 
     long sparseTotalTime = System.nanoTime();
     use.incrementAndGet();
@@ -378,14 +372,19 @@ public class UnInvertedField extends DocTermOrds {
     return res;
   }
 
-  private CountedTerms countTerms(
+  public CountedTerms countTerms(
       SolrIndexSearcher searcher, TermsEnum te, String prefix, SparseCounterPool pool,
       DocSet docs, SparseKeys sparseKeys, int baseSize, int maxDoc, boolean isProbablySparse)
       throws IOException {
     final int[] index = this.index;
     // tricky: we add more more element than we need because we will reuse this array later
     // for ordering term ords before converting to term labels.
-    final ValueCounter counts = pool.acquire(sparseKeys);
+
+    // TODO: Add support for threading and other counters
+    final ValueCounter counts = pool.acquire(sparseKeys,
+        sparseKeys.counter == SparseKeys.COUNTER_IMPL.array ||
+            (sparseKeys.counter == SparseKeys.COUNTER_IMPL.auto && !pool.usePacked(sparseKeys)) ?
+            SparseKeys.COUNTER_IMPL.array : SparseKeys.COUNTER_IMPL.packed);
     if (!isProbablySparse) {
       counts.disableSparseTracking();
     }
@@ -413,20 +412,20 @@ public class UnInvertedField extends DocTermOrds {
     }
 
     /***********
-     // Alternative 2: get the docSet of the prefix (could take a while) and
-     // then do the intersection with the baseDocSet first.
-     if (prefix != null && prefix.length() > 0) {
-     docs = searcher.getDocSet(new ConstantScorePrefixQuery(new Term(field, ft.toInternal(prefix))), docs);
-     // The issue with this method are problems of returning 0 counts for terms w/o
-     // the prefix.  We can't just filter out those terms later because it may
-     // mean that we didn't collect enough terms in the queue (in the sorted case).
-     }
-     ***********/
+    // Alternative 2: get the docSet of the prefix (could take a while) and
+    // then do the intersection with the baseDocSet first.
+    if (prefix != null && prefix.length() > 0) {
+      docs = searcher.getDocSet(new ConstantScorePrefixQuery(new Term(field, ft.toInternal(prefix))), docs);
+      // The issue with this method are problems of returning 0 counts for terms w/o
+      // the prefix.  We can't just filter out those terms later because it may
+      // mean that we didn't collect enough terms in the queue (in the sorted case).
+    }
+    ***********/
 
     long sparseCollectTime = System.nanoTime();
     boolean doNegative = baseSize > maxDoc >> 1 && termInstances > 0
-        && startTerm==0 && endTerm==numTermsInField
-        && docs instanceof BitDocSet;
+            && startTerm==0 && endTerm==numTermsInField
+            && docs instanceof BitDocSet;
 
     if (doNegative) {
       FixedBitSet bs = ((BitDocSet)docs).getBits().clone();
@@ -534,19 +533,25 @@ public class UnInvertedField extends DocTermOrds {
   private NamedList<Integer> extractSpecificCounts(
       CountedTerms countedTerms, SparseCounterPool pool, String termList, boolean doNegative, DocSet docs)
       throws IOException {
-    pool.incTermsLookup(termList, true);
+    final long startTime = System.nanoTime();
+    int existingTerms = 0;
+
     FieldType ft = searcher.getSchema().getFieldType(field);
     List<String> terms = StrUtils.splitSmart(termList, ",", true);
     NamedList<Integer> res = new NamedList<>();
     for (String term : terms) {
       String internal = ft.toInternal(term);
       long count = getTermCount(countedTerms, pool, term, new BytesRef(internal), doNegative);
+      // TODO: Get existingTerms from getTermCount
       if (count == -1) {
         count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
       }
       // Sad we have to use int
       res.add(term, (int) count);
     }
+    pool.incTermsListLookupRel(termList, !terms.isEmpty() ? terms.get(terms.size()-1) : "",
+        existingTerms, terms.size()-existingTerms, startTime);
+
     return res;
   }
 
@@ -562,35 +567,25 @@ public class UnInvertedField extends DocTermOrds {
   public long getTermCount(CountedTerms countedTerms, SparseCounterPool pool, String origTerm, BytesRef term,
                            boolean doNegative) throws IOException {
     // TODO: Can we remove this? Aren't the bigTerms counts presented in countedTerms at this point?
-    final long startTime = System.nanoTime();
     for (TopTerm tt : bigTerms.values()) {
       if (tt.term.equals(term)) {
-        try {
           return doNegative ?
               maxTermCounts[tt.termNum] - countedTerms.counts.get(tt.termNum) :
               countedTerms.counts.get(tt.termNum);
-        } finally {
-          pool.incTermLookup(origTerm, false, System.nanoTime()-startTime);
-        }
       }
     }
     long index = countedTerms.te.seekExact(term) ? countedTerms.te.ord() : -1;
     if (index < 0) { // This is OK. Asking for a non-existing term is normal in distributed faceting
-      pool.incTermLookup(origTerm, false, System.nanoTime()-startTime);
+      // This is a missingTerm. How do we report that to stats
       return 0;
     } else if(index >= countedTerms.counts.size()) {
       System.err.println("UnInvertedField.getTermCount: ordinal for " + term + " in field " + field + " was "
           + index + " but the counts only go from 0 to ordinal " + countedTerms.counts.size());
-      pool.incTermLookup(origTerm, false, System.nanoTime()-startTime);
       return -1;
     }
-    try {
-      return doNegative ?
-          maxTermCounts[(int)index] - countedTerms.counts.get((int) index) :
-          countedTerms.counts.get((int) index);
-    } finally {
-      pool.incTermLookup(origTerm, true, System.nanoTime()-startTime);
-    }
+    return doNegative ?
+        maxTermCounts[(int)index] - countedTerms.counts.get((int) index) :
+        countedTerms.counts.get((int) index);
   }
 
   /**
@@ -624,6 +619,7 @@ public class UnInvertedField extends DocTermOrds {
     pool.incExtractTimeRel(sparseExtractTime);
   }
   /**************** Sparse implementation end *******************/
+
   public NamedList<Integer> getCounts(SolrIndexSearcher searcher, DocSet baseDocs, int offset, int limit, Integer mincount, boolean missing, String sort, String prefix) throws IOException {
     use.incrementAndGet();
 

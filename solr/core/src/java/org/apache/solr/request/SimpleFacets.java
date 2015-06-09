@@ -58,6 +58,7 @@ import org.apache.lucene.search.grouping.term.TermGroupFacetCollector;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.CharsRef;
+import org.apache.lucene.util.CharsRefBuilder;
 import org.apache.lucene.util.StringHelper;
 import org.apache.lucene.util.UnicodeUtil;
 import org.apache.solr.common.SolrException;
@@ -73,10 +74,11 @@ import org.apache.solr.common.util.NamedList;
 import org.apache.solr.common.util.SimpleOrderedMap;
 import org.apache.solr.common.util.StrUtils;
 import org.apache.solr.handler.component.ResponseBuilder;
-import org.apache.solr.request.IntervalFacets.FacetInterval;
 import org.apache.solr.request.sparse.SparseCounterPool;
 import org.apache.solr.request.sparse.SparseCounterPoolController;
+import org.apache.solr.request.sparse.SparseDocValuesFacets;
 import org.apache.solr.request.sparse.SparseKeys;
+import org.apache.solr.request.sparse.ValueCounter;
 import org.apache.solr.schema.BoolField;
 import org.apache.solr.schema.DateField;
 import org.apache.solr.schema.FieldType;
@@ -375,13 +377,11 @@ public class SimpleFacets {
    *
    * @see FacetParams#FACET_ZEROS
    */
-  private NamedList<Integer> getTermCounts(String field, Integer mincount, DocSet base) throws IOException {
-
+  private NamedList<Integer> getTermCounts(String field, Integer mincount, DocSet base, String termList) throws IOException {
     final SparseKeys sparseKeys = new SparseKeys(field, params);
     SparseCounterPoolController poolController = (SparseCounterPoolController)searcher.getCache(
         SparseCounterPoolController.CACHE_NAME);
     assert poolController != null : "The SparseCounterPoolController is a factory and must be present";
-
 
     int offset = params.getFieldInt(field, FacetParams.FACET_OFFSET, 0);
     int limit = params.getFieldInt(field, FacetParams.FACET_LIMIT, 100);
@@ -394,8 +394,8 @@ public class SimpleFacets {
     }
     boolean missing = params.getFieldBool(field, FacetParams.FACET_MISSING, false);
     // default to sorting if there is a limit.
-    String sort = params.getFieldParam(field, FacetParams.FACET_SORT, limit>0 ? FacetParams.FACET_SORT_COUNT : FacetParams.FACET_SORT_INDEX);
-    String prefix = params.getFieldParam(field,FacetParams.FACET_PREFIX);
+    String sort = params.getFieldParam(field, FacetParams.FACET_SORT, limit > 0 ? FacetParams.FACET_SORT_COUNT : FacetParams.FACET_SORT_INDEX);
+    String prefix = params.getFieldParam(field, FacetParams.FACET_PREFIX);
 
 
     NamedList<Integer> counts;
@@ -412,6 +412,11 @@ public class SimpleFacets {
     } else if (FacetParams.FACET_METHOD_fc.equals(methodStr)) {
       method = FacetMethod.FC;
     }
+
+    if (termList != null && !(sparseKeys.sparse && sparseKeys.termLookup)) {
+      return getListedTermCounts(field, termList, base);
+    }
+
 
     if (method == FacetMethod.ENUM && TrieField.getMainValuePrefix(ft) != null) {
       // enum can't deal with trie fields that index several terms per value
@@ -477,18 +482,25 @@ public class SimpleFacets {
           }
           break;
         case FC:
-          SparseCounterPool pool = poolController.acquire(field, sparseKeys.poolSize, sparseKeys.poolMinEmpty);
+          SparseCounterPool pool;
           if (sf.hasDocValues()) {
-            counts = DocValuesFacets.getCounts(searcher, base, field, offset,limit, mincount, missing, sort, prefix);
-            handleSparseStats(counts, "_sparse_stats_docval", pool, sparseKeys);
+            pool = poolController.acquire(field, "DocValues", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
+            counts = SparseDocValuesFacets.getCounts(
+                searcher, base, field, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
           } else if (multiToken || TrieField.getMainValuePrefix(ft) != null) {
+            pool = poolController.acquire(field, "No DocValues, multi token", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
             UnInvertedField uif = UnInvertedField.getUnInvertedField(field, searcher);
-            counts = uif.getCounts(searcher, base, offset, limit, mincount,missing,sort,prefix);
-            handleSparseStats(counts, "_sparse_stats_fc_m", pool, sparseKeys);
+            // TODO: Sparse: Add optimized termList handling to multi token field faceting
+            counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
+          } else if (termList != null) {
+            return getListedTermCounts(field, termList, base);
           } else {
-            counts = getFieldCacheCounts(searcher, base, field, offset,limit, mincount, missing, sort, prefix);
-            handleSparseStats(counts, "_sparse_stats_fc_s", pool, sparseKeys);
+            // TODO: Sparse: Add optimized termList handling to single token field faceting
+            pool = poolController.acquire(field, "No DocValues, single token", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
+            counts = getFieldCacheCounts(
+                searcher, base, field, offset,limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
           }
+          handleSparseStats(counts, pool, sparseKeys);
           break;
         default:
           throw new AssertionError();
@@ -498,35 +510,18 @@ public class SimpleFacets {
     return counts;
   }
 
-  private void handleSparseStats(
-      NamedList<Integer> counts, String designation, SparseCounterPool pool, SparseKeys sparseKeys) {
-    if (sparseKeys.showStats) {
-      counts.add(designation + " " + pool, 9000000);
+  private void handleSparseStats(NamedList<Integer> counts, SparseCounterPool pool, SparseKeys sparseKeys) {
+    if (sparseKeys.legacyShowStats) {
+      counts.add(pool.toString(), 9000000);
     }
+    String debug = params.get(CommonParams.DEBUG, null);
+    if (CommonParams.TIMING.equals(debug) || CommonParams.RESULTS.equals(debug) || CommonParams.TRACK.equals(debug)) {
+      rb.addDebugInfo(debug, pool.getStats());
+    }
+
     if (sparseKeys.resetStats) {
       pool.clear();
     }
-  }
-
-  public static NamedList<Integer> fallbackGetListedTermCounts(
-      SolrIndexSearcher searcher, SparseCounterPool pool, String field, String termList, DocSet base)
-      throws IOException {
-    if (pool != null) {
-      pool.incTermsLookup(termList, false);
-    }
-    FieldType ft = searcher.getSchema().getFieldType(field);
-    List<String> terms = StrUtils.splitSmart(termList, ",", true);
-    NamedList<Integer> res = new NamedList<>();
-    for (String term : terms) {
-      final long startTime = System.nanoTime();
-      String internal = ft.toInternal(term);
-      int count = searcher.numDocs(new TermQuery(new Term(field, internal)), base);
-      res.add(term, count);
-      if (pool != null) {
-        pool.incTermLookup(term, false, System.nanoTime() - startTime);
-      }
-    }
-    return res;
   }
 
   public NamedList<Integer> getGroupedCounts(SolrIndexSearcher searcher,
@@ -1683,6 +1678,23 @@ public class SimpleFacets {
       }
     }
 
+    return res;
+  
+  
+  }
+
+  public static NamedList<Integer> fallbackGetListedTermCounts(
+      SolrIndexSearcher searcher, SparseCounterPool pool, String field, String termList, DocSet base)
+      throws IOException {
+    FieldType ft = searcher.getSchema().getFieldType(field);
+    List<String> terms = StrUtils.splitSmart(termList, ",", true);
+    NamedList<Integer> res = new NamedList<>();
+    for (String term : terms) {
+      final long startTime = System.nanoTime();
+      String internal = ft.toInternal(term);
+      int count = searcher.numDocs(new TermQuery(new Term(field, internal)), base);
+      res.add(term, count);
+    }
     return res;
   }
 
