@@ -334,8 +334,7 @@ public class LongTailPerformance {
       increments = PackedInts.getMutable(updates, PackedInts.bitsRequired(maxima.size()), PackedInts.FAST);
     }
     final Random random = new Random(seed);
-    final PackedInts.Mutable tracker =
-        PackedInts.getMutable(maxima.size(), maxima.getBitsPerValue(), PackedInts.FAST);
+    final PackedInts.Mutable tracker =PackedInts.getMutable(maxima.size(), 32, PackedInts.FAST);
 
     for (int i = 0 ; i < updates ; i++) {
       int index = random.nextInt(maxima.size());
@@ -616,7 +615,7 @@ public class LongTailPerformance {
 
     private final int[] values;
     public PackedWrapped(int[] values) {
-      super(values.length, 32);
+      super(values.length);
       this.values = values;
     }
 

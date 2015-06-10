@@ -206,6 +206,7 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     }
 
     {
+      System.out.println("**** The right text");
       // Check that fine-counting is also sparse-counted
       ModifiableSolrParams params = new ModifiableSolrParams();
       params.set(CommonParams.Q, "*:*");
@@ -219,14 +220,19 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
       params.set(FacetParams.FACET_LIMIT, Integer.toString(5));
 
       // We need to do this twice to get dist stats to bubble up
+      System.out.println("*** Issuing search 1");
       clients.get(0).query(params);
+      System.out.println("*** Issuing search 2");
       QueryResponse sparseThin = clients.get(0).query(params);
+      System.out.println("*** Finished search 2");
 
       // terms(count=0 means that the secondary fine-counting of facets was not done sparsely
       assertFalse("With fine-counting there should be no instances of 'fallback=0'\n" + sparseThin,
           sparseThin.toString().contains("terms(fallback=0"));
+      assertTrue("Cache status should be available\n" + sparseThin,
+          sparseThin.toString().matches("(?m).*cache.hits=.*"));
       assertTrue("At least one of the requests should hit the cache\n" + sparseThin,
-          sparseThin.toString().matches("(?m).*hits=[1234].*"));
+          sparseThin.toString().matches("(?m).*cache.hits=[1234].*"));
     }
 
     // Is it possible to turn the distributed facet call cache off?

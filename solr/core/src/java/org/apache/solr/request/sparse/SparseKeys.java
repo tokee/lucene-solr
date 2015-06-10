@@ -195,7 +195,6 @@ public class SparseKeys {
   // TODO: Consider if these should be taken from a super-pool for the facet or even for the full searcher
   public static final String COUNTING_THREADS = "facet.sparse.counting.threads";
   public static final int DEFAULT_COUNTING_THREADS = 1;
-
   /**
    * If the number of documents in a segment gets below this number, counting threading is not performed.
    * </p><p>

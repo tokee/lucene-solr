@@ -522,6 +522,7 @@ public class SimpleFacets {
   }
 
   private void handleSparseStats(NamedList<Integer> counts, SparseCounterPool pool, SparseKeys sparseKeys) {
+    System.out.println("*** handleSparseFacets. Legacy=" + sparseKeys.legacyShowStats);
     if (sparseKeys.legacyShowStats) {
       counts.add(pool.toString(), 9000000);
     }

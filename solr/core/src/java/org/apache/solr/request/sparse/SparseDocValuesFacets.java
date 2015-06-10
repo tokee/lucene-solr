@@ -48,7 +48,6 @@ import org.apache.lucene.util.BytesRefArray;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.CharsRef;
 import org.apache.lucene.util.Counter;
-import org.apache.lucene.util.LongValues;
 import org.apache.lucene.util.UnicodeUtil;
 import org.apache.lucene.util.packed.NPlaneMutable;
 import org.apache.lucene.util.packed.PackedInts;
@@ -100,6 +99,7 @@ public class SparseDocValuesFacets {
   public static NamedList<Integer> getCounts(
       SolrIndexSearcher searcher, DocSet docs, String fieldName, int offset, int limit, int minCount, boolean missing,
       String sort, String prefix, String termList, SparseKeys sparseKeys, SparseCounterPool pool) throws IOException {
+    System.out.println("*** Sparse faceting with key " + sparseKeys.cacheToken);
     if (!sparseKeys.sparse) { // Skip sparse part completely
       return termList == null ?
           DocValuesFacets.getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
@@ -247,7 +247,7 @@ public class SparseDocValuesFacets {
       int sortedIdxEnd = queue.size() + 1;
       final long[] sorted = queue.sort(collectCount);
 
-      BytesRef br = new BytesRef();
+      BytesRef br = new BytesRef(10);
       for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
         long pair = sorted[i];
         int c = (int)(pair >>> 32);
@@ -340,8 +340,8 @@ public class SparseDocValuesFacets {
       return new Lookup(searcher, schemaField);
     }
 
-    public int getGlobalOrd(int subIndex, int term) {
-      return ordinalMap == null ? term : (int) ordinalMap.getGlobalOrds(subIndex).get(term);
+    public int getGlobalOrd(int segmentIndex, int segmentOrdinal) {
+      return ordinalMap == null ? segmentOrdinal : (int) ordinalMap.getGlobalOrds(segmentIndex).get(segmentOrdinal);
     }
   }
 
@@ -518,8 +518,9 @@ public class SparseDocValuesFacets {
    * @param br         independent BytesRef to avoid object allocation.
    * @return an external String directly usable for constructing facet response.
    */
+  // TODO: Remove brNotUsedAnymore
   private static String resolveTerm(SparseCounterPool pool, SparseKeys sparseKeys, SortedSetDocValues si,
-                                    FieldType ft, int ordinal, CharsRef charsRef, BytesRef br) {
+                                    FieldType ft, int ordinal, CharsRef charsRef, BytesRef brNotUsedAnymore) {
     // TODO: Check that the cache spans segments instead of just handling one
     if (sparseKeys.termLookupMaxCache > 0 && sparseKeys.termLookupMaxCache >= si.getValueCount()) {
       BytesRefArray brf = pool.getExternalTerms();
@@ -527,21 +528,18 @@ public class SparseDocValuesFacets {
         // Fill term cache
         brf = new BytesRefArray(Counter.newCounter()); // TODO: Incorporate this in the overall counters
         for (int ord = 0; ord < si.getValueCount(); ord++) {
-          br = si.lookupOrd(ord);
+          BytesRef br = si.lookupOrd(ord);
           ft.indexedToReadable(br, charsRef);
           brf.append(new BytesRef(charsRef)); // Is the object allocation avoidable?
         }
         pool.setExternalTerms(brf);
       }
-      // TODO: make more efficient by not creating BytesRefBuilder all the time and pass as input param?
-      BytesRefBuilder brb = new BytesRefBuilder();
-      brb.append(br);
-      return brf.get(brb, ordinal).utf8ToString();
-//      return brf.get(br, ordinal).utf8ToString();
+      // TODO: Re-use the BytesRefBuilder
+      return brf.get(new BytesRefBuilder(), ordinal).utf8ToString();
     }
     pool.setExternalTerms(null); // Make sure the memory is freed
     // No cache, so lookup directly
-    br = si.lookupOrd(ordinal);
+    BytesRef br = si.lookupOrd(ordinal);
     ft.indexedToReadable(br, charsRef);
     return charsRef.toString();
   }
@@ -736,7 +734,7 @@ public class SparseDocValuesFacets {
       docs++;
       int term = si.getOrd(doc);
       if (lookup.ordinalMap != null && term >= 0) {
-        term = lookup.getGlobalOrd(subIndex, term);
+        term = (int) lookup.getGlobalOrd(subIndex, term);
       }
       int arrIdx = term-startTermIndex;
       if (arrIdx>=0 && arrIdx<counts.size()) {

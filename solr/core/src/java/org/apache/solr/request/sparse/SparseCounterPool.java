@@ -202,8 +202,10 @@ public class SparseCounterPool {
    * @return a counter ready for updates or null if a counter could not be created.
    */
   public ValueCounter acquire(SparseKeys sparseKeys, SparseKeys.COUNTER_IMPL implementation) {
+    System.out.println("*** acquire with key " + sparseKeys.cacheToken);
     ValueCounter vc = getCounter(sparseKeys, implementation);
     if (vc == null) { // Got nothing, so we allocate a new one
+      System.out.println("*** Creating new");
       ValueCounter newCounter = createCounter(sparseKeys, implementation);
       if (template == null) {
         template = newCounter;
@@ -224,10 +226,13 @@ public class SparseCounterPool {
     }
 
     if (vc.getContentKey() == null) { // Asked for filled, got empty
+      System.out.println("*** Acquire with key " + sparseKeys.cacheToken + " got empty");
       emptyReuses.inc();
       cacheMisses.inc();
       return vc;
     } else if (sparseKeys.cacheToken.equals(vc.getContentKey())) { // Asked for filled, got match
+      System.out.println("*** Acquire with key " + sparseKeys.cacheToken + " got match");
+
       cacheHits.inc();
       return vc;
     }
@@ -409,6 +414,8 @@ public class SparseCounterPool {
    * @param sparseKeys the facet keys associated with the counter.
    */
   public void release(ValueCounter counter, SparseKeys sparseKeys) {
+    System.out.println("*** release with key " + sparseKeys.cacheToken);
+
     if (counter.explicitlyDisabled()) {
       disables.inc();
     }

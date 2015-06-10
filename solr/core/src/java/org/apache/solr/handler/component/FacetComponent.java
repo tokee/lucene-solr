@@ -34,6 +34,7 @@ import java.util.Map.Entry;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicLong;
 
+
 import org.apache.lucene.util.FixedBitSet;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.SolrException.ErrorCode;
@@ -131,13 +132,15 @@ public class FacetComponent extends SearchComponent {
       return ResponseBuilder.STAGE_DONE;
     }
 
-    // We only want to set this for distributes calls. Is this the right place?
+    // We only want to set this for distributed calls. Is this the right place?
     if (rb.req.getParams().get(SparseKeys.CACHE_TOKEN, null) == null) {
       ModifiableSolrParams newParams = new ModifiableSolrParams(rb.req.getParams());
       newParams.set(SparseKeys.CACHE_TOKEN, generateSparseCacheToken());
       rb.req.setParams(newParams);
+      System.out.println("*** No key. Generated " + rb.req.getParams().get(SparseKeys.CACHE_TOKEN));
     }
 
+    System.out.println("*** getFieldsStage=" + (rb.stage == ResponseBuilder.STAGE_GET_FIELDS));
     if (rb.stage == ResponseBuilder.STAGE_GET_FIELDS) {
       // overlap facet refinement requests (those shards that we need a count
       // for particular facet values from), where possible, with
@@ -145,9 +148,10 @@ public class FacetComponent extends SearchComponent {
       // only other required phase).
       // We do this in distributedProcess so we can look at all of the
       // requests in the outgoing queue at once.
-
+      
       if (rb.req.getParams().getBool(SparseKeys.SKIPREFINEMENTS, SparseKeys.SKIPREFINEMENTS_DEFAULT)) {
         // Skip the second phase at the cost of count precision
+        System.out.println("*** Explicit skip");
         return ResponseBuilder.STAGE_DONE;
       }
 
@@ -155,7 +159,9 @@ public class FacetComponent extends SearchComponent {
         List<String> distribFieldFacetRefinements = null;
         
         for (DistribFieldFacet dff : rb._facetInfo.facets.values()) {
+          System.out.println("Considering shard " + shardNum + ", field " + dff.field);
           if (!dff.needRefinements) continue;
+          System.out.println("*** Accepted");
           List<String> refList = dff._toRefine[shardNum];
           if (refList == null || refList.size() == 0) continue;
           
@@ -242,6 +248,7 @@ public class FacetComponent extends SearchComponent {
         }
         
         if (newRequest) {
+          System.out.println("*** Adding new request\n" + shardsRefineRequest.params);
           rb.addRequest(this, shardsRefineRequest);
         }
         
@@ -259,15 +266,6 @@ public class FacetComponent extends SearchComponent {
     
     return ResponseBuilder.STAGE_DONE;
   }
-
-  /**
-   * @return a guaranteed unique value, intended as key for caching.
-   */
-  private String generateSparseCacheToken() {
-    return Long.toHexString(cacheTokenCounter.incrementAndGet()); // TODO: Create a non-chance-dependent unique token
-  }
-  private final AtomicLong cacheTokenCounter = new AtomicLong(new Random().nextLong());
-
   
   private void enqueuePivotFacetShardRequests
     (HashMap<String,List<String>> pivotFacetRefinements, 
@@ -365,24 +363,9 @@ public class FacetComponent extends SearchComponent {
           // set the initial limit higher to increase accuracy
           dff.initialLimit = doOverRequestMath(dff.initialLimit, dff.overrequestRatio, 
                                                dff.overrequestCount);
-          /* original code before adding sparse facets
           dff.initialMincount = 0; // TODO: we could change this to 1, but would
                                    // then need more refinement for small facet
                                    // result sets?
-                                   */
-          // sparse faceting start
-          // minCount==0 is best for fields with few unique values and minCount==1 is best for higher cardinality fields.
-          // See the JavaDoc for SparseKeys#MINMAXCOUNT for details.
-
-          if (sreq.params.getFieldBool(dff.field, SparseKeys.SPARSE, SparseKeys.SPARSE_DEFAULT)) {
-            dff.initialMincount = Math.min(
-                dff.minCount,
-                sreq.params.getFieldInt(dff.field, SparseKeys.MAXMINCOUNT, SparseKeys.MAXMINCOUNT_DEFAULT));
-          } else {
-            dff.initialMincount = Math.min(dff.minCount, 0);
-          }
-          // sparse faceting end
-
         } else {
           // if limit==-1, then no need to artificially lower mincount to 0 if
           // it's 1
@@ -422,6 +405,15 @@ public class FacetComponent extends SearchComponent {
     }
   }
   
+  /**
+   * @return a guaranteed unique value, intended as key for caching.
+   */
+  private String generateSparseCacheToken() {
+    return Long.toHexString(cacheTokenCounter.incrementAndGet()); // TODO: Create a non-chance-dependent unique token
+  }
+  private final AtomicLong cacheTokenCounter = new AtomicLong(new Random().nextLong());
+
+
   private void modifyRequestForPivotFacets(ResponseBuilder rb,
                                            ShardRequest sreq, 
                                            SimpleOrderedMap<PivotFacet> pivotFacets) {
@@ -466,6 +458,19 @@ public class FacetComponent extends SearchComponent {
 
     int shardLimit = requestedLimit + offset;
     int shardMinCount = requestedMinCount;
+
+/** TODO: Enable this logic
+              // minCount==0 is best for fields with few unique values and minCount==1 is best for higher cardinality fields.
+              // See the JavaDoc for SparseKeys#MINMAXCOUNT for details.
+
+              if (sreq.params.getFieldBool(dff.field, SparseKeys.SPARSE, SparseKeys.SPARSE_DEFAULT)) {
+                dff.initialMincount = Math.min(
+                    dff.minCount,
+                    sreq.params.getFieldInt(dff.field, SparseKeys.MAXMINCOUNT, SparseKeys.MAXMINCOUNT_DEFAULT));
+              } else {
+                dff.initialMincount = Math.min(dff.minCount, 0);
+              }
+*/
 
     // per-shard mincount & overrequest
     if ( FacetParams.FACET_SORT_INDEX.equals(sort) && 
