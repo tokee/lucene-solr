@@ -165,7 +165,6 @@ public class TestFaceting extends SolrTestCaseJ4 {
             SparseKeys.SPARSE, "true",
             SparseKeys.MINTAGS, "0",
             SparseKeys.STATS, "true",
-            SparseKeys.FALLBACK_BASE, "false",
             SparseKeys.PACKED, "true"
         )
         , "//lst[@name='many_ws']/int[@name='tag0_1'][.='1']"
@@ -183,50 +182,50 @@ public class TestFaceting extends SolrTestCaseJ4 {
     assertU(commit());
 
     assertQ("Sparse",
-        req("q", "id:1","indent","true"
-            ,"facet", "true", "facet.method","fc"
-            ,"facet.field", "many_ws"
-            ,"facet.limit", "-1"
-            ,"facet.mincount", "1",
-            SparseKeys.SPARSE, "true",
-            SparseKeys.MINTAGS, "0",
-            SparseKeys.STATS, "true"
-        )
-        ,"//lst[@name='many_ws']/int[@name='tag1_1'][.='1']"
-    );
+            req("q", "id:1","indent","true"
+                ,"facet", "true", "facet.method","fc"
+                ,"facet.field", "many_ws"
+                ,"facet.limit", "-1"
+                ,"facet.mincount", "1",
+                SparseKeys.SPARSE, "true",
+                SparseKeys.MINTAGS, "0",
+                SparseKeys.STATS, "true"
+                )
+            ,"//lst[@name='many_ws']/int[@name='tag1_1'][.='1']"
+            );
 
     assertQ("Standard Solr faceting",
-        req("q", "id:1","indent","true"
-            ,"facet", "true", "facet.method","fc"
-            ,"facet.field", "many_ws"
-            ,"facet.limit", "-1"
-            ,"facet.mincount", "1"
-        )
-        ,"//lst[@name='many_ws']/int[@name='tag1_1'][.='1']"
-    );
+            req("q", "id:1","indent","true"
+                ,"facet", "true", "facet.method","fc"
+                ,"facet.field", "many_ws"
+                ,"facet.limit", "-1"
+                ,"facet.mincount", "1"
+                )
+            ,"//lst[@name='many_ws']/int[@name='tag1_1'][.='1']"
+            );
 
     assertQ("Standard Solr faceting, take 2",
-        req("q", "id:2","indent","true"
-            ,"facet", "true", "facet.method","fc"
-            ,"facet.field", "many_ws"
-            ,"facet.limit", "-1"
-            ,"facet.mincount", "1"
-        )
-        ,"//lst[@name='many_ws']/int[@name='tag2_1'][.='1']"
-    );
+            req("q", "id:2","indent","true"
+                ,"facet", "true", "facet.method","fc"
+                ,"facet.field", "many_ws"
+                ,"facet.limit", "-1"
+                ,"facet.mincount", "1"
+                )
+            ,"//lst[@name='many_ws']/int[@name='tag2_1'][.='1']"
+            );
 
     assertQ("Sparse, take 2",
-        req("q", "id:2","indent","true"
-            ,"facet", "true", "facet.method","fc"
-            ,"facet.field", "many_ws"
-            ,"facet.limit", "-1"
-            ,"facet.mincount", "1",
-            SparseKeys.SPARSE, "true",
-            SparseKeys.MINTAGS, "0",
-            SparseKeys.STATS, "true"
-        )
-        ,"//lst[@name='many_ws']/int[@name='tag2_1'][.='1']"
-    );
+            req("q", "id:2","indent","true"
+                ,"facet", "true", "facet.method","fc"
+                ,"facet.field", "many_ws"
+                ,"facet.limit", "-1"
+                ,"facet.mincount", "1",
+                SparseKeys.SPARSE, "true",
+                SparseKeys.MINTAGS, "0",
+                SparseKeys.STATS, "true"
+                )
+            ,"//lst[@name='many_ws']/int[@name='tag2_1'][.='1']"
+            );
 
   }
 
@@ -240,19 +239,19 @@ public class TestFaceting extends SolrTestCaseJ4 {
     assertU(commit());
 
     assertQ("Sparse",
-        req("q", "many_ws:even","indent","true"
-            ,"facet", "true", "facet.method","fc"
-            ,"facet.field", "many_ws"
-            ,"facet.limit", "-1"
-            ,"facet.mincount", "1"
-            ,"facet.sort", "count",
-            SparseKeys.SPARSE, "true",
-            SparseKeys.MINTAGS, "0",
-            SparseKeys.POOL_SIZE, "3",
-            SparseKeys.STATS, "true"
-        )
-        ,"//lst[@name='many_ws']/int[@name='tag2_1'][.='1']"
-    );
+            req("q", "many_ws:even","indent","true"
+                ,"facet", "true", "facet.method","fc"
+                ,"facet.field", "many_ws"
+                ,"facet.limit", "-1"
+                ,"facet.mincount", "1"
+                ,"facet.sort", "count",
+                SparseKeys.SPARSE, "true",
+                SparseKeys.MINTAGS, "0",
+                SparseKeys.POOL_SIZE, "3",
+                SparseKeys.STATS, "true"
+                )
+            ,"//lst[@name='many_ws']/int[@name='tag2_1'][.='1']"
+            );
   }
 
   @Test

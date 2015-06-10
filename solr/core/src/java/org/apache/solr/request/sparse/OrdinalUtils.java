@@ -62,7 +62,7 @@ public class OrdinalUtils {
       if (schemaField.multiValued()) {
         SortedSetDocValues sub = leaf.reader().getSortedSetDocValues(schemaField.getName());
         if (sub == null) {
-          sub = DocValues.EMPTY_SORTED_SET;
+          sub = DocValues.emptySortedSet();
         }
         final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
         if (singleton != null) {
@@ -70,7 +70,10 @@ public class OrdinalUtils {
             if (live == null || live.get(docID)) {
               int segmentOrd = singleton.getOrd(docID);
               if (segmentOrd >= 0) {
-                long globalOrd = globalMap == null ? segmentOrd : globalMap.getGlobalOrd(subIndex, segmentOrd);
+                long globalOrd = globalMap == null ? segmentOrd :
+                    (int) globalMap.getGlobalOrds(subIndex).get(segmentOrd);
+
+//                long globalOrd = globalMap == null ? segmentOrd : globalMap.getGlobalOrd(subIndex, segmentOrd);
                 if (globalOrd >= 0) {
                   // Not liking the cast here, but 2^31 is de facto limit for most structures
                   globOrdCount[((int) globalOrd)]++;
@@ -90,7 +93,7 @@ public class OrdinalUtils {
 
               do {
                 if (globalMap != null) {
-                  ord = (int) globalMap.getGlobalOrd(subIndex, ord);
+                  ord = (int) globalMap.getGlobalOrds(subIndex).get(ord);
                 }
                 if (ord >= 0) {
                   globOrdCount[ord]++;
@@ -102,15 +105,17 @@ public class OrdinalUtils {
       } else {
         SortedDocValues sub = leaf.reader().getSortedDocValues(schemaField.getName());
         if (sub == null) {
-          sub = DocValues.EMPTY_SORTED;
+          sub = DocValues.emptySorted();
         }
         for (int docID = 0 ; docID < leaf.reader().maxDoc() ; docID++) {
           if (live == null || live.get(docID)) {
             int segmentOrd = sub.getOrd(docID);
             if (segmentOrd >= 0) {
-              long globalOrd = globalMap == null ? segmentOrd : globalMap.getGlobalOrd(subIndex, segmentOrd);
+//              long globalOrd = globalMap == null ? segmentOrd : globalMap.getGlobalOrd(subIndex, segmentOrd);
+              long globalOrd = globalMap == null ? segmentOrd :
+                  (int) globalMap.getGlobalOrds(subIndex).get(segmentOrd);
               if (globalOrd >= 0) {
-                // Not liking the cast here, but 2^31 is de facto limit for most structures
+                // Not liking the cast here, but 2^31 is de facto limit for most structures so we win nothing with long
                 globOrdCount[((int) globalOrd)]++;
               }
             }

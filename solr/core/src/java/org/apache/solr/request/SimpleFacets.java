@@ -370,6 +370,9 @@ public class SimpleFacets {
     return getTermCounts(field, mincount, base);
   }
 
+  private NamedList<Integer> getTermCounts(String field, Integer mincount, DocSet base) throws IOException {
+    return getTermCounts(field, mincount, base, null);
+  }
   /**
    * Term counts for use in field faceting that resepcts the specified mincount - 
    * if mincount is null, the "zeros" param is consulted for the appropriate backcompat 
@@ -394,8 +397,8 @@ public class SimpleFacets {
     }
     boolean missing = params.getFieldBool(field, FacetParams.FACET_MISSING, false);
     // default to sorting if there is a limit.
-    String sort = params.getFieldParam(field, FacetParams.FACET_SORT, limit > 0 ? FacetParams.FACET_SORT_COUNT : FacetParams.FACET_SORT_INDEX);
-    String prefix = params.getFieldParam(field, FacetParams.FACET_PREFIX);
+    String sort = params.getFieldParam(field, FacetParams.FACET_SORT, limit>0 ? FacetParams.FACET_SORT_COUNT : FacetParams.FACET_SORT_INDEX);
+    String prefix = params.getFieldParam(field,FacetParams.FACET_PREFIX);
 
 
     NamedList<Integer> counts;
@@ -412,11 +415,6 @@ public class SimpleFacets {
     } else if (FacetParams.FACET_METHOD_fc.equals(methodStr)) {
       method = FacetMethod.FC;
     }
-
-    if (termList != null && !(sparseKeys.sparse && sparseKeys.termLookup)) {
-      return getListedTermCounts(field, termList, base);
-    }
-
 
     if (method == FacetMethod.ENUM && TrieField.getMainValuePrefix(ft) != null) {
       // enum can't deal with trie fields that index several terms per value
@@ -482,7 +480,7 @@ public class SimpleFacets {
           }
           break;
         case FC:
-          SparseCounterPool pool;
+        SparseCounterPool pool;
           if (sf.hasDocValues()) {
             pool = poolController.acquire(field, "DocValues", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
             counts = SparseDocValuesFacets.getCounts(
@@ -493,7 +491,9 @@ public class SimpleFacets {
             // TODO: Sparse: Add optimized termList handling to multi token field faceting
             counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
           } else if (termList != null) {
-            return getListedTermCounts(field, termList, base);
+            List<String> terms = StrUtils.splitSmart(termList, ",", true);
+            // TODO: Check that this is sparse optimized
+            return getListedTermCounts(field, base, terms);
           } else {
             // TODO: Sparse: Add optimized termList handling to single token field faceting
             pool = poolController.acquire(field, "No DocValues, single token", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
@@ -502,6 +502,17 @@ public class SimpleFacets {
           }
           handleSparseStats(counts, pool, sparseKeys);
           break;
+
+/*
+          if (sf.hasDocValues()) {
+            counts = DocValuesFacets.getCounts(searcher, base, field, offset,limit, mincount, missing, sort, prefix);
+          } else if (multiToken || TrieField.getMainValuePrefix(ft) != null) {
+            UnInvertedField uif = UnInvertedField.getUnInvertedField(field, searcher);
+            counts = uif.getCounts(searcher, base, offset, limit, mincount,missing,sort,prefix);
+          } else {
+            counts = getFieldCacheCounts(searcher, base, field, offset,limit, mincount, missing, sort, prefix);
+          }
+          break;*/
         default:
           throw new AssertionError();
       }
@@ -523,6 +534,8 @@ public class SimpleFacets {
       pool.clear();
     }
   }
+
+
 
   public NamedList<Integer> getGroupedCounts(SolrIndexSearcher searcher,
                                              DocSet base,
@@ -668,6 +681,20 @@ public class SimpleFacets {
     return res;
   }
 
+  public static NamedList<Integer> fallbackGetListedTermCounts(
+      SolrIndexSearcher searcher, SparseCounterPool pool, String field, String termList, DocSet base)
+      throws IOException {
+    FieldType ft = searcher.getSchema().getFieldType(field);
+    List<String> terms = StrUtils.splitSmart(termList, ",", true);
+    NamedList<Integer> res = new NamedList<>();
+    for (String term : terms) {
+      final long startTime = System.nanoTime();
+      String internal = ft.toInternal(term);
+      int count = searcher.numDocs(new TermQuery(new Term(field, internal)), base);
+      res.add(term, count);
+    }
+    return res;
+  }
 
   /**
    * Computes the term-&gt;count counts for the specified termList relative to the 
@@ -712,6 +739,234 @@ public class SimpleFacets {
     return docs.andNotSize(hasVal);
   }
 
+  // Single value fc faceting
+  public static NamedList<Integer> getFieldCacheCounts(
+      SolrIndexSearcher searcher, DocSet docs, String fieldName, int offset, int limit, int mincount, boolean missing,
+      String sort, String prefix, String termList, SparseKeys sparseKeys, SparseCounterPool pool)
+      throws IOException {
+    if (!sparseKeys.sparse) { // Fallback to standard
+      return termList == null ?
+          getFieldCacheCounts(searcher, docs, fieldName, offset, limit, mincount, missing, sort, prefix) :
+          SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termList, docs);
+    }
+    long sparseTotalTime = System.nanoTime();
+
+    // TODO: this function is too big and could use some refactoring, but
+    // we also need a facet cache, and refactoring of SimpleFacets instead of
+    // trying to pass all the various params around.
+
+    FieldType ft = searcher.getSchema().getFieldType(fieldName);
+    NamedList<Integer> res = new NamedList<Integer>();
+
+    SortedDocValues si = FieldCache.DEFAULT.getTermsIndex(searcher.getAtomicReader(), fieldName);
+    if (!pool.isInitialized()) {
+      initializePool(searcher, si, fieldName, pool);
+    }
+
+    int hitCount = docs.size();
+    final boolean isProbablySparse = pool.isProbablySparse(hitCount, sparseKeys);
+
+    final BytesRef prefixRef;
+    if (prefix == null) {
+      prefixRef = null;
+    } else if (prefix.length()==0) {
+      prefix = null;
+      prefixRef = null;
+    } else {
+      prefixRef = new BytesRef(prefix);
+    }
+
+    int startTermIndex, endTermIndex;
+    if (prefix!=null) {
+      startTermIndex = si.lookupTerm(prefixRef);
+      if (startTermIndex<0) startTermIndex=-startTermIndex-1;
+      prefixRef.append(UnicodeUtil.BIG_TERM);
+      endTermIndex = si.lookupTerm(prefixRef);
+      assert endTermIndex < 0;
+      endTermIndex = -endTermIndex-1;
+    } else {
+      startTermIndex=-1;
+      endTermIndex=si.getValueCount();
+    }
+
+    final int nTerms=endTermIndex-startTermIndex;
+    int missingCount = -1;
+    final CharsRef charsRef = new CharsRef(10);
+    if (nTerms>0 && hitCount >= mincount) {
+
+      // count collection array only needs to be as big as the number of terms we are
+      // going to collect counts for.
+      //final int[] counts = new int[nTerms];
+      // TODO: Figure out maxCountForAny
+      // TODO: Add support for threading and other counters
+      ValueCounter counts = pool.acquire(sparseKeys,
+          sparseKeys.counter == SparseKeys.COUNTER_IMPL.array ||
+          (sparseKeys.counter == SparseKeys.COUNTER_IMPL.auto && !pool.usePacked(sparseKeys)) ?
+              SparseKeys.COUNTER_IMPL.array : SparseKeys.COUNTER_IMPL.packed);
+      if (!isProbablySparse) {
+        counts.disableSparseTracking();
+      }
+
+      long sparseCollectionTime = System.nanoTime();
+      DocIterator iter = docs.iterator();
+
+      while (iter.hasNext()) {
+        int term = si.getOrd(iter.nextDoc());
+        int arrIdx = term-startTermIndex;
+        if (arrIdx>=0 && arrIdx<nTerms) {
+          counts.inc(arrIdx);
+        }
+      }
+
+      if (startTermIndex == -1) {
+        missingCount = (int) counts.get(0);
+      }
+      pool.incCollectTimeRel(sparseCollectionTime);
+
+      // IDEA: we could also maintain a count of "other"... everything that fell outside
+      // of the top 'N'
+
+      int off=offset;
+      int lim=limit>=0 ? limit : Integer.MAX_VALUE;
+
+      if (termList != null) {
+        return extractSpecificCounts(searcher, counts, si, fieldName, termList, docs);
+      }
+
+      if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
+        int maxsize = limit>0 ? offset+limit : Integer.MAX_VALUE-1;
+        maxsize = Math.min(maxsize, nTerms);
+        LongPriorityQueue queue = new LongPriorityQueue(Math.min(maxsize,1000), maxsize, Long.MIN_VALUE);
+
+        int min=mincount-1;  // the smallest value in the top 'N' values
+        long sparseExtractTime = System.nanoTime();
+        if (counts.iterate(
+            (startTermIndex==-1)?1:0, nTerms, mincount, false, new ValueCounter.TopCallback(min, queue))) {
+          pool.incWithinCount();
+        } else {
+          pool.incExceededCount();
+        }
+        pool.incExtractTimeRel(sparseExtractTime);
+
+/*        for (int i=(startTermIndex==-1)?1:0; i<nTerms; i++) {
+          int c = counts[i];
+          if (c>min) {
+            // NOTE: we use c>min rather than c>=min as an optimization because we are going in
+            // index order, so we already know that the keys are ordered.  This can be very
+            // important if a lot of the counts are repeated (like zero counts would be).
+
+            // smaller term numbers sort higher, so subtract the term number instead
+            long pair = (((long)c)<<32) + (Integer.MAX_VALUE - i);
+            boolean displaced = queue.insert(pair);
+            if (displaced) min=(int)(queue.top() >>> 32);
+          }
+        }*/
+
+        // if we are deep paging, we don't have to order the highest "offset" counts.
+        int collectCount = Math.max(0, queue.size() - off);
+        assert collectCount <= lim;
+
+        // the start and end indexes of our list "sorted" (starting with the highest value)
+        int sortedIdxStart = queue.size() - (collectCount - 1);
+        int sortedIdxEnd = queue.size() + 1;
+        final long[] sorted = queue.sort(collectCount);
+
+        final long resolveTime = System.nanoTime();
+        for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
+          long pair = sorted[i];
+          int c = (int)(pair >>> 32);
+          int tnum = Integer.MAX_VALUE - (int)pair;
+          BytesRef br = si.lookupOrd(startTermIndex+tnum);
+          ft.indexedToReadable(br, charsRef);
+          res.add(charsRef.toString(), c);
+        }
+        pool.incTermResolveTimeRel(resolveTime);
+      } else {
+        // add results in index order
+        int i=(startTermIndex==-1)?1:0;
+        if (mincount<=0) {
+          // if mincount<=0, then we won't discard any terms and we know exactly
+          // where to start.
+          i+=off;
+          off=0;
+        }
+
+        final long resolveTime = System.nanoTime();
+        for (; i<nTerms; i++) {
+          int c = (int) counts.get(i);
+          if (c<mincount || --off>=0) continue;
+          if (--lim<0) break;
+          BytesRef br = si.lookupOrd(startTermIndex+i);
+          ft.indexedToReadable(br, charsRef);
+          res.add(charsRef.toString(), c);
+        }
+        pool.incTermResolveTimeRel(resolveTime);
+      }
+      pool.release(counts, sparseKeys);
+    }
+
+    if (missing) {
+      if (missingCount < 0) {
+        missingCount = getFieldMissingCount(searcher,docs,fieldName);
+      }
+      res.add(null, missingCount);
+    }
+    pool.incSimpleFacetTotalTimeRel(sparseTotalTime);
+
+    return res;
+  }
+
+  private static void initializePool(SolrIndexSearcher searcher, SortedDocValues si, String field, SparseCounterPool pool) {
+    final int[] ordinals = new int[si.getValueCount()];
+    final int maxDoc = searcher.maxDoc();
+    for (int docID = 0 ; docID < maxDoc ; docID++) {
+      int ord = si.getOrd(docID);
+      if (ord >= 0) {
+        ordinals[ord]++;
+      }
+    }
+    int maxCount = -1;
+    long refCount = 0;
+    for (int count: ordinals) {
+      refCount += count;
+      if (count > maxCount) {
+        maxCount = count;
+      }
+    }
+    pool.setFieldProperties(si.getValueCount()+1, maxCount, maxDoc, refCount);
+  }
+
+  private static NamedList<Integer> extractSpecificCounts(
+      SolrIndexSearcher searcher, ValueCounter counts, SortedDocValues si, String field, String termList,
+      DocSet docs) throws IOException {
+    FieldType ft = searcher.getSchema().getFieldType(field);
+    List<String> terms = StrUtils.splitSmart(termList, ",", true);
+    NamedList<Integer> res = new NamedList<>();
+    for (String term : terms) {
+      String internal = ft.toInternal(term);
+      long count = getTermCount(counts, si, field, new BytesRef(internal));
+      if (count == -1) {
+        count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
+      }
+      // Sad we have to use int
+      res.add(term, (int)count);
+    }
+    return res;
+
+  }
+
+  private static long getTermCount(
+      ValueCounter counts, SortedDocValues si, String field, BytesRef term) throws IOException {
+    long index = si.lookupTerm(term);
+    if (index < 0) { // This is OK. Asking for a non-existing term is normal in distributed faceting
+      return 0;
+    } else if(index >= counts.size()) {
+      System.err.println("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + field + " was "
+          + index + " but the counts only went to ordinal " + counts.size());
+      return -1;
+    }
+    return counts.get((int) index);
+  }
 
   /**
    * Use the Lucene FieldCache to get counts for each unique field value in <code>docs</code>.
@@ -1673,28 +1928,11 @@ public class SimpleFacets {
       SimpleOrderedMap<Integer> fieldResults = new SimpleOrderedMap<Integer>();
       res.add(field, fieldResults);
       IntervalFacets intervalFacets = new IntervalFacets(schemaField, searcher, docs, intervalStrs, params);
-      for (FacetInterval interval : intervalFacets) {
+      for (IntervalFacets.FacetInterval interval : intervalFacets) {
         fieldResults.add(interval.getKey(), interval.getCount());
       }
     }
 
-    return res;
-  
-  
-  }
-
-  public static NamedList<Integer> fallbackGetListedTermCounts(
-      SolrIndexSearcher searcher, SparseCounterPool pool, String field, String termList, DocSet base)
-      throws IOException {
-    FieldType ft = searcher.getSchema().getFieldType(field);
-    List<String> terms = StrUtils.splitSmart(termList, ",", true);
-    NamedList<Integer> res = new NamedList<>();
-    for (String term : terms) {
-      final long startTime = System.nanoTime();
-      String internal = ft.toInternal(term);
-      int count = searcher.numDocs(new TermQuery(new Term(field, internal)), base);
-      res.add(term, count);
-    }
     return res;
   }
 
