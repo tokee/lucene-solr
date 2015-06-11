@@ -115,7 +115,7 @@ Maxtracked sets an upper limit for the counts in the facets in the shards (the t
 <ul>
 <li><p><code>facet.sparse.counter=array</code> uses an integer array, just like vanilla Solr. This works well for facets with hundreds of thousands of unique values or less.</p></li>
 <li><p><code>facet.sparse.counter=packed</code>: Sparse faceting calculates the maximum possible value for any counter in the structure and uses <a href="https://issues.apache.org/jira/browse/LUCENE-1990">PackedInts</a> to hold the values. If the highest count for a facet term with the search <code>*:*</code> is 5000, only 13 bits will be used for each counter as <code>2^13 = 8192</code>, which is enough to count to 5000. Depending on corpus this can be a huge memory saver. Packed works well with millions of unique values and upwards, provided that the highest count is in the lower millions or less.</p></li>
-<li><p><code>facet.sparse.counter=nplane</code> performs an exhaustive analysis of the facet field and creates a compact counter structure. This works well for fields where the maxima distribution is long tail with a few counters having very large (millions) maxima and the majority having very low maxima (&lt;4). Due to the computational overhead of nplane, it is generally only recommended for fields with tens or hundreds of millions of values, where heap overhead is a premium. See <a href="https://sbdevel.wordpress.com/2015/03/13/n-plane-packed-counters-for-faceting/">N-plane packed counters for faceting</a> for details.</p></li>
+<li><p><code>facet.sparse.counter=nplanez</code> performs an exhaustive analysis of the facet field and creates a compact counter structure. This works well for fields where the maxima distribution is long tail with a few counters having very large (millions) maxima and the majority having very low maxima (&lt;4). Due to the computational overhead of nplane, it is generally only recommended for fields with tens or hundreds of millions of values, where heap overhead is a premium. See <a href="https://sbdevel.wordpress.com/2015/03/13/n-plane-packed-counters-for-faceting/">N-plane packed counters for faceting</a> for details.</p></li>
 </ul>
 
 <h4>
@@ -134,14 +134,14 @@ Maxtracked sets an upper limit for the counts in the facets in the shards (the t
 
 <p>For further speed-up, the counters from the initial facet count are cached. This reduces the fine-counting step to the locating of term positions. This cache is controlled with <code>facet.sparse.cache.distributed</code>.</p>
 
-<p>If precise counting is not essential, the fine-counting step can be disabled with <code>facet.sparse.skiprefinements</code>. Disabling this makes distributed faceting perform at practically the same speed as non-distributed.</p>
+<p>If precise counting is not essential, the fine-counting step can be disabled with <code>facet.sparse.skiprefinements=true</code>. Disabling this makes distributed faceting perform at practically the same speed as non-distributed.</p>
 
 <p>For a more in-depth description, see <a href="What%20is%20high%20cardinality%20anyway?">http://sbdevel.wordpress.com/2014/10/02/what-is-high-cardinality-anyway/</a></p>
 
 <h4>
 <a id="5-threaded-facet-counting" class="anchor" href="#5-threaded-facet-counting" aria-hidden="true"><span class="octicon octicon-link"></span></a>5. Threaded facet counting</h4>
 
-<p><code>facet.sparse.counting.threads=X</code> is an experimental feature that use multi-threading to update the counter structures. This speeds up faceting for large result sets, where the number of references from documents to terms is in the tens of millions or more.</p>
+<p><code>facet.sparse.counting.threads=X</code> is an experimental feature that use multi-threading to update the counter structures. This speeds up faceting for large result sets, where the number of references from documents to terms is in the tens of millions or more. This only works with <code>facet.sparse.counter=packed</code> and <code>facet.sparse.counter=nplanez</code>.</p>
 
 <h4>
 <a id="6-regexp-based-blacklists-and-whitelists" class="anchor" href="#6-regexp-based-blacklists-and-whitelists" aria-hidden="true"><span class="octicon octicon-link"></span></a>6. Regexp based blacklists and whitelists</h4>
@@ -155,7 +155,9 @@ Maxtracked sets an upper limit for the counts in the facets in the shards (the t
 
 <p>For multi-shard searches, sparse faceting should be faster for most setups and result set sizes, due to the more efficient fine-counting method.</p>
 
-<p>Currently only <code>facet.method=fc</code> for Strings is supported; for single- and multi-value, with and without DocValues. In theory the sparse principle can be applied to <code>facet.method=fcs</code>, although the gains will probably be somewhat smaller, at least for single shard setups. This sub-project has not been started yet. See <a href="https://github.com/tokee/lucene-solr/issues/8">issue #8</a> for details.</p>
+<p>Currently only <code>facet.method=fc</code> for Strings is supported; for single- and multi-value. In theory the sparse principle can be applied to <code>facet.method=fcs</code>, although the gains will probably be somewhat smaller, at least for single shard setups. This sub-project has not been started yet. See <a href="https://github.com/tokee/lucene-solr/issues/8">issue #8</a> for details.</p>
+
+<p>NOTE: Full sparse feature support only for DocValue-fields! There is partial support for non-DV in the 4.8 branch (no nplanez counter, no blacklists and whitelists)), and no support in the 4.10-branch (due to an elusive bug).</p>
 
 <h3>
 <a id="why-is-this-not-in-standard-solr" class="anchor" href="#why-is-this-not-in-standard-solr" aria-hidden="true"><span class="octicon octicon-link"></span></a>Why is this not in standard Solr?</h3>
