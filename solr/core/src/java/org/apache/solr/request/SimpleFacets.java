@@ -640,12 +640,13 @@ public class SimpleFacets {
           public NamedList call() throws Exception {
             try {
               NamedList<Object> result = new SimpleOrderedMap<>();
-              if(termList != null) {
+              result.add(workerKey, getTermCounts(workerFacetValue, 0, workerBase, termList)); // 0 or 1?
+/*              if(termList != null) {
                 List<String> terms = StrUtils.splitSmart(termList, ",", true);
                 result.add(workerKey, getListedTermCounts(workerFacetValue, workerBase, terms));
               } else {
                 result.add(workerKey, getTermCounts(workerFacetValue, workerBase));
-              }
+              }*/
               return result;
             } catch (SolrException se) {
               throw se;
