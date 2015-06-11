@@ -554,7 +554,6 @@ public class SparseDocValuesFacets {
       SparseKeys sparseKeys, SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
       SchemaField schemaField, SparseCounterPool pool) throws IOException {
     // Overall the code gets a bit muddy as we do lazy extraction of meta data about the ordinals
-
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.array) {
       ensureBasic(searcher, si, globalMap, schemaField, pool);
       return pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.array);
@@ -734,7 +733,7 @@ public class SparseDocValuesFacets {
       docs++;
       int term = si.getOrd(doc);
       if (lookup.ordinalMap != null && term >= 0) {
-        term = (int) lookup.getGlobalOrd(subIndex, term);
+        term = lookup.getGlobalOrd(subIndex, term);
       }
       int arrIdx = term-startTermIndex;
       if (arrIdx>=0 && arrIdx<counts.size()) {

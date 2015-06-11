@@ -588,12 +588,22 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     params.set(SparseKeys.SPARSE, false);
     req.setParams(params);
     String plain = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
-    params.set(SparseKeys.SPARSE, true);
-    req.setParams(params);
-    String sparse = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
 
-    assertEquals(message + " sparse faceting with query " + query + " should match plain Solr",
-        plain, sparse);
+    params.set(SparseKeys.SPARSE, true);
+    SparseKeys.COUNTER_IMPL[] COUNTERS = new SparseKeys.COUNTER_IMPL[] {
+        SparseKeys.COUNTER_IMPL.array,
+        SparseKeys.COUNTER_IMPL.packed,
+        SparseKeys.COUNTER_IMPL.nplanez
+    };
+    for (SparseKeys.COUNTER_IMPL counter: COUNTERS) {
+      params.set(SparseKeys.COUNTER, counter.toString());
+      req.setParams(params);
+      String sparse = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+
+      assertEquals(message + " sparse faceting with query " + query + " and counter implementation " + counter
+          + " should match plain Solr",
+          plain, sparse);
+    }
   }
 
 /*    assertQ("check counts for facet queries",

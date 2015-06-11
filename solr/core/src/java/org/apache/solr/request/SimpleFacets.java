@@ -489,7 +489,10 @@ public class SimpleFacets {
             pool = poolController.acquire(field, "No DocValues, multi token", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
             UnInvertedField uif = UnInvertedField.getUnInvertedField(field, searcher);
             // TODO: Sparse: Add optimized termList handling to multi token field faceting
-            counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
+            // FIXME: Re-enable sparse counting of non-DV when TestFaceting passes
+
+            //counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
+            counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix);
           } else if (termList != null) {
             List<String> terms = StrUtils.splitSmart(termList, ",", true);
             // TODO: Check that this is sparse optimized
@@ -522,7 +525,6 @@ public class SimpleFacets {
   }
 
   private void handleSparseStats(NamedList<Integer> counts, SparseCounterPool pool, SparseKeys sparseKeys) {
-    System.out.println("*** handleSparseFacets. Legacy=" + sparseKeys.legacyShowStats);
     if (sparseKeys.legacyShowStats) {
       counts.add(pool.toString(), 9000000);
     }

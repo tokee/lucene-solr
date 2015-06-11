@@ -206,7 +206,6 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
     }
 
     {
-      System.out.println("**** The right text");
       // Check that fine-counting is also sparse-counted
       ModifiableSolrParams params = new ModifiableSolrParams();
       params.set(CommonParams.Q, "*:*");
@@ -220,11 +219,8 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
       params.set(FacetParams.FACET_LIMIT, Integer.toString(5));
 
       // We need to do this twice to get dist stats to bubble up
-      System.out.println("*** Issuing search 1");
       clients.get(0).query(params);
-      System.out.println("*** Issuing search 2");
       QueryResponse sparseThin = clients.get(0).query(params);
-      System.out.println("*** Finished search 2");
 
       // terms(count=0 means that the secondary fine-counting of facets was not done sparsely
       assertFalse("With fine-counting there should be no instances of 'fallback=0'\n" + sparseThin,
@@ -259,7 +255,6 @@ public class SparseFacetDistribTest extends AbstractFullDistribZkTestBase {
       params.set(SparseKeys.CACHE_DISTRIBUTED, Boolean.TRUE.toString());
     }
 
-    System.out.println("****************** non-sparse");
     System.out.println(nonSparseFF.toString().replace("{", "\n{"));
 
     {

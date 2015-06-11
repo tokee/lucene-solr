@@ -155,21 +155,36 @@ public class TestFaceting extends SolrTestCaseJ4 {
     }
     assertU(commit());
 
-    assertQ("Sparse params",
-        req("q", "many_ws:mod3", "indent", "true"
-            , "facet", "true", "facet.method", "fc"
-            , "facet.field", "many_ws"
-            , "facet.limit", "-1"
-            , "facet.mincount", "1"
-            , "facet.sort", "count",
-            SparseKeys.SPARSE, "true",
-            SparseKeys.MINTAGS, "0",
-            SparseKeys.STATS, "true",
-            SparseKeys.PACKED, "true"
-        )
+    SolrQueryRequest request = req("q", "many_ws:mod3", "indent", "true"
+        , "facet", "true", "facet.method", "fc"
+        , "facet.field", "many_ws"
+        , "facet.limit", "-1"
+        , "facet.mincount", "1"
+        , "facet.sort", "count",
+        SparseKeys.SPARSE, "false"
+    );
+    String result = h.query(request).replaceAll("<int name=\"QTime\">[0-9]+</int>", "");
+
+    SolrQueryRequest requestS = req("q", "many_ws:mod3", "indent", "true"
+        , "facet", "true", "facet.method", "fc"
+        , "facet.field", "many_ws"
+        , "facet.limit", "-1"
+        , "facet.mincount", "1"
+        , "facet.sort", "count",
+        SparseKeys.SPARSE, "true",
+        SparseKeys.MINTAGS, "0",
+//        SparseKeys.STATS, "true",
+        SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.array.toString()
+    );
+    String resultS = h.query(requestS).replaceAll("<int name=\"QTime\">[0-9]+</int>", "");
+
+    assertEquals("The response for sparse should match plain", result, resultS);
+
+/*    assertQ("Sparse params",
+        request
         , "//lst[@name='many_ws']/int[@name='tag0_1'][.='1']"
         , "//lst[@name='many_ws']/int[@name='all'][.='" + 34 + "']"
-    );
+    );*/
   }
 
   @Test
@@ -823,6 +838,54 @@ public class TestFaceting extends SolrTestCaseJ4 {
         , "*[count(//lst[@name='facet_fields']/lst/int)=20]"
     );
 
+  }
+
+  public void testMultiThreadedSparseFacets() throws Exception {
+    add50ocs();
+    SparseKeys.COUNTER_IMPL[] COUNTERS = new SparseKeys.COUNTER_IMPL[] {
+        SparseKeys.COUNTER_IMPL.array,
+        SparseKeys.COUNTER_IMPL.packed,
+        SparseKeys.COUNTER_IMPL.nplanez
+    };
+    for (SparseKeys.COUNTER_IMPL counter: COUNTERS) {
+      String vanilla = h.query(req("q", "id:*", "indent", "true", "fl", "id", "rows", "1"
+          , "facet", "true"
+          , "facet.field", "f0_ws"
+          , "facet.field", "f1_ws"
+          , "facet.field", "f2_ws"
+          , "facet.field", "f3_ws"
+          , "facet.field", "f4_ws"
+          , "facet.field", "f5_ws"
+          , "facet.field", "f6_ws"
+          , "facet.field", "f7_ws"
+          , "facet.field", "f8_ws"
+          , "facet.field", "f9_ws"
+          , "facet.threads", "0"
+          , "facet.limit", "-1",
+          SparseKeys.SPARSE, "false"
+      ));
+      String sparse = h.query(req("q", "id:*", "indent", "true", "fl", "id", "rows", "1"
+          , "facet", "true"
+          , "facet.field", "f0_ws"
+          , "facet.field", "f1_ws"
+          , "facet.field", "f2_ws"
+          , "facet.field", "f3_ws"
+          , "facet.field", "f4_ws"
+          , "facet.field", "f5_ws"
+          , "facet.field", "f6_ws"
+          , "facet.field", "f7_ws"
+          , "facet.field", "f8_ws"
+          , "facet.field", "f9_ws"
+          , "facet.threads", "0"
+          , "facet.limit", "-1",
+          SparseKeys.SPARSE, "true",
+          SparseKeys.COUNTER, counter.toString()
+      ));
+
+      assertEquals("The sparse result should match vanilla for counter implementation " + counter,
+          vanilla.replaceAll("<int name=\"QTime\">[0-9]+</int>", ""),
+          sparse.replaceAll("<int name=\"QTime\">[0-9]+</int>", ""));
+    }
   }
 
   @Test

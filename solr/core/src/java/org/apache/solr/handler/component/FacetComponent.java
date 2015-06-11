@@ -137,10 +137,8 @@ public class FacetComponent extends SearchComponent {
       ModifiableSolrParams newParams = new ModifiableSolrParams(rb.req.getParams());
       newParams.set(SparseKeys.CACHE_TOKEN, generateSparseCacheToken());
       rb.req.setParams(newParams);
-      System.out.println("*** No key. Generated " + rb.req.getParams().get(SparseKeys.CACHE_TOKEN));
     }
 
-    System.out.println("*** getFieldsStage=" + (rb.stage == ResponseBuilder.STAGE_GET_FIELDS));
     if (rb.stage == ResponseBuilder.STAGE_GET_FIELDS) {
       // overlap facet refinement requests (those shards that we need a count
       // for particular facet values from), where possible, with
@@ -151,7 +149,6 @@ public class FacetComponent extends SearchComponent {
       
       if (rb.req.getParams().getBool(SparseKeys.SKIPREFINEMENTS, SparseKeys.SKIPREFINEMENTS_DEFAULT)) {
         // Skip the second phase at the cost of count precision
-        System.out.println("*** Explicit skip");
         return ResponseBuilder.STAGE_DONE;
       }
 
@@ -159,9 +156,7 @@ public class FacetComponent extends SearchComponent {
         List<String> distribFieldFacetRefinements = null;
         
         for (DistribFieldFacet dff : rb._facetInfo.facets.values()) {
-          System.out.println("Considering shard " + shardNum + ", field " + dff.field);
           if (!dff.needRefinements) continue;
-          System.out.println("*** Accepted");
           List<String> refList = dff._toRefine[shardNum];
           if (refList == null || refList.size() == 0) continue;
           
@@ -248,7 +243,6 @@ public class FacetComponent extends SearchComponent {
         }
         
         if (newRequest) {
-          System.out.println("*** Adding new request\n" + shardsRefineRequest.params);
           rb.addRequest(this, shardsRefineRequest);
         }
         
