@@ -211,6 +211,66 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, MULTI_DV_FIELD, "multi_", 2, "id:062", 1);
   }
 
+  public void testHeuristic() throws Exception {
+    final String FIELD = MULTI_DV_FIELD;
+    final String PREFIX = "multi";
+    final int LIMIT = 10;
+
+    String sparse;
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, MULTI_DV_FIELD);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, true);
+      params.set("indent", true);
+      req.setParams(params);
+      sparse = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+    }
+
+    String heuristic;
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, MULTI_DV_FIELD);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.HEURISTIC, true);
+      params.set(SparseKeys.HEURISTIC_FINECOUNT, false);
+      params.set(SparseKeys.HEURISTIC_SAMPLE_CHUNKS, 2);
+      params.set(SparseKeys.HEURISTIC_FRACTION, "0.2");
+      params.set(SparseKeys.HEURISTIC_SAMPLE_SIZE, "0.5");
+      params.set(SparseKeys.HEURISTIC_SEGMENT_MINDOCS, 6);
+      params.set("indent", true);
+      req.setParams(params);
+      heuristic = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+    }
+
+    String heuristicFine;
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, MULTI_DV_FIELD);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.HEURISTIC, true);
+      params.set(SparseKeys.HEURISTIC_FINECOUNT, true);
+      params.set(SparseKeys.HEURISTIC_SAMPLE_CHUNKS, 2);
+      params.set(SparseKeys.HEURISTIC_FRACTION, "0.2");
+      params.set(SparseKeys.HEURISTIC_SAMPLE_SIZE, "0.5");
+      params.set(SparseKeys.HEURISTIC_SEGMENT_MINDOCS, 6);
+      params.set("indent", true);
+      req.setParams(params);
+      heuristicFine = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+    }
+
+    assertFalse("sparse and heuristic should differ but were identical", sparse.equals(heuristic));
+    assertEquals("sparse and heuristic with fine count should be identical", sparse, heuristicFine);
+  }
+
   public void testTermsCount() throws Exception {
     final String FIELD = MULTI_DV_FIELD;
     final String TERMS = "multi_1,multi_2";

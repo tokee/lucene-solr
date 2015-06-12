@@ -150,7 +150,7 @@ public class SparseCounterPool {
    * It normally has a single thread available for background cleaning.
    */
   protected final ThreadPoolExecutor supervisor;
-  private static final String NEEDS_CLEANING = "DIRTY";
+  public static final String NEEDS_CLEANING = "DIRTY";
 
   // Cached terms for fast ordinal lookup
   private BytesRefArray externalTerms = null;

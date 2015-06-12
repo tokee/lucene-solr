@@ -165,6 +165,7 @@ public class SparseKeys {
    */
   public static final String COUNTER = "facet.sparse.counter";
   public static final String DEFAULT_COUNTER = COUNTER_IMPL.auto.toString();
+
   public enum COUNTER_IMPL {auto, array, packed, dualplane, nplane, nplanez}
 
   /**
@@ -275,6 +276,70 @@ public class SparseKeys {
    */
   public static final String CACHE_TOKEN = "facet.sparse.cachetoken";
 
+  /**
+   * Whether or not the calculation of the top-X terms should be done heuristically or not for large result sets.
+   * @see {@link #HEURISTIC_SEGMENT_MINDOCS} and {@link #HEURISTIC_FRACTION} for setting the limit for heuristic processing.
+   * </p><p>
+   * Optional. Default is false.
+   */
+  public static final String HEURISTIC = "facet.sparse.heuristic";
+  public static final boolean HEURISTIC_DEFAULT = false;
+
+  /**
+   * The point after which the top-X terms are determined using sampling, if {@link #HEURISTIC} is true.
+   * This point is evaluated relative to the hitCount for the result set (and maxDoc for the index in case of fraction).
+   * This can be an absolute number of hits (e.g. the integer 1000000)
+   * or a fraction of documents in the shard (e.g. the double 0.10).
+   * </p><p>
+   * Optional. Default is 0.10.
+   */
+  public static final String HEURISTIC_FRACTION = "facet.sparse.heuristic.fraction";
+  public static final String HEURISTIC_FRACTION_DEFAULT = "0.10";
+
+  /**
+   * The minimum number of documents in a segment for heuristic processing to be enabled.
+   * This parameter acts as a sanity check for {@link #HEURISTIC_FRACTION} if that is defined as a fraction.
+   * Each segment is evaluated against this number.
+   *  </p><p>
+   * Optional. Default is 100000.
+   */
+  public static final String HEURISTIC_SEGMENT_MINDOCS = "facet.sparse.heuristic.segmentmindocs";
+  public static final int HEURISTIC_SEGMENT_MINDOCS_DEFAULT = 100000;
+
+  /**
+   * If {@link #HEURISTIC} is true, this parameter sets the size of the sample set.
+   * This size is evaluated relative to segment maxCount.
+   * This can be an absolute number of hits (e.g. the integer 1000000)
+   * or a fraction of maxDoc (e.g. the double 0.10).
+   * </p><p>
+   * Optional. Default is the value of {@link #HEURISTIC_FRACTION}.
+   */
+  public static final String HEURISTIC_SAMPLE_SIZE = "facet.sparse.heuristic.sample.size";
+
+  /**
+   * If {@link #HEURISTIC} is true, this parameter sets the number of sample chunks for each segment in the index.
+   * Each chunk will be {@link #HEURISTIC_SAMPLE_SIZE}/HEURISTIC_SAMPLE_CHUNKS is size.
+   * </p><p>
+   * Increasing this number increases the quality of the heuristic, at the cost of speed.
+   * With a heterogeneous index with multiple segments, 1 is a fine value. With a fully optimized index a high
+   * degree of document clustering, a higher value is needed.
+   * </p><p>
+   * Optional. Default is 10.
+   */
+  public static final String HEURISTIC_SAMPLE_CHUNKS = "facet.sparse.heuristic.sample.chunks";
+  public static final int HEURISTIC_SAMPLE_CHUNKS_DEFAULT = 10;
+
+  /**
+   * If {@link #HEURISTIC} is true, this parameter determines if the counts for the heuristically calculated
+   * top-X terms should be exact (true) or approximate (false).
+   * </p><p>
+   * Optional. Default is true.
+   */
+  public static final String HEURISTIC_FINECOUNT = "facet.sparse.heuristic.finecount";
+  public static final boolean HEURISTIC_FINECOUNT_DEFAULT = true;
+
+  // TODO: Handle fine-count when phase 1 was heuristic
+
   final public String field;
   final public List<Pattern> whitelists; // Never null
   final public List<Pattern> blacklists; // Never null
@@ -308,6 +373,13 @@ public class SparseKeys {
   final public boolean legacyShowStats;
   final public boolean resetStats;
   final public boolean cacheDistributed;
+
+  final public boolean heuristic;
+  final public int heuristicMinDocs;
+  final public String heuristicFraction;
+  final public String heuristicSampleSize;
+  final public int heuristicSampleChunks;
+  final public boolean heuristicFineCount;
 
   public SparseKeys(String field, SolrParams params) {
     this.field = field;
@@ -350,6 +422,13 @@ public class SparseKeys {
 
     legacyShowStats = params.getFieldBool(field, STATS, false);
     resetStats = params.getFieldBool(field, STATS_RESET, false);
+
+    heuristic  = params.getFieldBool(field, HEURISTIC, HEURISTIC_DEFAULT);
+    heuristicFraction = params.getFieldParam(field, HEURISTIC_FRACTION, HEURISTIC_FRACTION_DEFAULT);
+    heuristicMinDocs = params.getFieldInt(field, HEURISTIC_SEGMENT_MINDOCS, HEURISTIC_SEGMENT_MINDOCS_DEFAULT);
+    heuristicSampleSize = params.getFieldParam(field, HEURISTIC_SAMPLE_SIZE, heuristicFraction);
+    heuristicSampleChunks = params.getFieldInt(field, HEURISTIC_SAMPLE_CHUNKS, HEURISTIC_SAMPLE_CHUNKS_DEFAULT);
+    heuristicFineCount = params.getFieldBool(field, HEURISTIC_FINECOUNT, HEURISTIC_FINECOUNT_DEFAULT);
   }
 
   private List<Pattern> getRegexps(SolrParams params, String field, String key) {
@@ -363,6 +442,21 @@ public class SparseKeys {
     }
     return patterns;
   }
+
+  public boolean useOverallHeuristic(int hitCount, int maxDoc) {
+    return heuristic && (heuristicFraction.contains(".") ?
+        hitCount > Double.parseDouble(heuristicFraction) * maxDoc :
+        hitCount > Long.parseLong(heuristicFraction));
+  }
+  public boolean useSegmentHeuristics(int segmentMaxDoc) {
+    return heuristic & segmentMaxDoc > heuristicMinDocs;
+  }
+  public int segmentSampleSize(int documents) {
+    return (int) (heuristicSampleSize.contains(".") ?
+            Double.parseDouble(heuristicSampleSize) * documents :
+            Integer.parseInt(heuristicSampleSize));
+  }
+
 
   @Override
   public String toString() {
@@ -389,6 +483,12 @@ public class SparseKeys {
         ", legacyShowStats=" + legacyShowStats +
         ", resetStats=" + resetStats +
         ", cacheDistributed=" + cacheDistributed +
+        ", heuristic=" + heuristic +
+        ", heuristicMinDocs=" + heuristicMinDocs +
+        ", heuristicFraction=" + heuristicFraction +
+        ", heuristicSampleSize=" + heuristicSampleSize +
+        ", heuristicSampleChunks=" + heuristicSampleChunks +
+        ", heuristicFineCount=" + heuristicFineCount +
         '}';
   }
 }
