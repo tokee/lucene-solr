@@ -311,10 +311,10 @@ public class SparseDocValuesFacets {
       log.info(String.format(Locale.ENGLISH,
           "Phase 1 sparse faceting of %s: method=%s, threads=%d, hits=%d, refs=%d, time=%dms "
               + "(hitCount=%dms, acquire=%dms, collect=%s, extract=%dms (sparse=%b), resolve=%dms), hits/ms=%d, " +
-              "refs/ms=%d",
+              "refs/ms=%d, heuristic=%b",
           fieldName, sparseKeys.counter, sparseKeys.countingThreads, hitCount, refCount.get(), totalTimeNS/M,
           hitCountTime/M, acquireTime/M, alreadyFilled ? "0ms (reused)" : collectTime/M + "ms", extractTime/M,
-          optimizedExtract, termResolveTime/M, hitCount*M/totalTimeNS, refCount.get()*M/totalTimeNS));
+          optimizedExtract, termResolveTime/M, hitCount*M/totalTimeNS, refCount.get()*M/totalTimeNS, heuristic));
     }
     return finalize(res, searcher, schemaField, docs, missingCount, missing);
   }
