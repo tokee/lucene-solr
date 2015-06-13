@@ -765,8 +765,8 @@ public class SparseDocValuesFacets {
     final long startTime = System.nanoTime();
     final int segmentSampleSize = sparseKeys.segmentSampleSize(endDocID - startDocID + 1);
     final int hChunks = !heuristic ? 1 : sparseKeys.heuristicSampleChunks;
-    final int hChunkSize = !heuristic ? endDocID-startDocID+1 : segmentSampleSize / sparseKeys.heuristicSampleChunks;
-    final int hChunkSkip = (endDocID-startDocID+1)/sparseKeys.heuristicSampleChunks;
+    final int hChunkSize = !heuristic ? endDocID-startDocID+1 : segmentSampleSize / hChunks;
+    final int hChunkSkip = (endDocID-startDocID+1)/hChunks;
     int doc = disi.nextDoc();
     if (startDocID > 0 && doc != DocIdSetIterator.NO_MORE_DOCS) {
       doc = disi.advance(startDocID);
@@ -799,10 +799,10 @@ public class SparseDocValuesFacets {
       final long incNS = (System.nanoTime() - startTime - advanceNS);
       log.info(String.format(Locale.ENGLISH,
           "accumSingle(%d->%d) impl=%s, init=%dms, advance=%dms, docHits=%d, increments=%d (%d incs/doc)," +
-              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b",
+              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b (chunks=%d, chunkSize=%d, skip=%d)",
           startDocID, endDocID, sparseKeys.counter, initNS / M, advanceNS / M, docs, increments,
           docs == 0 ? 0 : increments/docs, incNS / M, incNS == 0 ? 0 : increments * M / incNS,
-          incNS == 0 ? 0 : docs * M / incNS, heuristic));
+          incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunks, hChunkSize, hChunkSkip));
     }
     return increments;
   }
@@ -817,8 +817,8 @@ public class SparseDocValuesFacets {
     final long startTime = System.nanoTime();
     final int segmentSampleSize = sparseKeys.segmentSampleSize(endDocID - startDocID + 1);
     final int hChunks = !heuristic ? 1 : sparseKeys.heuristicSampleChunks;
-    final int hChunkSize = !heuristic ? endDocID-startDocID+1 : segmentSampleSize / sparseKeys.heuristicSampleChunks;
-    final int hChunkSkip = (endDocID-startDocID+1)/sparseKeys.heuristicSampleChunks;
+    final int hChunkSize = !heuristic ? endDocID-startDocID+1 : segmentSampleSize / hChunks;
+    final int hChunkSkip = (endDocID-startDocID+1)/hChunks;
     if (ssi == DocValues.emptySortedSet()) {
       return 0; // Nothing to process; return immediately
     }
@@ -867,10 +867,10 @@ public class SparseDocValuesFacets {
       final long incNS = (System.nanoTime() - startTime - advanceNS);
       log.info(String.format(Locale.ENGLISH,
           "accumMulti(%d->%d) impl=%s, init=%dms, advance=%dms, docHits=%d, increments=%d (%d incs/doc)," +
-              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b",
+              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b (chunks=%d, chunkSize=%d, skip=%d)",
           startDocID, endDocID, sparseKeys.counter, initNS / M, advanceNS / M, docs, increments,
           docs == 0 ? 0 : increments/docs, incNS / M, incNS == 0 ? 0 : increments * M / incNS,
-          incNS == 0 ? 0 : docs * M / incNS, heuristic));
+          incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunkSize, hChunkSkip));
     }
     return increments;
   }
