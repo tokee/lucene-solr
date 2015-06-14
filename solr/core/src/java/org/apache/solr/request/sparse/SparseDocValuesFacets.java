@@ -870,7 +870,7 @@ public class SparseDocValuesFacets {
               " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b (chunks=%d, chunkSize=%d, skip=%d)",
           startDocID, endDocID, sparseKeys.counter, initNS / M, advanceNS / M, docs, increments,
           docs == 0 ? 0 : increments/docs, incNS / M, incNS == 0 ? 0 : increments * M / incNS,
-          incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunkSize, hChunkSkip));
+          incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunkSize, hChunkSkip, hChunkSkip));
     }
     return increments;
   }
