@@ -900,9 +900,9 @@ public class SparseCounterPool {
           activeClears.incrementAndGet();
           try {
             String key = dirty.getContentKey();
-            log.info("*** Clearing counter with key " + key);
+            log.info("*** Clearing counter with key " + key + ", #" + dirty.hashCode());
             dirty.clear();
-            log.info("*** Cleared counter with key " + key);
+            log.info("*** Cleared counter with key " + key + ", #" + dirty.hashCode());
             backgroundClears.incRel(startTime);
             releaseCleared(dirty);
           } finally {
