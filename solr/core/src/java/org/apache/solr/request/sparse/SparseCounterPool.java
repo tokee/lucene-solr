@@ -899,7 +899,10 @@ public class SparseCounterPool {
         } else { // Sanity check. This should always be true
           activeClears.incrementAndGet();
           try {
+            String key = dirty.getContentKey();
+            log.info("*** Clearing counter with key " + key);
             dirty.clear();
+            log.info("*** Cleared counter with key " + key);
             backgroundClears.incRel(startTime);
             releaseCleared(dirty);
           } finally {

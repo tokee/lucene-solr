@@ -19,6 +19,8 @@ package org.apache.solr.request.sparse;
 
 import org.apache.lucene.util.Incrementable;
 import org.apache.lucene.util.packed.NPlaneMutable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
@@ -218,22 +220,25 @@ public class SparseCounterBitmap implements ValueCounter {
     }
   }
 
+  public static Logger log = LoggerFactory.getLogger(SparseCounterBitmap.class);
   /**
    * If the cut-off point has not been reached, clear time is linear to updated elements. If it has been reached,
    * clear time is linear to the total number of counts.
    */
   @Override
   public void clear() {
+    log.info("*** SparseCounterBitmap(" + getContentKey() + "): clear() called");
     final int nonZero = (int) nonZeroCounters.getAndSet(0);
     final boolean hasBeenIncremented = incremented;
-
     incremented = false;
     explicitlyDisabled = false;
     missing.set(0);
     setContentKey(null);
     if (!hasBeenIncremented) {
+      log.info("*** SparseCounterBitmap(" + getContentKey() + ") clear: Not incremented");
       return;
     } else if (nonZero >= tracksMax || tracker == null) {
+      log.info("*** SparseCounterBitmap(" + getContentKey() + ") clear: Tracker exceeded -> full clear");
       counts.clear();
       if (tracker != null) {
         for (int i = 0 ; i < tracker.length() ; i++) { // If only we had access to the inner long[]...
@@ -246,7 +251,7 @@ public class SparseCounterBitmap implements ValueCounter {
       return;
     }
     // 0 < nonZero < tracksMax (considered sparse)
-
+    log.info("*** SparseCounterBitmap(" + getContentKey() + ") clear: Sparse clear");
     int cleared = 0;
     out:
     for (int tti = 0 ; tti < trackerTracker.length() ; tti++) {

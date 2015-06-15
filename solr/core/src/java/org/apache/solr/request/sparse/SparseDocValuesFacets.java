@@ -161,7 +161,9 @@ public class SparseDocValuesFacets {
 
     // Providers ready. Check that the pool has enough information and construct a counter
     long acquireTime = -System.nanoTime();
+    log.info("*** Acquiring counter");
     final ValueCounter counts = acquireCounter(sparseKeys, searcher, lookup.si, lookup.ordinalMap, schemaField, pool);
+    log.info("*** Acquired counter");
     final AtomicLong refCount = new AtomicLong(0); // Number of references from docIDs to ordinals (= #increments)
     acquireTime += System.nanoTime();
 
@@ -303,7 +305,10 @@ public class SparseDocValuesFacets {
       extractTime = 0; // Only resolving is relevant here
     }
     if (heuristic && sparseKeys.heuristicFineCount) { // Counts are unreliable for phase 2
+      log.info("*** Marking counter with NEEDS_CLEANING");
       counts.setContentKey(SparseCounterPool.NEEDS_CLEANING);
+    } else {
+      log.info("*** Not marking counter. Key=" + counts.getContentKey() + ", heuristic=" + heuristic + ", finecount=" + sparseKeys.heuristicFineCount);
     }
     pool.release(counts, sparseKeys);
 
