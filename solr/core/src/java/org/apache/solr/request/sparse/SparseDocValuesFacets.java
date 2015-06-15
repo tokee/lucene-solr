@@ -192,7 +192,7 @@ public class SparseDocValuesFacets {
         return extractSpecificCounts(
             searcher, sparseKeys, pool, lookup.si, fieldName, docs, counts, termList, heuristic);
       } finally  {
-        if (heuristic && sparseKeys.heuristicFineCount) { // Counts are unreliable for phase 2
+        if (heuristic && sparseKeys.heuristicFineCount) { // Counts are unreliable so don't store
           counts.setContentKey(SparseCounterPool.NEEDS_CLEANING);
         }
         pool.release(counts, sparseKeys);
@@ -301,6 +301,9 @@ public class SparseDocValuesFacets {
       pool.incTermResolveTimeRel(termResolveTime);
       termResolveTime = System.nanoTime()-termResolveTime;
       extractTime = 0; // Only resolving is relevant here
+    }
+    if (heuristic && sparseKeys.heuristicFineCount) { // Counts are unreliable for phase 2
+      counts.setContentKey(SparseCounterPool.NEEDS_CLEANING);
     }
     pool.release(counts, sparseKeys);
 
