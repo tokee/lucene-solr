@@ -173,7 +173,7 @@ public class SparseDocValuesFacets {
     // multi-shard searches
     final boolean alreadyFilled = counts.getContentKey() != null;
     if (alreadyFilled) {
-      log.info("*** Got already filled counter #" + counts.hashCode());
+      log.info("*** Got already filled counter with key " + counts.getContentKey() + ", #" + counts.hashCode());
     }
     long collectTime = alreadyFilled ? 0 : -System.nanoTime();
     final boolean heuristic = sparseKeys.useOverallHeuristic(hitCount, searcher.maxDoc());
