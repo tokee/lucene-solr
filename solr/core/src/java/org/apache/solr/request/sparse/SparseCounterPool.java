@@ -375,6 +375,7 @@ public class SparseCounterPool {
         synchronized (pool) {
           // nplane needs a template in the form of an already existing nplane
           if (template == null) {
+            log.info("*** pool: No template for nplanez");
             return null; // The caller needs to create the counter from scratch
           }
           if (!(template instanceof SparseCounterBitmap)) {
@@ -392,6 +393,7 @@ public class SparseCounterPool {
 
           ValueCounter counter = scp.createSibling();
           nplaneAllocations.incRel(allocateTime);
+          log.info("*** pool: Created sibling from nplanez");
           return counter;
         }
       }

@@ -649,6 +649,7 @@ public class SparseDocValuesFacets {
       // TODO: Check that acquiring a nplanex after a nplane erases the old nplane
       synchronized (pool) { // Need to synchronize to avoid overlapping BPV-resolving
         if (!pool.isInitialized() || ((vc = pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez)) == null)) {
+          log.info("*** No nplanez with cacheToken " + sparseKeys.cacheToken + " from pool. Creating new one");
           final long allocateTime = System.nanoTime();
           NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(searcher, si, globalMap, schemaField, pool);
           NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getPlusOneHistogram(), true);
