@@ -93,7 +93,7 @@ public class SparseCounterBitmap implements ValueCounter {
     SparseCounterBitmap newCounter = new SparseCounterBitmap(
         counterImpl, (NPlaneMutable) NPlaneMutable.newFromTemplate(counts), maxCountForAny, minCountsForSparse,
         fraction, maxCountTracked);
-    newCounter.setContentKey(getContentKey());
+    //newCounter.setContentKey(getContentKey()); // Values are zeroed, so no contentKey
     return newCounter;
   }
 

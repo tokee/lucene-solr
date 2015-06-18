@@ -796,7 +796,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
     @Override
     public Plane createSibling() {
-      return new SplitRankPlane(values, overflows, maxBit, hasOverflow, bpv);
+      return new SplitRankPlane(newFromTemplate(values), overflows, maxBit, hasOverflow, bpv);
     }
     protected PackedInts.Mutable getPacked(int valueCount, int bpv, boolean threadGuarded) {
       if (!threadGuarded) {
@@ -918,7 +918,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
 
     @Override
     public Plane createSibling() {
-      return new SplitRankZeroPlane(values, overflows, maxBit, hasOverflow, bpv);
+      return new SplitRankZeroPlane(newFromTemplate(values), overflows, maxBit, hasOverflow, bpv);
     }
 
     @Override
