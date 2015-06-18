@@ -227,7 +227,6 @@ public class SparseCounterBitmap implements ValueCounter {
    */
   @Override
   public void clear() {
-    log.info("*** SparseCounterBitmap(" + getContentKey() + "): clear() called on #" + this.hashCode());
     final int nonZero = (int) nonZeroCounters.getAndSet(0);
     final boolean hasBeenIncremented = incremented;
     incremented = false;
@@ -235,10 +234,8 @@ public class SparseCounterBitmap implements ValueCounter {
     missing.set(0);
     setContentKey(null);
     if (!hasBeenIncremented) {
-      log.info("*** SparseCounterBitmap(" + getContentKey() + ") clear: Not incremented #" + this.hashCode());
       return;
     } else if (nonZero >= tracksMax || tracker == null) {
-      log.info("*** SparseCounterBitmap(" + getContentKey() + ") clear: Tracker exceeded -> full clear, #" + this.hashCode());
       counts.clear();
       if (tracker != null) {
         for (int i = 0 ; i < tracker.length() ; i++) { // If only we had access to the inner long[]...
@@ -251,7 +248,6 @@ public class SparseCounterBitmap implements ValueCounter {
       return;
     }
     // 0 < nonZero < tracksMax (considered sparse)
-    log.info("*** SparseCounterBitmap(" + getContentKey() + ") clear: Sparse clear, #" + this.hashCode());
     int cleared = 0;
     out:
     for (int tti = 0 ; tti < trackerTracker.length() ; tti++) {

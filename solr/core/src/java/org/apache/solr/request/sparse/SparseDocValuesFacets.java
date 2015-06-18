@@ -161,9 +161,7 @@ public class SparseDocValuesFacets {
 
     // Providers ready. Check that the pool has enough information and construct a counter
     long acquireTime = -System.nanoTime();
-    log.info("*** Acquiring counter");
     final ValueCounter counts = acquireCounter(sparseKeys, searcher, lookup.si, lookup.ordinalMap, schemaField, pool);
-    log.info("*** Acquired counter #" + counts.hashCode());
     final AtomicLong refCount = new AtomicLong(0); // Number of references from docIDs to ordinals (= #increments)
     acquireTime += System.nanoTime();
 
@@ -172,19 +170,14 @@ public class SparseDocValuesFacets {
     // Depending on pool cache setup, it might already be full and directly usable in second phase of
     // multi-shard searches
     final boolean alreadyFilled = counts.getContentKey() != null;
-    if (alreadyFilled) {
-      log.info("*** Got already filled counter with key " + counts.getContentKey() + ", #" + counts.hashCode());
-    }
     long collectTime = alreadyFilled ? 0 : -System.nanoTime();
     final boolean heuristic = sparseKeys.useOverallHeuristic(hitCount, searcher.maxDoc());
     if (!alreadyFilled) {
       if (!pool.isProbablySparse(hitCount, sparseKeys)) {
         // It is guessed that the result set will be to large to be sparse so
         // the sparse tracker is disabled up front to speed up the collection phase
-        log.info("*** Disabling sparse for counter #" + counts.hashCode());
         counts.disableSparseTracking();
       }
-      log.info("*** Calling collectCounts for counter #" + counts.hashCode());
       collectCounts(
           sparseKeys, searcher, docs, schemaField, lookup, startTermIndex, counts, hitCount, refCount, heuristic);
       pool.incCollectTimeRel(collectTime);
@@ -229,7 +222,6 @@ public class SparseDocValuesFacets {
     long termResolveTime;
     boolean optimizedExtract;
     if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
-      log.info("*** Extracting in count order #" + counts.hashCode());
       int maxsize = limit>0 ? offset+limit : Integer.MAX_VALUE-1;
       maxsize = Math.min(maxsize, nTerms);
       LongPriorityQueue queue = new LongPriorityQueue(Math.min(maxsize,1000), maxsize, Long.MIN_VALUE);
@@ -310,10 +302,7 @@ public class SparseDocValuesFacets {
       extractTime = 0; // Only resolving is relevant here
     }
     if (heuristic && sparseKeys.heuristicFineCount) { // Counts are unreliable for phase 2
-      log.info("*** Marking counter with NEEDS_CLEANING #" + counts.hashCode());
       counts.setContentKey(SparseCounterPool.NEEDS_CLEANING);
-    } else {
-      log.info("*** No explicit set of counter contentKey as not heuristic. Key=" + counts.getContentKey() + ", heuristic=" + heuristic + ", finecount=" + sparseKeys.heuristicFineCount + ", #" + counts.hashCode());
     }
     pool.release(counts, sparseKeys);
 
@@ -410,7 +399,6 @@ public class SparseDocValuesFacets {
         new LinkedBlockingQueue<Accumulator>(sparseKeys.countingThreads);
 
     for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
-      log.info("*** Processing leaf " + subIndex + " with counter #" + counts.hashCode());
       AtomicReaderContext leaf = leaves.get(subIndex);
       final int leafMaxDoc = leaf.reader().maxDoc();
       if (leafMaxDoc == 0) {
@@ -489,7 +477,6 @@ public class SparseDocValuesFacets {
         AtomicReaderContext leaf, int startDocID, int endDocID, SparseKeys sparseKeys, SchemaField schemaField,
         Lookup lookup, int startTermIndex, ValueCounter counts, String fieldName, Filter filter, int subIndex,
         Queue<Accumulator> accumulators, boolean multiThreadedInLeaf, AtomicLong refCount, boolean heuristic) {
-      log.info("*** New accumulator for counter #" + counts.hashCode());
       this.leaf = leaf;
       this.startDocID = startDocID;
       this.endDocID = endDocID;
@@ -649,7 +636,6 @@ public class SparseDocValuesFacets {
       // TODO: Check that acquiring a nplanex after a nplane erases the old nplane
       synchronized (pool) { // Need to synchronize to avoid overlapping BPV-resolving
         if (!pool.isInitialized() || ((vc = pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez)) == null)) {
-          log.info("*** No nplanez with cacheToken " + sparseKeys.cacheToken + " from pool. Creating new one");
           final long allocateTime = System.nanoTime();
           NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(searcher, si, globalMap, schemaField, pool);
           NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getPlusOneHistogram(), true);
@@ -778,7 +764,6 @@ public class SparseDocValuesFacets {
   private static long accumSingle(
       SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedDocValues si, DocIdSetIterator disi,
       int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS, boolean heuristic) throws IOException {
-    log.info("*** accumSingle called for counter #" + counts.hashCode());
     final long startTime = System.nanoTime();
     final int segmentSampleSize = sparseKeys.segmentSampleSize(endDocID - startDocID + 1);
     final int hChunks = !heuristic ? 1 : sparseKeys.heuristicSampleChunks;
@@ -797,7 +782,6 @@ public class SparseDocValuesFacets {
         doc = disi.advance(startDocID+chunk*hChunkSkip);
       }
       final int chunkEnd = Math.min(endDocID, startDocID+chunk*hChunkSkip+hChunkSize);
-      log.info("*** accumSingle iterating from " + doc + " to " + chunkEnd + " with counter #" + counts.hashCode());
       while (doc != DocIdSetIterator.NO_MORE_DOCS && doc < chunkEnd) {
         docs++;
         int term = si.getOrd(doc);
@@ -832,7 +816,6 @@ public class SparseDocValuesFacets {
   private static long accumMulti(
       SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedSetDocValues ssi, DocIdSetIterator disi,
       int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS, boolean heuristic) throws IOException {
-    log.info("*** accumMulti called for counter #" + counts.hashCode());
     final long startTime = System.nanoTime();
     final int segmentSampleSize = sparseKeys.segmentSampleSize(endDocID - startDocID + 1);
     final int hChunks = !heuristic ? 1 : sparseKeys.heuristicSampleChunks;
@@ -855,7 +838,6 @@ public class SparseDocValuesFacets {
         doc = disi.advance(startDocID+chunk*hChunkSkip);
       }
       final int chunkEnd = Math.min(endDocID, startDocID+chunk*hChunkSkip+hChunkSize);
-      log.info("*** accumSingle iterating from " + doc + " to " + chunkEnd + " with counter #" + counts.hashCode());
       while (doc != DocIdSetIterator.NO_MORE_DOCS && doc < chunkEnd) {
         docs++;
         ssi.setDocument(doc);
