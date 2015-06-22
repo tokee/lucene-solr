@@ -338,6 +338,29 @@ public class SparseKeys {
   public static final String HEURISTIC_FINECOUNT = "facet.sparse.heuristic.finecount";
   public static final boolean HEURISTIC_FINECOUNT_DEFAULT = true;
 
+  /**
+   * When requesting heuristic faceting, the facet.limit will be multiplied with this factor under the hood.
+   * The number of terms in the facet result will be trimmed down to facet.limit before they are returned.
+   * Increasing this option increases the probability that the terms are the right ones, but does not affect their
+   * count. It also increases processing time.
+   * </p><p>
+   * Optional, double. Default is 2.0.
+   */
+  public static final String HEURISTIC_OVERPROVISION_FACTOR = "facet.sparse.heuristic.overprovision.factor";
+  public static final double HEURISTIC_OVERPROVISION_FACTOR_DEFAULT = 2.0;
+
+  /**
+   * When requesting heuristic faceting, this value will be added to the facet.limit under the hood.
+   * The number of terms in the facet result will be trimmed down to facet.limit before they are returned.
+   * Increasing this option increases the probability that the terms are the right ones, but does not affect their
+   * count. It also increases processing time.
+   * </p><p>
+   * Optional, integer. Default is 5.
+   */
+  public static final String HEURISTIC_OVERPROVISION_CONSTANT = "facet.sparse.heuristic.overprovision.constant";
+  public static final int HEURISTIC_OVERPROVISION_CONSTANT_DEFAULT = 5;
+
+
   final public String field;
   final public List<Pattern> whitelists; // Never null
   final public List<Pattern> blacklists; // Never null
@@ -378,6 +401,8 @@ public class SparseKeys {
   final public String heuristicSampleSize;
   final public int heuristicSampleChunks;
   final public boolean heuristicFineCount;
+  final double heuristicOverprovisionFactor;
+  final int heuristicOverprovisionConstant;
 
   public SparseKeys(String field, SolrParams params) {
     this.field = field;
@@ -427,6 +452,10 @@ public class SparseKeys {
     heuristicSampleSize = params.getFieldParam(field, HEURISTIC_SAMPLE_SIZE, heuristicFraction);
     heuristicSampleChunks = params.getFieldInt(field, HEURISTIC_SAMPLE_CHUNKS, HEURISTIC_SAMPLE_CHUNKS_DEFAULT);
     heuristicFineCount = params.getFieldBool(field, HEURISTIC_FINECOUNT, HEURISTIC_FINECOUNT_DEFAULT);
+    heuristicOverprovisionFactor = params.getFieldDouble(field,
+        HEURISTIC_OVERPROVISION_FACTOR, HEURISTIC_OVERPROVISION_FACTOR_DEFAULT);
+    heuristicOverprovisionConstant = params.getFieldInt(field,
+        HEURISTIC_OVERPROVISION_CONSTANT, HEURISTIC_OVERPROVISION_CONSTANT_DEFAULT);
   }
 
   private List<Pattern> getRegexps(SolrParams params, String field, String key) {
@@ -487,6 +516,8 @@ public class SparseKeys {
         ", heuristicSampleSize=" + heuristicSampleSize +
         ", heuristicSampleChunks=" + heuristicSampleChunks +
         ", heuristicFineCount=" + heuristicFineCount +
+        ", heuristicOverprovisionFactor=" + heuristicOverprovisionFactor +
+        ", heuristicOverprovisionConstant=" + heuristicOverprovisionConstant +
         '}';
   }
 }
