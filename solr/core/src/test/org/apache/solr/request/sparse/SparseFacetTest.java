@@ -78,7 +78,8 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
   public static final String MULTI_TEXT_FIELD = "multi_s";
 
   public static final String MODULO_FIELD = "mod_dvm_s";
-  static final int DOCS = 100;
+  // With -Dtests.seed=F641675C72E60DB0, a DOCS value of 3001 triggers testFullNplanezTracker
+  static final int DOCS = 3001;
   static final int UNIQ_VALUES = 10;
   static final int MAX_MULTI = 10;
   static final int[] MODULOS = new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 25, 50};
@@ -211,6 +212,80 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     testFacetImplementation(SparseKeys.COUNTER_IMPL.nplanez, MULTI_DV_FIELD, "multi_", 2, "id:062", 1);
   }
 
+  // Forces tracking of full result set in nplanez, to test for overflow at the end of the planes
+  public void testFullNplanezTracker() throws Exception {
+    final int LIMIT = 10;
+    final String FIELD = MULTI_DV_FIELD;
+
+
+    final String vanilla;
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, FIELD);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, false);
+      params.set("indent", true);
+      req.setParams(params);
+      vanilla = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+    }
+
+    final String packed;
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, FIELD);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.packed.toString());
+      params.set("indent", true);
+      req.setParams(params);
+      packed = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+    }
+
+    assertEquals("Packed should match vanilla", vanilla, packed);
+
+    final String nplanez;
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, FIELD);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.nplanez.toString());
+      params.set("indent", true);
+      req.setParams(params);
+      nplanez = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+    }
+
+    assertEquals("Nplanez should match vanilla", vanilla, nplanez);
+
+    final String nplanezFullTrack;
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, FIELD);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.nplanez.toString());
+      params.set(SparseKeys.CUTOFF, Integer.MAX_VALUE);
+      params.set(SparseKeys.MINTAGS, 0);
+      params.set(SparseKeys.FRACTION, "1.0");
+      params.set(SparseKeys.LOG_EXTENDED, "true");
+      params.set("indent", true);
+      req.setParams(params);
+      nplanezFullTrack = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+    }
+
+    assertEquals("Nplanez with full tracking should match vanilla", vanilla, nplanezFullTrack);
+    System.out.println(nplanezFullTrack.replace(">", ">\n"));
+
+  }
+
   public void testHeuristic() throws Exception {
     final String FIELD = MULTI_DV_FIELD;
     final String PREFIX = "multi";
@@ -221,7 +296,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
       SolrQueryRequest req = req("*:*");
       ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
       params.set(FacetParams.FACET, true);
-      params.set(FacetParams.FACET_FIELD, MULTI_DV_FIELD);
+      params.set(FacetParams.FACET_FIELD, FIELD);
       params.set(FacetParams.FACET_LIMIT, LIMIT);
       params.set(SparseKeys.SPARSE, true);
       params.set("indent", true);
@@ -234,7 +309,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
       SolrQueryRequest req = req("*:*");
       ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
       params.set(FacetParams.FACET, true);
-      params.set(FacetParams.FACET_FIELD, MULTI_DV_FIELD);
+      params.set(FacetParams.FACET_FIELD, FIELD);
       params.set(FacetParams.FACET_LIMIT, LIMIT);
       params.set(SparseKeys.SPARSE, true);
       params.set(SparseKeys.HEURISTIC, true);
@@ -253,7 +328,7 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
       SolrQueryRequest req = req("*:*");
       ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
       params.set(FacetParams.FACET, true);
-      params.set(FacetParams.FACET_FIELD, MULTI_DV_FIELD);
+      params.set(FacetParams.FACET_FIELD, FIELD);
       params.set(FacetParams.FACET_LIMIT, LIMIT);
       params.set(SparseKeys.SPARSE, true);
       params.set(SparseKeys.HEURISTIC, true);
