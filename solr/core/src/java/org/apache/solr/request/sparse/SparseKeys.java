@@ -338,8 +338,6 @@ public class SparseKeys {
   public static final String HEURISTIC_FINECOUNT = "facet.sparse.heuristic.finecount";
   public static final boolean HEURISTIC_FINECOUNT_DEFAULT = true;
 
-  // TODO: Handle fine-count when phase 1 was heuristic
-
   final public String field;
   final public List<Pattern> whitelists; // Never null
   final public List<Pattern> blacklists; // Never null

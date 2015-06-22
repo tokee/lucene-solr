@@ -159,6 +159,11 @@ public class SparseDocValuesFacets {
       return finalize(new NamedList<Integer>(), searcher, schemaField, docs, -1, missing);
     }
 
+    final boolean heuristic = sparseKeys.useOverallHeuristic(hitCount, searcher.maxDoc());
+    if (heuristic && termList != null) { // No reliable counters, switch to slow term counting
+      return SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termList, docs);
+    }
+
     // Providers ready. Check that the pool has enough information and construct a counter
     long acquireTime = -System.nanoTime();
     final ValueCounter counts = acquireCounter(sparseKeys, searcher, lookup.si, lookup.ordinalMap, schemaField, pool);
@@ -171,7 +176,6 @@ public class SparseDocValuesFacets {
     // multi-shard searches
     final boolean alreadyFilled = counts.getContentKey() != null;
     long collectTime = alreadyFilled ? 0 : -System.nanoTime();
-    final boolean heuristic = sparseKeys.useOverallHeuristic(hitCount, searcher.maxDoc());
     if (!alreadyFilled) {
       if (!pool.isProbablySparse(hitCount, sparseKeys)) {
         // It is guessed that the result set will be to large to be sparse so
