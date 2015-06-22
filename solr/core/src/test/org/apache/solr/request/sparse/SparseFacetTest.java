@@ -78,8 +78,8 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
   public static final String MULTI_TEXT_FIELD = "multi_s";
 
   public static final String MODULO_FIELD = "mod_dvm_s";
-  // With -Dtests.seed=F641675C72E60DB0, a DOCS value of 3001 triggers testFullNplanezTracker
-  static final int DOCS = 3001;
+
+  static final int DOCS = 100;
   static final int UNIQ_VALUES = 10;
   static final int MAX_MULTI = 10;
   static final int[] MODULOS = new int[]{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 25, 50};
@@ -282,8 +282,6 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     }
 
     assertEquals("Nplanez with full tracking should match vanilla", vanilla, nplanezFullTrack);
-    System.out.println(nplanezFullTrack.replace(">", ">\n"));
-
   }
 
   public void testHeuristic() throws Exception {

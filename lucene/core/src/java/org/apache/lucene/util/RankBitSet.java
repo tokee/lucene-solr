@@ -40,7 +40,7 @@ public class RankBitSet extends OpenBitSet {
   public static final int LOWER_OVER_SIZE = 2048; // Overflow bits handled by a lower block
 
   public static final int BASIC_BITS = 10; // Needs to hold counts from 0-512 (513-1023 are never used)
-  public static final long BASIC_MASK = ~(~1 << (BASIC_BITS-1));
+  public static final long BASIC_MASK = ~(~1L << (BASIC_BITS-1));
   public static final int BASIC_OVER_BITS = 9;
   public static final long BASIC_OVER_MASK = ~(~1L << (BASIC_OVER_BITS-1));
   public static final int BASIC_OVER_SIZE = 512; // Overflow bits handled by a basic block

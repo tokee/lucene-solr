@@ -677,7 +677,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     public STATUS inc(int index) {
       long value = values.get(index);
       value++;
-      values.set(index, value & ~(~1 << (values.getBitsPerValue()-1)));
+      values.set(index, value & ~(~1L << (values.getBitsPerValue()-1)));
       return value == 1 ? STATUS.wasZero : (value >>> values.getBitsPerValue()) != 0 ? STATUS.overflowed : STATUS.ok;
     }
 
@@ -900,6 +900,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     protected final PackedOpportunistic.PackedOpportunistic1 zeroTracker; // Only defined for first plane
 
     public SplitRankZeroPlane(int valueCount, int bpv, boolean hasOverflow, int maxBit, boolean threadGuarded) {
+      // The +64 is a hack to avoid overflow with bitmap tracking. The cause for the overflow has yet to be determined
       super(valueCount, bpv, hasOverflow, maxBit, threadGuarded);
       zeroTracker = (values instanceof PackedOpportunistic.PackedOpportunistic1) && maxBit == 1 ?
           (PackedOpportunistic.PackedOpportunistic1) values : null;
@@ -1267,6 +1268,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
     }
   }
 
+  // TODO: Place this in another class. Maybe move OrdinalUtils to lucene root and use that?
   public static class StatCollectingBPVWrapper implements BPVProvider {
     private final BPVProvider source;
 

@@ -82,9 +82,11 @@ public class SparseCounterBitmap implements ValueCounter {
       trackerTracker = null;
     } else {
       tracksMax = (int) (counts.size() * fraction);
-      trackerTracker = new AtomicLongArray(counts.size()/64/64/64+1); // Why the +1?
+      tracker = new AtomicLongArray(counts.size()/64/64+1);           // +1 to round up
+      trackerTracker = new AtomicLongArray(tracker.length()/64+1);    // +1 to round up
       // FIXME: An occasional (q:"d-mol" at SB test installation) ArrayIndexOutOfBounds seems workarounded by the +64
-      tracker = new AtomicLongArray(counts.size()/64/64+64+1);           // Why the +1?
+//      trackerTracker = new AtomicLongArray(counts.size()/64/64/64+1); // +1 to round up
+//      tracker = new AtomicLongArray(counts.size()/64/64+64+1);           // Why the +1?
     }
   }
 
@@ -172,10 +174,11 @@ public class SparseCounterBitmap implements ValueCounter {
     final int trackerBit = (counter >>> 6) & 63; // /64%64
     while (true) {
       long oldValue = tracker.get(trackerIndex);
-      long newValue = oldValue | (1 << trackerBit);
+      long newValue = oldValue | (1L << trackerBit);
       if (newValue == oldValue) { // Already tracked
         break;
       }
+
       if (tracker.compareAndSet(trackerIndex, oldValue, newValue)) {
         updateTrackerTracker(trackerIndex);
         break;
@@ -285,13 +288,13 @@ public class SparseCounterBitmap implements ValueCounter {
     while (cleared != nonZero && tti < trackerTracker.length()) {
       long ttv = trackerTracker.getAndSet(tti, 0);
       while ((ti = Long.numberOfLeadingZeros(ttv)) != 64 && cleared != nonZero) {
-        ttv = 1 << ti;
+        ttv = 1L << ti;
         long tv = tracker.getAndSet(tti * 64 + ti, 0);
         while ((i = Long.numberOfLeadingZeros(tv)) != 64 && cleared != nonZero) {
-          tv = 1 << i;
+          tv = 1L << i;
           long v = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
           while ((z = Long.numberOfLeadingZeros(v)) != 64 && cleared != nonZero) {
-            v = 1 << z;
+            v = 1L << z;
             counts.set(tti*64*64*64 + ti*64*64 + i*64 + z, 0);
             cleared++;
           }
@@ -366,7 +369,6 @@ public class SparseCounterBitmap implements ValueCounter {
           final long t = tBitset & -tBitset;
           final int i = Long.bitCount(t-1);
           tBitset ^= t;
-
           long vBitset = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
           while (vBitset != 0) {
             final long v = vBitset & -vBitset;
@@ -393,13 +395,13 @@ public class SparseCounterBitmap implements ValueCounter {
     while (tti < trackerTracker.length()) {
       long ttBitset = trackerTracker.get(tti);
       while ((ti = Long.numberOfLeadingZeros(ttBitset)) != 64) {
-        ttBitset = 1 << ti;
+        ttBitset = 1L << ti;
         long tBitset = tracker.get(tti * 64 + ti);
         while ((i = Long.numberOfLeadingZeros(tBitset)) != 64) {
-          tBitset = 1 << i;
+          tBitset = 1L << i;
           long vBitset = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
           while ((z = Long.numberOfLeadingZeros(vBitset)) != 64) {
-            vBitset = 1 << z;
+            vBitset = 1L << z;
             final int counter = tti*64*64*64 + ti*64*64 + i*64 + z;
             long value = get(counter);
             if (counter >= start && counter <= end && value >= sparseMinValue) {
