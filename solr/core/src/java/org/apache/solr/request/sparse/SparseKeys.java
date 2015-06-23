@@ -595,7 +595,7 @@ public class SparseKeys {
         ", legacyShowStats=" + legacyShowStats +
         ", resetStats=" + resetStats +
         ", cacheDistributed=" + cacheDistributed +
-        ", heuristic=" + heuristic + "(" +
+        ", heuristic(enabled=" + heuristic +
         ", minDocs=" + heuristicMinDocs +
         ", fraction=" + heuristicFraction +
         ", sample(fixedSize=" + fixedHeuristicSample +
