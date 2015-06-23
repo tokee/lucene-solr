@@ -506,10 +506,10 @@ public class SparseKeys {
     heuristicMinDocs = params.getFieldInt(field, HEURISTIC_SEGMENT_MINDOCS, HEURISTIC_SEGMENT_MINDOCS_DEFAULT);
 
     // sampleSize defined or no sampleF
-    if (!"N/A".equals(params.getFieldParam(field, HEURISTIC_SAMPLE_SIZE, "N/A")) ||
-        params.getFieldDouble(field, HEURISTIC_SAMPLE_F, -1.0) < 0) {
+    String hss = params.getFieldParam(field, HEURISTIC_SAMPLE_SIZE, "");
+    if (!"".equals(hss) || params.getFieldDouble(field, HEURISTIC_SAMPLE_F, -1.0) < 0) {
       fixedHeuristicSample = true;
-      heuristicSampleSize = params.getFieldParam(field, HEURISTIC_SAMPLE_SIZE, heuristicFraction);
+      heuristicSampleSize = "".equals(hss) ? heuristicFraction : hss;
     } else {
       fixedHeuristicSample = false;
       heuristicSampleSize = "-1";
