@@ -546,13 +546,27 @@ public class SparseKeys {
         hitCount > Double.parseDouble(heuristicFraction) * maxDoc :
         hitCount > Long.parseLong(heuristicFraction));
   }
-  public boolean useSegmentHeuristics(int segmentMaxDoc) {
-    return heuristic & segmentMaxDoc > heuristicMinDocs;
+  public boolean useSegmentHeuristics(int indexHitCount, int indexDocuments, int segmentDocuments) {
+    if (!heuristic || segmentDocuments < heuristicMinDocs) { // TODO: Add check for segmentSampleSize
+      return false;
+    }
+    if (fixedHeuristicSample) {
+      return true;
+    }
+    // See the JavaDoc for HEURISTIC_SAMPLE_F
+    double factor = 1.0-(indexHitCount/indexDocuments*heuristicSampleF)+heuristicSampleC;
+    return factor <= heuristicSampleMaxFactor;
   }
-  public int segmentSampleSize(int documents) {
-    return (int) (heuristicSampleSize.contains(".") ?
-            Double.parseDouble(heuristicSampleSize) * documents :
-            Integer.parseInt(heuristicSampleSize));
+  public int segmentSampleSize(int hitCount, int indexDocuments, int segmentDocuments) {
+    if (fixedHeuristicSample) {
+      return (int) (heuristicSampleSize.contains(".") ?
+          Double.parseDouble(heuristicSampleSize) * segmentDocuments :
+          Integer.parseInt(heuristicSampleSize));
+    }
+    // See the JavaDoc for HEURISTIC_SAMPLE_F
+    // 1-(h/d*f)+c
+    double factor = 1.0-(hitCount/indexDocuments*heuristicSampleF)+heuristicSampleC;
+    return (int) (Math.max(factor, heuristicSampleMinFactor)*segmentDocuments);
   }
 
 

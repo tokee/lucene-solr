@@ -412,7 +412,7 @@ public class SparseDocValuesFacets {
       if (accumulators == null) { // In-thread counting
         try {
           new Accumulator(leaf, 0, leafMaxDoc, sparseKeys, schemaField, lookup, startTermIndex, counts,
-              fieldName, filter, subIndex, null, false, refCount, heuristic).call();
+              fieldName, filter, subIndex, null, false, refCount, heuristic, searcher.maxDoc(), hitCount).call();
           continue;
         } catch (Exception e) {
           throw new IOException("Exception calling " + Accumulator.class.getSimpleName() + " within currentThread", e);
@@ -431,7 +431,7 @@ public class SparseDocValuesFacets {
         Accumulator accumulator = new Accumulator(
             leaf, i*blockSize, i < parts-1 ? (i+1)*blockSize : leafMaxDoc,
             sparseKeys, schemaField, lookup, startTermIndex, counts, fieldName, filter, subIndex,
-            accumulators, i != 0, refCount, heuristic);
+            accumulators, i != 0, refCount, heuristic, searcher.maxDoc(), hitCount);
         try {
           accumulators.put(accumulator);
         } catch (InterruptedException e) {
@@ -475,12 +475,15 @@ public class SparseDocValuesFacets {
     private final boolean cloneLookup;
     private final AtomicLong refCount;
     private final boolean heuristic;
+    private final int indexHitCount;
+    private final int indexMaxDoc;
     private Lookup lookup;
 
     public Accumulator(
         AtomicReaderContext leaf, int startDocID, int endDocID, SparseKeys sparseKeys, SchemaField schemaField,
         Lookup lookup, int startTermIndex, ValueCounter counts, String fieldName, Filter filter, int subIndex,
-        Queue<Accumulator> accumulators, boolean multiThreadedInLeaf, AtomicLong refCount, boolean heuristic) {
+        Queue<Accumulator> accumulators, boolean multiThreadedInLeaf, AtomicLong refCount, boolean heuristic,
+        int indexMaxDoc, int indexHitCount) {
       this.leaf = leaf;
       this.startDocID = startDocID;
       this.endDocID = endDocID;
@@ -495,7 +498,9 @@ public class SparseDocValuesFacets {
       this.accumulators = accumulators;
       this.cloneLookup = multiThreadedInLeaf;
       this.refCount = refCount;
-      this.heuristic = heuristic && sparseKeys.useSegmentHeuristics(endDocID-startDocID);
+      this.indexHitCount = indexHitCount;
+      this.indexMaxDoc = indexMaxDoc;
+      this.heuristic = heuristic && sparseKeys.useSegmentHeuristics(indexHitCount, indexMaxDoc, endDocID-startDocID);
     }
 
     @Override
@@ -523,10 +528,10 @@ public class SparseDocValuesFacets {
           if (singleton != null) {
             // some codecs may optimize SORTED_SET storage for single-valued fields
             refCount.addAndGet(accumSingle(sparseKeys, counts, startTermIndex, singleton, disi, startDocID, endDocID,
-                subIndex, lookup, System.nanoTime() - startTime, heuristic));
+                subIndex, lookup, System.nanoTime() - startTime, heuristic, indexHitCount, indexMaxDoc));
           } else {
             refCount.addAndGet(accumMulti(sparseKeys, counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex,
-                lookup, System.nanoTime()-startTime, heuristic));
+                lookup, System.nanoTime()-startTime, heuristic, indexHitCount, indexMaxDoc));
           }
         } else {
           SortedDocValues sub = leaf.reader().getSortedDocValues(fieldName);
@@ -534,7 +539,7 @@ public class SparseDocValuesFacets {
             sub = DocValues.emptySorted();
           }
           refCount.addAndGet(accumSingle(sparseKeys, counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex,
-              lookup, System.nanoTime()-startTime, heuristic));
+              lookup, System.nanoTime()-startTime, heuristic, indexHitCount, indexMaxDoc));
         }
         return this;
       } finally {
@@ -767,9 +772,10 @@ public class SparseDocValuesFacets {
    */
   private static long accumSingle(
       SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedDocValues si, DocIdSetIterator disi,
-      int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS, boolean heuristic) throws IOException {
+      int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS, boolean heuristic, int indexHitCount,
+      int indexMaxDoc) throws IOException {
     final long startTime = System.nanoTime();
-    final int segmentSampleSize = sparseKeys.segmentSampleSize(endDocID - startDocID + 1);
+    final int segmentSampleSize = sparseKeys.segmentSampleSize(indexHitCount, indexMaxDoc, endDocID - startDocID + 1);
     final int hChunks = !heuristic ? 1 : sparseKeys.heuristicSampleChunks;
     final int hChunkSize = !heuristic ? endDocID-startDocID+1 : segmentSampleSize / hChunks;
     final int hChunkSkip = (endDocID-startDocID+1)/hChunks;
@@ -819,9 +825,10 @@ public class SparseDocValuesFacets {
    */
   private static long accumMulti(
       SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedSetDocValues ssi, DocIdSetIterator disi,
-      int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS, boolean heuristic) throws IOException {
+      int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS, boolean heuristic, int indexHitCount,
+      int indexMaxDoc) throws IOException {
     final long startTime = System.nanoTime();
-    final int segmentSampleSize = sparseKeys.segmentSampleSize(endDocID - startDocID + 1);
+    final int segmentSampleSize = sparseKeys.segmentSampleSize(indexHitCount, indexMaxDoc, endDocID - startDocID + 1);
     final int hChunks = !heuristic ? 1 : sparseKeys.heuristicSampleChunks;
     final int hChunkSize = !heuristic ? endDocID-startDocID+1 : segmentSampleSize / hChunks;
     final int hChunkSkip = (endDocID-startDocID+1)/hChunks;
