@@ -307,14 +307,61 @@ public class SparseKeys {
   public static final int HEURISTIC_SEGMENT_MINDOCS_DEFAULT = 100000;
 
   /**
-   * If {@link #HEURISTIC} is true, this parameter sets the size of the sample set.
-   * This size is evaluated relative to segment maxCount.
+   * If {@link #HEURISTIC} is not set, this parameter has no effect.
+   * If this parameter is set, it overrides {@link #HEURISTIC_SAMPLE_F} and {@link #HEURISTIC_SAMPLE_C}.
+   * </p></p>
+   * This size is evaluated relative to segment document count and is independent of result set size.
    * This can be an absolute number of hits (e.g. the integer 1000000)
    * or a fraction of maxDoc (e.g. the double 0.10).
    * </p><p>
-   * Optional. Default is the value of {@link #HEURISTIC_FRACTION}.
+   * Optional. Default is the value of {@link #HEURISTIC_FRACTION} if {@link #HEURISTIC_SAMPLE_F} and
+   * {@link #HEURISTIC_SAMPLE_C} are not set.
    */
   public static final String HEURISTIC_SAMPLE_SIZE = "facet.sparse.heuristic.sample.size";
+
+  /**
+   * If {@link #HEURISTIC} is not set, this parameter has no effect.
+   * If {@link #HEURISTIC_SAMPLE_SIZE} is set, this parameter has no effect.
+   * </p></p>
+   * This represents how large a part of the full segment document set should be used as a sample for heuristic
+   * faceting. The factor is calculated with the formula {@code 1-(h/d*f)+c}, where h = hits in the result set,
+   * d=documents in the segment, f is this argument and c is {@link #HEURISTIC_SAMPLE_C}.
+   * </p><p>
+   * Optional.
+   */
+  public static final String HEURISTIC_SAMPLE_F = "facet.sparse.heuristic.sample.f";
+
+  /**
+   * If {@link #HEURISTIC} is not set, this parameter has no effect.
+   * If {@link #HEURISTIC_SAMPLE_SIZE} is set, this parameter has no effect.
+   * </p></p>
+   * This represents how large a part of the full segment document set should be used as a sample for heuristic
+   * faceting. The factor is calculated with the formula {@code 1-(h/d*f)+c}, where h = hits in the result set,
+   * d=documents in the segment, f is {@link #HEURISTIC_SAMPLE_F} and c is this argument.
+   * </p><p>
+   * Optional. Default is 0.4.
+   */
+  public static final String HEURISTIC_SAMPLE_C = "facet.sparse.heuristic.sample.c";
+  public static final double HEURISTIC_SAMPLE_C_DEFAULT = 0.4;
+
+  /**
+   * The minimum sample factor used for heuristic faceting.
+   * Only takes effect if {@link #HEURISTIC_SAMPLE_F} is defined.
+   * If the concrete factor gets below this threshold, it will be rounded up to the threshold.
+   * </p><p>
+   * Optional. Default is 0.001 (one per mille).
+   */
+  public static final String HEURISTIC_SAMPLE_MINFACTOR = "facet.sparse.heuristic.sample.minfactor";
+  public static final double HEURISTIC_SAMPLE_MINFACTOR_DEFAULT = 0.001;
+
+  /**
+   * The maximum sample factor allowed for heuristic faceting.
+   * Only takes effect if {@link #HEURISTIC_SAMPLE_F} is defined.
+   * </p><p>
+   * Optional. Default is 0.5.
+   */
+  public static final String HEURISTIC_SAMPLE_MAXFACTOR = "facet.sparse.heuristic.sample.maxfactor";
+  public static final double HEURISTIC_SAMPLE_MAXFACTOR_DEFAULT = 0.5;
 
   /**
    * If {@link #HEURISTIC} is true, this parameter sets the number of sample chunks for each segment in the index.
@@ -398,7 +445,15 @@ public class SparseKeys {
   final public boolean heuristic;
   final public int heuristicMinDocs;
   final public String heuristicFraction;
+
+  final private boolean fixedHeuristicSample;
   final public String heuristicSampleSize;
+  private final double heuristicSampleF;
+  private final double heuristicSampleC;
+  private final double heuristicSampleMinFactor;
+  private final double heuristicSampleMaxFactor;
+
+
   final public int heuristicSampleChunks;
   final public boolean heuristicFineCount;
   final double heuristicOverprovisionFactor;
@@ -449,7 +504,23 @@ public class SparseKeys {
     heuristic  = params.getFieldBool(field, HEURISTIC, HEURISTIC_DEFAULT);
     heuristicFraction = params.getFieldParam(field, HEURISTIC_FRACTION, HEURISTIC_FRACTION_DEFAULT);
     heuristicMinDocs = params.getFieldInt(field, HEURISTIC_SEGMENT_MINDOCS, HEURISTIC_SEGMENT_MINDOCS_DEFAULT);
-    heuristicSampleSize = params.getFieldParam(field, HEURISTIC_SAMPLE_SIZE, heuristicFraction);
+
+    // sampleSize defined or no sampleF
+    if (!"N/A".equals(params.getFieldParam(field, HEURISTIC_SAMPLE_SIZE, "N/A")) ||
+        params.getFieldDouble(field, HEURISTIC_SAMPLE_F, -1.0) < 0) {
+      fixedHeuristicSample = true;
+      heuristicSampleSize = params.getFieldParam(field, HEURISTIC_SAMPLE_SIZE, heuristicFraction);
+    } else {
+      fixedHeuristicSample = false;
+      heuristicSampleSize = "-1";
+    }
+    heuristicSampleF = params.getFieldDouble(field, HEURISTIC_SAMPLE_F, -1);
+    heuristicSampleC = params.getFieldDouble(field, HEURISTIC_SAMPLE_C, HEURISTIC_SAMPLE_C_DEFAULT);
+    heuristicSampleMinFactor = params.getFieldDouble(field,
+        HEURISTIC_SAMPLE_MINFACTOR, HEURISTIC_SAMPLE_MINFACTOR_DEFAULT);
+    heuristicSampleMaxFactor = params.getFieldDouble(field,
+        HEURISTIC_SAMPLE_MAXFACTOR, HEURISTIC_SAMPLE_MAXFACTOR_DEFAULT);
+
     heuristicSampleChunks = params.getFieldInt(field, HEURISTIC_SAMPLE_CHUNKS, HEURISTIC_SAMPLE_CHUNKS_DEFAULT);
     heuristicFineCount = params.getFieldBool(field, HEURISTIC_FINECOUNT, HEURISTIC_FINECOUNT_DEFAULT);
     heuristicOverprovisionFactor = params.getFieldDouble(field,
@@ -510,14 +581,21 @@ public class SparseKeys {
         ", legacyShowStats=" + legacyShowStats +
         ", resetStats=" + resetStats +
         ", cacheDistributed=" + cacheDistributed +
-        ", heuristic=" + heuristic +
-        ", heuristicMinDocs=" + heuristicMinDocs +
-        ", heuristicFraction=" + heuristicFraction +
-        ", heuristicSampleSize=" + heuristicSampleSize +
-        ", heuristicSampleChunks=" + heuristicSampleChunks +
-        ", heuristicFineCount=" + heuristicFineCount +
-        ", heuristicOverprovisionFactor=" + heuristicOverprovisionFactor +
-        ", heuristicOverprovisionConstant=" + heuristicOverprovisionConstant +
-        '}';
+        ", heuristic=" + heuristic + "(" +
+        ", minDocs=" + heuristicMinDocs +
+        ", fraction=" + heuristicFraction +
+        ", sample(" +
+        ", fixedSize=" + fixedHeuristicSample +
+        ", sampleSize=" + heuristicSampleSize +
+        ", sampleChunks=" + heuristicSampleChunks +
+        ", sampleF=" + heuristicSampleF +
+        ", sampleC=" + heuristicSampleC +
+        ", sampleMinFactor=" + heuristicSampleMinFactor +
+        ", sampleMaxFactor=" + heuristicSampleMaxFactor +
+        ")" +
+        ", fineCount=" + heuristicFineCount +
+        ", overprovisionFactor=" + heuristicOverprovisionFactor +
+        ", overprovisionConstant=" + heuristicOverprovisionConstant +
+        ")}";
   }
 }
