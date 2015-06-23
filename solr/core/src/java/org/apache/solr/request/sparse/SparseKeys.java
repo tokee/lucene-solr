@@ -573,10 +573,10 @@ public class SparseKeys {
   @Override
   public String toString() {
     return "SparseKeys{" +
-        "field='" + field + '\'' +
+        "sparse=" + sparse +
+        ", field='" + field + '\'' +
         ", whitelists=" + whitelists +
         ", blacklists=" + blacklists +
-        ", sparse=" + sparse +
         ", termLookup=" + termLookup +
         ", termLookupMaxCache=" + termLookupMaxCache +
         ", minTags=" + minTags +

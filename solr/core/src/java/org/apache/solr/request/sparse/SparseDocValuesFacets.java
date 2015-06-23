@@ -104,6 +104,10 @@ public class SparseDocValuesFacets {
   public static NamedList<Integer> getCounts(
       SolrIndexSearcher searcher, DocSet docs, String fieldName, int offset, int limit, int minCount, boolean missing,
       String sort, String prefix, String termList, SparseKeys sparseKeys, SparseCounterPool pool) throws IOException {
+    if (sparseKeys.logExtended) {
+      log.info(sparseKeys.toString());
+    }
+
     if (!sparseKeys.sparse) { // Skip sparse part completely
       return termList == null ?
           DocValuesFacets.getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
