@@ -813,12 +813,13 @@ public class SparseDocValuesFacets {
     // TODO: Remove this when sparse faceting is considered stable
     if (sparseKeys.logExtended) {
       final long incNS = (System.nanoTime() - startTime - advanceNS);
+      final double sampleFactor = sparseKeys.segmentSampleFactor(indexHitCount, indexMaxDoc, endDocID - startDocID + 1);
       log.info(String.format(Locale.ENGLISH,
           "accumSingle(%d->%d) impl=%s, init=%dms, advance=%dms, docHits=%d, increments=%d (%d incs/doc)," +
-              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b (chunks=%d, chunkSize=%d, skip=%d)",
+              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b (chunks=%d, chunkSize=%d, skip=%d, factor=%f)",
           startDocID, endDocID, sparseKeys.counter, initNS / M, advanceNS / M, docs, increments,
           docs == 0 ? 0 : increments/docs, incNS / M, incNS == 0 ? 0 : increments * M / incNS,
-          incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunks, hChunkSize, hChunkSkip));
+          incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunks, hChunkSize, hChunkSkip, sampleFactor));
     }
     return increments;
   }
@@ -882,12 +883,13 @@ public class SparseDocValuesFacets {
     // TODO: Remove this when sparse faceting is considered stable
     if (sparseKeys.logExtended) {
       final long incNS = (System.nanoTime() - startTime - advanceNS);
+      final double sampleFactor = sparseKeys.segmentSampleFactor(indexHitCount, indexMaxDoc, endDocID - startDocID + 1);
       log.info(String.format(Locale.ENGLISH,
           "accumMulti(%d->%d) impl=%s, init=%dms, advance=%dms, docHits=%d, increments=%d (%d incs/doc)," +
-              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b (chunks=%d, chunkSize=%d, skip=%d)",
+              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b (chunks=%d, chunkSize=%d, skip=%d, factor=%f)",
           startDocID, endDocID, sparseKeys.counter, initNS / M, advanceNS / M, docs, increments,
           docs == 0 ? 0 : increments/docs, incNS / M, incNS == 0 ? 0 : increments * M / incNS,
-          incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunkSize, hChunkSkip, hChunkSkip));
+          incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunkSize, hChunkSkip, hChunkSkip, sampleFactor));
     }
     return increments;
   }

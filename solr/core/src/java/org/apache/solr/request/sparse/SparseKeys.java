@@ -558,6 +558,7 @@ public class SparseKeys {
     double factor = heuristicSampleA*(1.0*indexHitCount/indexDocuments)+heuristicSampleB;
     return factor <= heuristicSampleMaxFactor;
   }
+
   public int segmentSampleSize(int indexHitCount, int indexDocuments, int segmentDocuments) {
     if (fixedHeuristicSample) {
       return (int) (heuristicSampleSize.contains(".") ?
@@ -570,6 +571,17 @@ public class SparseKeys {
     return (int) (Math.max(factor, heuristicSampleMinFactor)*segmentDocuments);
   }
 
+  public double segmentSampleFactor(int indexHitCount, int indexDocuments, int segmentDocuments) {
+    if (fixedHeuristicSample) {
+      return (int) (heuristicSampleSize.contains(".") ?
+          Double.parseDouble(heuristicSampleSize) :
+          1.0*Integer.parseInt(heuristicSampleSize)/segmentDocuments);
+    }
+    // See the JavaDoc for HEURISTIC_SAMPLE_F
+    // a*(h/d)+c
+    double factor = heuristicSampleA*(1.0*indexHitCount/indexDocuments)+heuristicSampleB;
+    return Math.max(factor, heuristicSampleMinFactor);
+  }
 
   @Override
   public String toString() {
