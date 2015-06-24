@@ -39,7 +39,8 @@ public class SparseKeysTest extends SolrTestCaseJ4 {
   // incTime=2537ms (7088 incs/ms, 7088 docs/ms), heuristic=false (chunks=1, chunkSize=258189147, skip=258189147)
 
   public void testHeuristicFactor() {
-    final int HITS = 27989479;
+    final int HITSLOW = 3000000;
+    final int HITSHIGH = 4000000;
     final int IMAXDOC = 258189147;
     final int SMAXDOC = 258189147;
 
@@ -48,16 +49,20 @@ public class SparseKeysTest extends SolrTestCaseJ4 {
     params.set(SparseKeys.HEURISTIC_SEGMENT_MINDOCS, 100000);
     params.set(SparseKeys.HEURISTIC_FRACTION, 0);
     params.set(SparseKeys.HEURISTIC_SAMPLE_CHUNKS, 1000000);
-    params.set(SparseKeys.HEURISTIC_SAMPLE_F, 2);
-    params.set(SparseKeys.HEURISTIC_SAMPLE_C, "-0.45");
+    params.set(SparseKeys.HEURISTIC_SAMPLE_A, "-19");
+    params.set(SparseKeys.HEURISTIC_SAMPLE_B, "0.78");
     params.set(SparseKeys.HEURISTIC_SAMPLE_MINFACTOR, "0.001");
     params.set(SparseKeys.HEURISTIC_SAMPLE_MAXFACTOR, "0.5");
     SparseKeys sparseKeys = new SparseKeys("foo", params);
 
-    assertTrue("Heuristics should be enabled for the full request",
-        sparseKeys.useOverallHeuristic(HITS, IMAXDOC));
-    assertTrue("Heuristics should be enabled for the single segment in the index",
-        sparseKeys.useSegmentHeuristics(HITS, IMAXDOC, SMAXDOC));
+    assertTrue("Overall heuristics should be enabled for the small request",
+        sparseKeys.useOverallHeuristic(HITSLOW, IMAXDOC));
+    assertTrue("Overall heuristics should be enabled for the large request",
+        sparseKeys.useOverallHeuristic(HITSHIGH, IMAXDOC));
+    assertFalse("Heuristics should not be enabled for the single segment in the index for small",
+        sparseKeys.useSegmentHeuristics(HITSLOW, IMAXDOC, SMAXDOC));
+    assertTrue("Heuristics should be enabled for the single segment in the index for large",
+        sparseKeys.useSegmentHeuristics(HITSHIGH, IMAXDOC, SMAXDOC));
   }
 
 }

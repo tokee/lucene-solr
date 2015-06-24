@@ -308,14 +308,14 @@ public class SparseKeys {
 
   /**
    * If {@link #HEURISTIC} is not set, this parameter has no effect.
-   * If this parameter is set, it overrides {@link #HEURISTIC_SAMPLE_F} and {@link #HEURISTIC_SAMPLE_C}.
+   * If this parameter is set, it overrides {@link #HEURISTIC_SAMPLE_A} and {@link #HEURISTIC_SAMPLE_B}.
    * </p></p>
    * This size is evaluated relative to segment document count and is independent of result set size.
    * This can be an absolute number of hits (e.g. the integer 1000000)
    * or a fraction of maxDoc (e.g. the double 0.10).
    * </p><p>
-   * Optional. Default is the value of {@link #HEURISTIC_FRACTION} if {@link #HEURISTIC_SAMPLE_F} and
-   * {@link #HEURISTIC_SAMPLE_C} are not set.
+   * Optional. Default is the value of {@link #HEURISTIC_FRACTION} if {@link #HEURISTIC_SAMPLE_A} and
+   * {@link #HEURISTIC_SAMPLE_B} are not set.
    */
   public static final String HEURISTIC_SAMPLE_SIZE = "facet.sparse.heuristic.sample.size";
 
@@ -324,39 +324,39 @@ public class SparseKeys {
    * If {@link #HEURISTIC_SAMPLE_SIZE} is set, this parameter has no effect.
    * </p></p>
    * This represents how large a part of the full segment document set should be used as a sample for heuristic
-   * faceting. The factor is calculated with the formula {@code 1-(h/d*f)+c}, where h = hits in the result set,
-   * d=documents in the segment, f is this argument and c is {@link #HEURISTIC_SAMPLE_C}.
+   * faceting. The factor is calculated with the formula {@code a*(h/d)+c}, where h = hits in the result set,
+   * d=documents in the segment, a is this argument and b is {@link #HEURISTIC_SAMPLE_B}.
    * </p><p>
-   * Optional.
+   * Optional. Recommended values are -1 to -20.
    */
-  public static final String HEURISTIC_SAMPLE_F = "facet.sparse.heuristic.sample.f";
+  public static final String HEURISTIC_SAMPLE_A = "facet.sparse.heuristic.sample.a";
 
   /**
    * If {@link #HEURISTIC} is not set, this parameter has no effect.
    * If {@link #HEURISTIC_SAMPLE_SIZE} is set, this parameter has no effect.
    * </p></p>
    * This represents how large a part of the full segment document set should be used as a sample for heuristic
-   * faceting. The factor is calculated with the formula {@code 1-(h/d*f)+c}, where h = hits in the result set,
-   * d=documents in the segment, f is {@link #HEURISTIC_SAMPLE_F} and c is this argument.
+   * faceting. The factor is calculated with the formula {@code a*(h/d)+c}, where h = hits in the result set,
+   * d=documents in the segment, a is {@link #HEURISTIC_SAMPLE_A} and b is this argument.
    * </p><p>
-   * Optional. Default is 0.4.
+   * Optional. Default is 0.5.
    */
-  public static final String HEURISTIC_SAMPLE_C = "facet.sparse.heuristic.sample.c";
-  public static final double HEURISTIC_SAMPLE_C_DEFAULT = 0.4;
+  public static final String HEURISTIC_SAMPLE_B = "facet.sparse.heuristic.sample.b";
+  public static final double HEURISTIC_SAMPLE_B_DEFAULT = 0.5;
 
   /**
    * The minimum sample factor used for heuristic faceting.
-   * Only takes effect if {@link #HEURISTIC_SAMPLE_F} is defined.
+   * Only takes effect if {@link #HEURISTIC_SAMPLE_A} is defined.
    * If the concrete factor gets below this threshold, it will be rounded up to the threshold.
    * </p><p>
-   * Optional. Default is 0.001 (one per mille).
+   * Optional. Default is 1.0.
    */
   public static final String HEURISTIC_SAMPLE_MINFACTOR = "facet.sparse.heuristic.sample.minfactor";
   public static final double HEURISTIC_SAMPLE_MINFACTOR_DEFAULT = 0.001;
 
   /**
    * The maximum sample factor allowed for heuristic faceting.
-   * Only takes effect if {@link #HEURISTIC_SAMPLE_F} is defined.
+   * Only takes effect if {@link #HEURISTIC_SAMPLE_A} is defined.
    * </p><p>
    * Optional. Default is 0.5.
    */
@@ -448,8 +448,8 @@ public class SparseKeys {
 
   final private boolean fixedHeuristicSample;
   final public String heuristicSampleSize;
-  private final double heuristicSampleF;
-  private final double heuristicSampleC;
+  private final double heuristicSampleA;
+  private final double heuristicSampleB;
   private final double heuristicSampleMinFactor;
   private final double heuristicSampleMaxFactor;
 
@@ -507,15 +507,15 @@ public class SparseKeys {
 
     // sampleSize defined or no sampleF
     String hss = params.getFieldParam(field, HEURISTIC_SAMPLE_SIZE, "");
-    if (!"".equals(hss) || params.getFieldDouble(field, HEURISTIC_SAMPLE_F, -1.0) < 0) {
+    if (!"".equals(hss) || params.getFieldDouble(field, HEURISTIC_SAMPLE_B, -1.0) < 0) {
       fixedHeuristicSample = true;
       heuristicSampleSize = "".equals(hss) ? heuristicFraction : hss;
     } else {
       fixedHeuristicSample = false;
       heuristicSampleSize = "-1";
     }
-    heuristicSampleF = params.getFieldDouble(field, HEURISTIC_SAMPLE_F, -1);
-    heuristicSampleC = params.getFieldDouble(field, HEURISTIC_SAMPLE_C, HEURISTIC_SAMPLE_C_DEFAULT);
+    heuristicSampleA = params.getFieldDouble(field, HEURISTIC_SAMPLE_A, -1);
+    heuristicSampleB = params.getFieldDouble(field, HEURISTIC_SAMPLE_B, HEURISTIC_SAMPLE_B_DEFAULT);
     heuristicSampleMinFactor = params.getFieldDouble(field,
         HEURISTIC_SAMPLE_MINFACTOR, HEURISTIC_SAMPLE_MINFACTOR_DEFAULT);
     heuristicSampleMaxFactor = params.getFieldDouble(field,
@@ -554,18 +554,19 @@ public class SparseKeys {
       return true;
     }
     // See the JavaDoc for HEURISTIC_SAMPLE_F
-    double factor = 1.0-(1.0*indexHitCount/indexDocuments*heuristicSampleF)+heuristicSampleC;
+    // a*(h/d)+c
+    double factor = heuristicSampleA*(1.0*indexHitCount/indexDocuments)+heuristicSampleB;
     return factor <= heuristicSampleMaxFactor;
   }
-  public int segmentSampleSize(int hitCount, int indexDocuments, int segmentDocuments) {
+  public int segmentSampleSize(int indexHitCount, int indexDocuments, int segmentDocuments) {
     if (fixedHeuristicSample) {
       return (int) (heuristicSampleSize.contains(".") ?
           Double.parseDouble(heuristicSampleSize) * segmentDocuments :
           Integer.parseInt(heuristicSampleSize));
     }
     // See the JavaDoc for HEURISTIC_SAMPLE_F
-    // 1-(h/d*f)+c
-    double factor = 1.0-(1.0*hitCount/indexDocuments*heuristicSampleF)+heuristicSampleC;
+    // a*(h/d)+c
+    double factor = heuristicSampleA*(1.0*indexHitCount/indexDocuments)+heuristicSampleB;
     return (int) (Math.max(factor, heuristicSampleMinFactor)*segmentDocuments);
   }
 
@@ -601,8 +602,8 @@ public class SparseKeys {
         ", sample(fixedSize=" + fixedHeuristicSample +
         ", sampleSize=" + heuristicSampleSize +
         ", sampleChunks=" + heuristicSampleChunks +
-        ", sampleF=" + heuristicSampleF +
-        ", sampleC=" + heuristicSampleC +
+        ", sampleA=" + heuristicSampleA +
+        ", sampleB=" + heuristicSampleB +
         ", sampleMinFactor=" + heuristicSampleMinFactor +
         ", sampleMaxFactor=" + heuristicSampleMaxFactor +
         ")" +
