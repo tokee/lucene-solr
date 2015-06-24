@@ -57,7 +57,6 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     pendingDocs.add(fieldsAndValues);
   }
 
-
   static void createIndex() throws Exception {
     indexFacetValues(DOCS, 0, true);
 

@@ -119,8 +119,16 @@ public class SparseDocValuesFacets {
     public int hitCount;
     public int startTermIndex;
     public int endTermIndex;
-    public boolean heuristic = false;
+    public boolean heuristic;
     public ValueCounter counts;
+    public final NamedList<Integer> res = new NamedList<>();
+    public boolean optimizedExtract;
+
+    public long hitCountTime;
+    public long acquireTime;
+    public long collectTime;
+    public long extractTime;
+    public long termResolveTime;
 
     private SparseState(
         SolrIndexSearcher searcher, DocSet docs, String field, int offset, int limit, int minCount,
@@ -172,11 +180,10 @@ public class SparseDocValuesFacets {
 
     // Checks whether we can logically skip faceting
 
-    long hitCountTime = -System.nanoTime();
+    state.hitCountTime = -System.nanoTime();
     state.hitCount = docs.size();
-    hitCountTime += System.nanoTime();
+    state.hitCountTime += System.nanoTime();
     adjustTermIndexes(state);
-
 
     if (state.nTerms() <= 0 || state.hitCount < minCount) {
       // Should we count this in statistics? It should be fast and is fairly independent of sparse
@@ -189,16 +196,16 @@ public class SparseDocValuesFacets {
     }
 
     // Providers ready. Check that the pool has enough information and construct a counter
-    long acquireTime = -System.nanoTime();
+    state.acquireTime = -System.nanoTime();
     state.counts = acquireCounter(state);
-    acquireTime += System.nanoTime();
+    state.acquireTime += System.nanoTime();
 
     // Calculate counts for all relevant terms if the counter structure is empty
     // The counter structure is always empty for single-shard searches and first phase of multi-shard searches
     // Depending on pool cache setup, it might already be full and directly usable in second phase of
     // multi-shard searches
     final boolean alreadyFilled = state.counts.getContentKey() != null;
-    long collectTime = alreadyFilled ? 0 : -System.nanoTime();
+    state.collectTime = alreadyFilled ? 0 : -System.nanoTime();
     if (!alreadyFilled) {
       if (!pool.isProbablySparse(state.hitCount, sparseKeys)) {
         // It is guessed that the result set will be to large to be sparse so
@@ -206,8 +213,8 @@ public class SparseDocValuesFacets {
         state.counts.disableSparseTracking();
       }
       collectCounts(state);
-      state.pool.incCollectTimeRel(collectTime);
-      collectTime += System.nanoTime();
+      state.pool.incCollectTimeRel(state.collectTime);
+      state.collectTime += System.nanoTime();
     }
 
     if (state.termList != null) {
@@ -229,7 +236,7 @@ public class SparseDocValuesFacets {
                   + "(hitCount=%dms, acquire=%dms, collect=%s, fineCount=%dms), hits/ms=%d, refs/ms=%d, heuristic=%b",
               fieldName, sparseKeys.counter, sparseKeys.countingThreads, state.hitCount, state.refCount.get(),
               totalTimeNS/M,
-              hitCountTime/M, acquireTime/M, alreadyFilled ? "0ms (reused)" : collectTime/M + "ms",
+              state.hitCountTime/M, state.acquireTime/M, alreadyFilled ? "0ms (reused)" : state.collectTime/M + "ms",
               (System.nanoTime()-fineCountStart)/M, state.hitCount*M/totalTimeNS, state.refCount.get()*M/totalTimeNS,
               state.heuristic));
         }
@@ -237,97 +244,9 @@ public class SparseDocValuesFacets {
     }
 
     //final int missingCount = startTermIndex == -1 ? (int) counts.get(0) : -1;
-    final int missingCount = state.startTermIndex == -1 ? (int) state.counts.getMissing() : -1;
 
-    int off=offset;
-    int lim=limit>=0 ? limit : Integer.MAX_VALUE;
+    extractTopTerms(state);
 
-    final FieldType ft = state.schemaField.getType();
-    final NamedList<Integer> res = new NamedList<>();
-    final CharsRef charsRef = new CharsRef(10);
-    long extractTime = System.nanoTime();
-    long termResolveTime;
-    boolean optimizedExtract;
-    if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
-      int maxsize = limit>0 ? offset+limit : Integer.MAX_VALUE-1;
-      maxsize = Math.min(maxsize, state.nTerms());
-      LongPriorityQueue queue = new LongPriorityQueue(Math.min(maxsize,1000), maxsize, Long.MIN_VALUE);
-
-//        int min=mincount-1;  // the smallest value in the top 'N' values
-
-      try {
-        optimizedExtract = state.counts.iterate(state.startTermIndex==-1?1:0, state.nTerms(), minCount, false,
-            sparseKeys.blacklists.isEmpty() && sparseKeys.whitelists.isEmpty() ?
-                new ValueCounter.TopCallback(minCount-1, queue) :
-                new PatternMatchingCallback(minCount-1, queue, maxsize, state.keys, state.pool, state.lookup.si, ft, charsRef));
-        if (optimizedExtract) {
-          pool.incWithinCount();
-        } else {
-          pool.incExceededCount();
-        }
-      } catch (ArrayIndexOutOfBoundsException e) {
-        throw new ArrayIndexOutOfBoundsException(String.format(
-            "Logic error: Out of bounds with startTermIndex=%d, nTerms=%d, minCount=%d and counts=%s",
-            state.startTermIndex, state.nTerms(), minCount, state.counts));
-      }
-      pool.incExtractTimeRel(extractTime);
-      extractTime = System.nanoTime()-extractTime;
-
-      // if we are deep paging, we don't have to order the highest "offset" counts.
-      int collectCount = Math.max(0, queue.size() - off);
-      assert collectCount <= lim;
-
-      termResolveTime = System.nanoTime();
-      // the start and end indexes of our list "sorted" (starting with the highest value)
-      int sortedIdxStart = queue.size() - (collectCount - 1);
-      int sortedIdxEnd = queue.size() + 1;
-      final long[] sorted = queue.sort(collectCount);
-
-      for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
-        long pair = sorted[i];
-        int count = (int)(pair >>> 32);
-        int tnum = Integer.MAX_VALUE - (int)pair;
-        final String term = resolveTerm(pool, sparseKeys, state.lookup.si, ft, state.startTermIndex+tnum, charsRef);
-        if (state.heuristic && sparseKeys.heuristicFineCount) { // Need to fine-count
-          // TODO: Add heuristics lookup-stats to pool
-          res.add(term, searcher.numDocs(new TermQuery(new Term(fieldName, ft.toInternal(term))), docs));
-        } else {
-          res.add(term, count);
-        }
-/*        si.lookupOrd(startTermIndex+tnum, br);
-        ft.indexedToReadable(br, charsRef);
-        res.add(charsRef.toString(), c);*/
-      }
-      if (state.heuristic && sparseKeys.heuristicFineCount) { // Order might be off
-        sortByCount(res);
-      }
-      pool.incTermResolveTimeRel(termResolveTime);
-      termResolveTime = System.nanoTime()-termResolveTime;
-    } else {
-      optimizedExtract = false;
-      termResolveTime = System.nanoTime();
-      // add results in index order
-      int i=(state.startTermIndex==-1)?1:0;
-      if (minCount<=0) {
-        // if mincount<=0, then we won't discard any terms and we know exactly
-        // where to start.
-        i+=off;
-        off=0;
-      }
-      // TODO: Add black- & white-list
-      for (; i<state.nTerms(); i++) {
-        int c = (int) state.counts.get(i);
-        if (c<minCount || --off>=0) continue;
-        if (--lim<0) break;
-        res.add(resolveTerm(state.pool, state.keys, state.lookup.si, ft, state.startTermIndex+i, charsRef), c);
-/*        si.lookupOrd(startTermIndex+i, br);
-        ft.indexedToReadable(br, charsRef);
-        res.add(charsRef.toString(), c);*/
-      }
-      pool.incTermResolveTimeRel(termResolveTime);
-      termResolveTime = System.nanoTime()-termResolveTime;
-      extractTime = 0; // Only resolving is relevant here
-    }
     if (state.heuristic && sparseKeys.heuristicFineCount) { // Counts are unreliable for phase 2
       state.counts.setContentKey(SparseCounterPool.NEEDS_CLEANING);
     }
@@ -343,11 +262,105 @@ public class SparseDocValuesFacets {
               "refs/ms=%d, heuristic=%b",
           fieldName, sparseKeys.counter, sparseKeys.countingThreads, state.hitCount, state.refCount.get(),
           totalTimeNS/M,
-          hitCountTime/M, acquireTime/M, alreadyFilled ? "0ms (reused)" : collectTime/M + "ms", extractTime/M,
-          optimizedExtract, termResolveTime/M, state.hitCount*M/totalTimeNS, state.refCount.get()*M/totalTimeNS,
-          state.heuristic));
+          state.hitCountTime/M, state.acquireTime/M, alreadyFilled ? "0ms (reused)" : state.collectTime/M + "ms",
+          state.extractTime/M, state.optimizedExtract, state.termResolveTime/M, state.hitCount*M/totalTimeNS,
+          state.refCount.get()*M/totalTimeNS, state.heuristic));
     }
-    return finalize(res, searcher, state.schemaField, docs, missingCount, missing);
+    final int missingCount = state.startTermIndex == -1 ? (int) state.counts.getMissing() : -1;
+    return finalize(state.res, searcher, state.schemaField, docs, missingCount, missing);
+  }
+
+  private static void extractTopTerms(SparseState state) throws IOException {
+    int off=state.offset;
+    int lim=state.limit>=0 ? state.limit : Integer.MAX_VALUE;
+
+    final FieldType ft = state.schemaField.getType();
+    final CharsRef charsRef = new CharsRef(10);
+    state.extractTime = System.nanoTime();
+    if (state.sort.equals(FacetParams.FACET_SORT_COUNT) || state.sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
+      int maxsize = state.limit>0 ? state.offset+state.limit : Integer.MAX_VALUE-1;
+      maxsize = Math.min(maxsize, state.nTerms());
+      LongPriorityQueue queue = new LongPriorityQueue(Math.min(maxsize,1000), maxsize, Long.MIN_VALUE);
+
+//        int min=mincount-1;  // the smallest value in the top 'N' values
+
+      try {
+        state.optimizedExtract = state.counts.iterate(
+            state.startTermIndex==-1?1:0, state.nTerms(), state.minCount, false,
+            state.keys.blacklists.isEmpty() && state.keys.whitelists.isEmpty() ?
+                new ValueCounter.TopCallback(state.minCount-1, queue) :
+                new PatternMatchingCallback(
+                    state.minCount-1, queue, maxsize, state.keys, state.pool, state.lookup.si, ft, charsRef));
+        if (state.optimizedExtract) {
+          state.pool.incWithinCount();
+        } else {
+          state.pool.incExceededCount();
+        }
+      } catch (ArrayIndexOutOfBoundsException e) {
+        throw new ArrayIndexOutOfBoundsException(String.format(
+            "Logic error: Out of bounds with startTermIndex=%d, nTerms=%d, minCount=%d and counts=%s",
+            state.startTermIndex, state.nTerms(), state.minCount, state.counts));
+      }
+      state.pool.incExtractTimeRel(state.extractTime);
+      state.extractTime = System.nanoTime()-state.extractTime;
+
+      // if we are deep paging, we don't have to order the highest "offset" counts.
+      int collectCount = Math.max(0, queue.size() - off);
+      assert collectCount <= lim;
+
+      state.termResolveTime = System.nanoTime();
+      // the start and end indexes of our list "sorted" (starting with the highest value)
+      int sortedIdxStart = queue.size() - (collectCount - 1);
+      int sortedIdxEnd = queue.size() + 1;
+      final long[] sorted = queue.sort(collectCount);
+
+      for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
+        long pair = sorted[i];
+        int count = (int)(pair >>> 32);
+        int tnum = Integer.MAX_VALUE - (int)pair;
+        final String term = resolveTerm(
+            state.pool, state.keys, state.lookup.si, ft, state.startTermIndex+tnum, charsRef);
+        if (state.heuristic && state.keys.heuristicFineCount) { // Need to fine-count
+          // TODO: Add heuristics lookup-stats to pool
+          state.res.add(term, state.searcher.numDocs(
+              new TermQuery(new Term(state.field, ft.toInternal(term))), state.docs));
+        } else {
+          state.res.add(term, count);
+        }
+/*        si.lookupOrd(startTermIndex+tnum, br);
+        ft.indexedToReadable(br, charsRef);
+        res.add(charsRef.toString(), c);*/
+      }
+      if (state.heuristic && state.keys.heuristicFineCount) { // Order might be off
+        sortByCount(state.res);
+      }
+      state.pool.incTermResolveTimeRel(state.termResolveTime);
+      state.termResolveTime = System.nanoTime()-state.termResolveTime;
+    } else {
+      state.optimizedExtract = false;
+      state.termResolveTime = System.nanoTime();
+      // add results in index order
+      int i=(state.startTermIndex==-1)?1:0;
+      if (state.minCount<=0) {
+        // if mincount<=0, then we won't discard any terms and we know exactly
+        // where to start.
+        i+=off;
+        off=0;
+      }
+      // TODO: Add black- & white-list
+      for (; i<state.nTerms(); i++) {
+        int c = (int) state.counts.get(i);
+        if (c<state.minCount || --off>=0) continue;
+        if (--lim<0) break;
+        state.res.add(resolveTerm(state.pool, state.keys, state.lookup.si, ft, state.startTermIndex+i, charsRef), c);
+/*        si.lookupOrd(startTermIndex+i, br);
+        ft.indexedToReadable(br, charsRef);
+        res.add(charsRef.toString(), c);*/
+      }
+      state.pool.incTermResolveTimeRel(state.termResolveTime);
+      state.termResolveTime = System.nanoTime()-state.termResolveTime;
+      state.extractTime = 0; // Only resolving is relevant here
+    }
   }
 
   private static void adjustTermIndexes(SparseState state) {
