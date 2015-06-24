@@ -21,7 +21,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -99,6 +98,56 @@ public class SparseDocValuesFacets {
 
   private SparseDocValuesFacets() {}
 
+  private static class SparseState {
+    public final SolrIndexSearcher searcher;
+    public final int maxDoc;
+    public final DocSet docs;
+    public final String field;
+    public final SchemaField schemaField;
+    public final int offset;
+    public final int limit;
+    public final int minCount;
+    public final boolean missing;
+    public final String sort;
+    public final String prefix;
+    public final String termList;
+    public final SparseKeys keys;
+    public final SparseCounterPool pool;
+    public final Lookup lookup;
+
+    public final AtomicLong refCount = new AtomicLong(0); // Number of references from docIDs to ordinals (#increments)
+    public int hitCount;
+    public int startTermIndex;
+    public int endTermIndex;
+    public boolean heuristic = false;
+    public ValueCounter counts;
+
+    private SparseState(
+        SolrIndexSearcher searcher, DocSet docs, String field, int offset, int limit, int minCount,
+        boolean missing, String sort, String prefix, String termList, SparseKeys keys, SparseCounterPool pool)
+        throws IOException {
+      this.searcher = searcher;
+      this.maxDoc = searcher.maxDoc();
+      this.docs = docs;
+      this.field = field;
+      this.offset = offset;
+      this.limit = limit;
+      this.minCount = minCount;
+      this.missing = missing;
+      this.sort = sort;
+      this.prefix = "".equals(prefix) ? null : prefix;
+      this.termList = termList;
+      this.keys = keys;
+      this.pool = pool;
+      schemaField = searcher.getSchema().getField(field);
+      lookup = new Lookup(searcher, schemaField);
+    }
+
+    public int nTerms() {
+      return endTermIndex-startTermIndex;
+    }
+  }
+
   // This is a equivalent to {@link UnInvertedField#getCounts} with the extension that it also handles
   // termLists
   public static NamedList<Integer> getCounts(
@@ -107,102 +156,70 @@ public class SparseDocValuesFacets {
     if (sparseKeys.logExtended) {
       log.info(sparseKeys.toString());
     }
-
     if (!sparseKeys.sparse) { // Skip sparse part completely
       return termList == null ?
           DocValuesFacets.getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
           SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termList, docs);
     }
+
     final long fullStartTime = System.nanoTime();
+    final SparseState state = new SparseState(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix,
+        termList, sparseKeys, pool);
 
-    // Resolve providers of terms and ordinal-mapping
-    final SchemaField schemaField = searcher.getSchema().getField(fieldName);
-
-    final Lookup lookup = new Lookup(searcher, schemaField);
-    if (lookup.si == null) {
-      return finalize(new NamedList<Integer>(), searcher, schemaField, docs, -1, missing);
+    if (state.lookup.si == null) {
+      return finalize(new NamedList<Integer>(), searcher, state.schemaField, docs, -1, missing);
     }
 
     // Checks whether we can logically skip faceting
 
     long hitCountTime = -System.nanoTime();
-    final int hitCount = docs.size();
+    state.hitCount = docs.size();
     hitCountTime += System.nanoTime();
+    adjustTermIndexes(state);
 
-    // Locate start and end-position in the ordinals if a prefix is given
-    // TODO: Test this for dualplane & nplane counters
-    int startTermIndex, endTermIndex;
-    {
-      final BytesRef prefixRef;
-      if (prefix == null) {
-        prefixRef = null;
-      } else if (prefix.length()==0) {
-        prefix = null;
-        prefixRef = null;
-      } else {
-        prefixRef = new BytesRef(prefix);
-      }
 
-      if (prefix!=null) {
-        startTermIndex = (int) lookup.si.lookupTerm(prefixRef);
-        if (startTermIndex<0) startTermIndex=-startTermIndex-1;
-        prefixRef.append(UnicodeUtil.BIG_TERM);
-        endTermIndex = (int) lookup.si.lookupTerm(prefixRef);
-        assert endTermIndex < 0;
-        endTermIndex = -endTermIndex-1;
-      } else {
-        //startTermIndex=-1;
-        startTermIndex=0; // Changed to explicit missingCount
-        endTermIndex=(int) lookup.si.getValueCount();
-      }
-    }
-
-    final int nTerms=endTermIndex-startTermIndex;
-    if (nTerms <= 0 || hitCount < minCount) {
+    if (state.nTerms() <= 0 || state.hitCount < minCount) {
       // Should we count this in statistics? It should be fast and is fairly independent of sparse
-      return finalize(new NamedList<Integer>(), searcher, schemaField, docs, -1, missing);
+      return finalize(new NamedList<Integer>(), searcher, state.schemaField, docs, -1, missing);
     }
 
-    final boolean heuristic = sparseKeys.useOverallHeuristic(hitCount, searcher.maxDoc());
-    if (heuristic && termList != null) { // No reliable counters, switch to slow term counting
-      return SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termList, docs);
+    state.heuristic = sparseKeys.useOverallHeuristic(state.hitCount, searcher.maxDoc());
+    if (state.heuristic && state.termList != null) { // No reliable counters, switch to slow term counting
+      return SimpleFacets.fallbackGetListedTermCounts(state.searcher, null, state.field, state.termList, state.docs);
     }
 
     // Providers ready. Check that the pool has enough information and construct a counter
     long acquireTime = -System.nanoTime();
-    final ValueCounter counts = acquireCounter(sparseKeys, searcher, lookup.si, lookup.ordinalMap, schemaField, pool);
-    final AtomicLong refCount = new AtomicLong(0); // Number of references from docIDs to ordinals (= #increments)
+    state.counts = acquireCounter(state);
     acquireTime += System.nanoTime();
 
     // Calculate counts for all relevant terms if the counter structure is empty
     // The counter structure is always empty for single-shard searches and first phase of multi-shard searches
     // Depending on pool cache setup, it might already be full and directly usable in second phase of
     // multi-shard searches
-    final boolean alreadyFilled = counts.getContentKey() != null;
+    final boolean alreadyFilled = state.counts.getContentKey() != null;
     long collectTime = alreadyFilled ? 0 : -System.nanoTime();
     if (!alreadyFilled) {
-      if (!pool.isProbablySparse(hitCount, sparseKeys)) {
+      if (!pool.isProbablySparse(state.hitCount, sparseKeys)) {
         // It is guessed that the result set will be to large to be sparse so
         // the sparse tracker is disabled up front to speed up the collection phase
-        counts.disableSparseTracking();
+        state.counts.disableSparseTracking();
       }
-      collectCounts(
-          sparseKeys, searcher, docs, schemaField, lookup, startTermIndex, counts, hitCount, refCount, heuristic);
-      pool.incCollectTimeRel(collectTime);
+      collectCounts(state);
+      state.pool.incCollectTimeRel(collectTime);
       collectTime += System.nanoTime();
     }
 
-    if (termList != null) {
+    if (state.termList != null) {
       // Specific terms were requested. This is used with fine-counting of facet values in distributed faceting
       long fineCountStart = System.nanoTime();
       try {
-        return extractSpecificCounts(
-            searcher, sparseKeys, pool, lookup.si, fieldName, docs, counts, termList, heuristic);
+        return extractSpecificCounts(state, state.lookup.si);
       } finally  {
-        if (heuristic && sparseKeys.heuristicFineCount) { // Counts are unreliable so don't store
-          counts.setContentKey(SparseCounterPool.NEEDS_CLEANING);
+        if (state.heuristic && sparseKeys.heuristicFineCount) { // Counts are unreliable so don't store
+          state.counts.setContentKey(SparseCounterPool.NEEDS_CLEANING);
         }
-        pool.release(counts, sparseKeys);
+        pool.release(state.counts, sparseKeys);
         pool.incTermsListTotalTimeRel(fullStartTime);
         final long totalTimeNS = Math.max(1, System.nanoTime()-fullStartTime);
         // Maybe this should be on debug instead
@@ -210,20 +227,22 @@ public class SparseDocValuesFacets {
           log.info(String.format(Locale.ENGLISH,
               "Phase 2 sparse term counts of %s: method=%s, threads=%d, hits=%d, refs=%d, time=%dms "
                   + "(hitCount=%dms, acquire=%dms, collect=%s, fineCount=%dms), hits/ms=%d, refs/ms=%d, heuristic=%b",
-              fieldName, sparseKeys.counter, sparseKeys.countingThreads, hitCount, refCount.get(), totalTimeNS/M,
+              fieldName, sparseKeys.counter, sparseKeys.countingThreads, state.hitCount, state.refCount.get(),
+              totalTimeNS/M,
               hitCountTime/M, acquireTime/M, alreadyFilled ? "0ms (reused)" : collectTime/M + "ms",
-              (System.nanoTime()-fineCountStart)/M, hitCount*M/totalTimeNS, refCount.get()*M/totalTimeNS, heuristic));
+              (System.nanoTime()-fineCountStart)/M, state.hitCount*M/totalTimeNS, state.refCount.get()*M/totalTimeNS,
+              state.heuristic));
         }
       }
     }
 
     //final int missingCount = startTermIndex == -1 ? (int) counts.get(0) : -1;
-    final int missingCount = startTermIndex == -1 ? (int) counts.getMissing() : -1;
+    final int missingCount = state.startTermIndex == -1 ? (int) state.counts.getMissing() : -1;
 
     int off=offset;
     int lim=limit>=0 ? limit : Integer.MAX_VALUE;
 
-    final FieldType ft = schemaField.getType();
+    final FieldType ft = state.schemaField.getType();
     final NamedList<Integer> res = new NamedList<>();
     final CharsRef charsRef = new CharsRef(10);
     long extractTime = System.nanoTime();
@@ -231,16 +250,16 @@ public class SparseDocValuesFacets {
     boolean optimizedExtract;
     if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
       int maxsize = limit>0 ? offset+limit : Integer.MAX_VALUE-1;
-      maxsize = Math.min(maxsize, nTerms);
+      maxsize = Math.min(maxsize, state.nTerms());
       LongPriorityQueue queue = new LongPriorityQueue(Math.min(maxsize,1000), maxsize, Long.MIN_VALUE);
 
 //        int min=mincount-1;  // the smallest value in the top 'N' values
 
       try {
-        optimizedExtract = counts.iterate(startTermIndex==-1?1:0, nTerms, minCount, false,
+        optimizedExtract = state.counts.iterate(state.startTermIndex==-1?1:0, state.nTerms(), minCount, false,
             sparseKeys.blacklists.isEmpty() && sparseKeys.whitelists.isEmpty() ?
                 new ValueCounter.TopCallback(minCount-1, queue) :
-                new PatternMatchingCallback(minCount-1, queue, maxsize, sparseKeys, pool, lookup.si, ft, charsRef));
+                new PatternMatchingCallback(minCount-1, queue, maxsize, state.keys, state.pool, state.lookup.si, ft, charsRef));
         if (optimizedExtract) {
           pool.incWithinCount();
         } else {
@@ -249,7 +268,7 @@ public class SparseDocValuesFacets {
       } catch (ArrayIndexOutOfBoundsException e) {
         throw new ArrayIndexOutOfBoundsException(String.format(
             "Logic error: Out of bounds with startTermIndex=%d, nTerms=%d, minCount=%d and counts=%s",
-            startTermIndex, nTerms, minCount, counts));
+            state.startTermIndex, state.nTerms(), minCount, state.counts));
       }
       pool.incExtractTimeRel(extractTime);
       extractTime = System.nanoTime()-extractTime;
@@ -268,8 +287,8 @@ public class SparseDocValuesFacets {
         long pair = sorted[i];
         int count = (int)(pair >>> 32);
         int tnum = Integer.MAX_VALUE - (int)pair;
-        final String term = resolveTerm(pool, sparseKeys, lookup.si, ft, startTermIndex+tnum, charsRef);
-        if (heuristic && sparseKeys.heuristicFineCount) { // Need to fine-count
+        final String term = resolveTerm(pool, sparseKeys, state.lookup.si, ft, state.startTermIndex+tnum, charsRef);
+        if (state.heuristic && sparseKeys.heuristicFineCount) { // Need to fine-count
           // TODO: Add heuristics lookup-stats to pool
           res.add(term, searcher.numDocs(new TermQuery(new Term(fieldName, ft.toInternal(term))), docs));
         } else {
@@ -279,7 +298,7 @@ public class SparseDocValuesFacets {
         ft.indexedToReadable(br, charsRef);
         res.add(charsRef.toString(), c);*/
       }
-      if (heuristic && sparseKeys.heuristicFineCount) { // Order might be off
+      if (state.heuristic && sparseKeys.heuristicFineCount) { // Order might be off
         sortByCount(res);
       }
       pool.incTermResolveTimeRel(termResolveTime);
@@ -288,7 +307,7 @@ public class SparseDocValuesFacets {
       optimizedExtract = false;
       termResolveTime = System.nanoTime();
       // add results in index order
-      int i=(startTermIndex==-1)?1:0;
+      int i=(state.startTermIndex==-1)?1:0;
       if (minCount<=0) {
         // if mincount<=0, then we won't discard any terms and we know exactly
         // where to start.
@@ -296,11 +315,11 @@ public class SparseDocValuesFacets {
         off=0;
       }
       // TODO: Add black- & white-list
-      for (; i<nTerms; i++) {
-        int c = (int) counts.get(i);
+      for (; i<state.nTerms(); i++) {
+        int c = (int) state.counts.get(i);
         if (c<minCount || --off>=0) continue;
         if (--lim<0) break;
-        res.add(resolveTerm(pool, sparseKeys, lookup.si, ft, startTermIndex+i, charsRef), c);
+        res.add(resolveTerm(state.pool, state.keys, state.lookup.si, ft, state.startTermIndex+i, charsRef), c);
 /*        si.lookupOrd(startTermIndex+i, br);
         ft.indexedToReadable(br, charsRef);
         res.add(charsRef.toString(), c);*/
@@ -309,10 +328,10 @@ public class SparseDocValuesFacets {
       termResolveTime = System.nanoTime()-termResolveTime;
       extractTime = 0; // Only resolving is relevant here
     }
-    if (heuristic && sparseKeys.heuristicFineCount) { // Counts are unreliable for phase 2
-      counts.setContentKey(SparseCounterPool.NEEDS_CLEANING);
+    if (state.heuristic && sparseKeys.heuristicFineCount) { // Counts are unreliable for phase 2
+      state.counts.setContentKey(SparseCounterPool.NEEDS_CLEANING);
     }
-    pool.release(counts, sparseKeys);
+    pool.release(state.counts, sparseKeys);
 
     pool.incSimpleFacetTotalTimeRel(fullStartTime);
     // Maybe this should be on debug instead
@@ -322,11 +341,39 @@ public class SparseDocValuesFacets {
           "Phase 1 sparse faceting of %s: method=%s, threads=%d, hits=%d, refs=%d, time=%dms "
               + "(hitCount=%dms, acquire=%dms, collect=%s, extract=%dms (sparse=%b), resolve=%dms), hits/ms=%d, " +
               "refs/ms=%d, heuristic=%b",
-          fieldName, sparseKeys.counter, sparseKeys.countingThreads, hitCount, refCount.get(), totalTimeNS/M,
+          fieldName, sparseKeys.counter, sparseKeys.countingThreads, state.hitCount, state.refCount.get(),
+          totalTimeNS/M,
           hitCountTime/M, acquireTime/M, alreadyFilled ? "0ms (reused)" : collectTime/M + "ms", extractTime/M,
-          optimizedExtract, termResolveTime/M, hitCount*M/totalTimeNS, refCount.get()*M/totalTimeNS, heuristic));
+          optimizedExtract, termResolveTime/M, state.hitCount*M/totalTimeNS, state.refCount.get()*M/totalTimeNS,
+          state.heuristic));
     }
-    return finalize(res, searcher, schemaField, docs, missingCount, missing);
+    return finalize(res, searcher, state.schemaField, docs, missingCount, missing);
+  }
+
+  private static void adjustTermIndexes(SparseState state) {
+    // Locate start and end-position in the ordinals if a prefix is given
+    // TODO: Test this for dualplane & nplane counters
+    {
+      final BytesRef prefixRef;
+      if (state.prefix == null) {
+        prefixRef = null;
+      } else {
+        prefixRef = new BytesRef(state.prefix);
+      }
+
+      if (state.prefix!=null) {
+        state.startTermIndex = (int) state.lookup.si.lookupTerm(prefixRef);
+        if (state.startTermIndex<0) state.startTermIndex=-state.startTermIndex-1;
+        prefixRef.append(UnicodeUtil.BIG_TERM);
+        state.endTermIndex = (int) state.lookup.si.lookupTerm(prefixRef);
+        assert state.endTermIndex < 0;
+        state.endTermIndex = -state.endTermIndex-1;
+      } else {
+        //startTermIndex=-1;
+        state.startTermIndex=0; // Changed to explicit missingCount
+        state.endTermIndex=(int) state.lookup.si.getValueCount();
+      }
+    }
   }
 
   private static void sortByCount(NamedList<Integer> res) {
@@ -393,18 +440,14 @@ public class SparseDocValuesFacets {
   /*
   Iterate the leafs and update the counters based on the DocValues ordinals, adjusted to the global ordinal structure.
    */
-  private static void collectCounts(
-      SparseKeys sparseKeys, SolrIndexSearcher searcher, DocSet docs, SchemaField schemaField, Lookup lookup,
-      int startTermIndex, ValueCounter counts, int hitCount, AtomicLong refCount, boolean heuristic)
-      throws IOException {
-    final String fieldName = schemaField.getName();
-    final Filter filter = docs.getTopFilter(); // Should be Thread safe (see PerSegmentSingleValuedFaceting)
-    final List<AtomicReaderContext> leaves = searcher.getTopReaderContext().leaves();
+  private static void collectCounts(SparseState state) throws IOException {
+    final Filter filter = state.docs.getTopFilter(); // Should be Thread safe (see PerSegmentSingleValuedFaceting)
+    final List<AtomicReaderContext> leaves = state.searcher.getTopReaderContext().leaves();
     // The queue ensures that only the given max of threads are started
     // Accumulators are responsible for removing themselves from the queue
     // after counting has finished or failed
-    final BlockingQueue<Accumulator> accumulators = sparseKeys.countingThreads <= 1 ? null :
-        new LinkedBlockingQueue<Accumulator>(sparseKeys.countingThreads);
+    final BlockingQueue<Accumulator> accumulators = state.keys.countingThreads <= 1 ? null :
+        new LinkedBlockingQueue<Accumulator>(state.keys.countingThreads);
 
     for (int subIndex = 0; subIndex < leaves.size(); subIndex++) {
       AtomicReaderContext leaf = leaves.get(subIndex);
@@ -415,8 +458,7 @@ public class SparseDocValuesFacets {
 
       if (accumulators == null) { // In-thread counting
         try {
-          new Accumulator(leaf, 0, leafMaxDoc, sparseKeys, schemaField, lookup, startTermIndex, counts,
-              fieldName, filter, subIndex, null, false, refCount, heuristic, searcher.maxDoc(), hitCount).call();
+          new Accumulator(leaf, 0, leafMaxDoc, state, filter, subIndex, null, false).call();
           continue;
         } catch (Exception e) {
           throw new IOException("Exception calling " + Accumulator.class.getSimpleName() + " within currentThread", e);
@@ -426,16 +468,15 @@ public class SparseDocValuesFacets {
       // Multi threaded counting
       // Determine the number of parts to split the docIDspace into, taking into account the maximum number
       // of threads as well as the minimum size of a part
-      final int parts = hitCount < sparseKeys.countingThreadsMinDocs ? 1 : // Overall hitCount
-          Math.max(1, Math.min(sparseKeys.countingThreads, leafMaxDoc / sparseKeys.countingThreadsMinDocs)); // Leaf
+      final int parts = state.hitCount < state.keys.countingThreadsMinDocs ? 1 : // Overall hitCount
+          Math.max(1, Math.min(state.keys.countingThreads, leafMaxDoc / state.keys.countingThreadsMinDocs)); // Leaf
       final int blockSize = Math.max(1, leafMaxDoc / parts);
       //System.out.println(String.format("maxDoc=%d, parts=%d, blockSize=%d", leaf.reader().maxDoc(), parts, blockSize));
       for (int i = 0 ; i < parts ; i++) {
         // FIXME: The heuristic logic has not been thought through with threading
         Accumulator accumulator = new Accumulator(
-            leaf, i*blockSize, i < parts-1 ? (i+1)*blockSize : leafMaxDoc,
-            sparseKeys, schemaField, lookup, startTermIndex, counts, fieldName, filter, subIndex,
-            accumulators, i != 0, refCount, heuristic, searcher.maxDoc(), hitCount);
+            leaf, i*blockSize, i < parts-1 ? (i+1)*blockSize : leafMaxDoc, state, filter, subIndex,
+            accumulators, i != 0);
         try {
           accumulators.put(accumulator);
         } catch (InterruptedException e) {
@@ -447,7 +488,7 @@ public class SparseDocValuesFacets {
     if (accumulators == null) {
       return;
     }
-    emptyQueue(sparseKeys, accumulators); // Consider doing this at the very end instead
+    emptyQueue(state.keys, accumulators); // Consider doing this at the very end instead
   }
 
   @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We synchronize to wait
@@ -466,45 +507,30 @@ public class SparseDocValuesFacets {
 
   private static class Accumulator implements Callable<Accumulator> {
     private final AtomicReaderContext leaf;
+    private final SparseState state;
     private final int startDocID;
     private final int endDocID;
-    private final SparseKeys sparseKeys;
-    private final SchemaField schemaField;
-    private final int startTermIndex;
-    private final ValueCounter counts;
-    private final String fieldName;
     private final Filter filter;
     private final int subIndex;
     private final Queue<Accumulator> accumulators;
     private final boolean cloneLookup;
-    private final AtomicLong refCount;
     private final boolean heuristic;
-    private final int indexHitCount;
-    private final int indexMaxDoc;
     private Lookup lookup;
 
     public Accumulator(
-        AtomicReaderContext leaf, int startDocID, int endDocID, SparseKeys sparseKeys, SchemaField schemaField,
-        Lookup lookup, int startTermIndex, ValueCounter counts, String fieldName, Filter filter, int subIndex,
-        Queue<Accumulator> accumulators, boolean multiThreadedInLeaf, AtomicLong refCount, boolean heuristic,
-        int indexMaxDoc, int indexHitCount) {
+        AtomicReaderContext leaf, int startDocID, int endDocID, SparseState state, Filter filter,
+        int subIndex, Queue<Accumulator> accumulators, boolean multiThreadedInLeaf) {
+      this.state = state;
       this.leaf = leaf;
       this.startDocID = startDocID;
       this.endDocID = endDocID;
-      this.sparseKeys = sparseKeys;
-      this.schemaField = schemaField;
-      this.lookup = lookup;
-      this.startTermIndex = startTermIndex;
-      this.counts = counts;
-      this.fieldName = fieldName;
       this.filter = filter;
       this.subIndex = subIndex;
       this.accumulators = accumulators;
       this.cloneLookup = multiThreadedInLeaf;
-      this.refCount = refCount;
-      this.indexHitCount = indexHitCount;
-      this.indexMaxDoc = indexMaxDoc;
-      this.heuristic = heuristic && sparseKeys.useSegmentHeuristics(indexHitCount, indexMaxDoc, endDocID-startDocID);
+      this.heuristic = state.heuristic &&
+          state.keys.useSegmentHeuristics(state.hitCount, state.maxDoc, endDocID-startDocID);
+      this.lookup = state.lookup;
     }
 
     @Override
@@ -523,27 +549,25 @@ public class SparseDocValuesFacets {
         if (disi == null) {
           return this;
         }
-        if (schemaField.multiValued()) {
-          SortedSetDocValues sub = leaf.reader().getSortedSetDocValues(fieldName);
+        if (state.schemaField.multiValued()) {
+          SortedSetDocValues sub = leaf.reader().getSortedSetDocValues(state.field);
           if (sub == null) {
             sub = DocValues.emptySortedSet();
           }
           final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
           if (singleton != null) {
             // some codecs may optimize SORTED_SET storage for single-valued fields
-            refCount.addAndGet(accumSingle(sparseKeys, counts, startTermIndex, singleton, disi, startDocID, endDocID,
-                subIndex, lookup, System.nanoTime() - startTime, heuristic, indexHitCount, indexMaxDoc));
+            accumSingle(state, singleton, disi, startDocID, endDocID, subIndex, lookup, System.nanoTime() - startTime,                heuristic);
           } else {
-            refCount.addAndGet(accumMulti(sparseKeys, counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex,
-                lookup, System.nanoTime()-startTime, heuristic, indexHitCount, indexMaxDoc));
+            accumMulti(state, sub, disi, startDocID, endDocID, subIndex, lookup, System.nanoTime() - startTime,
+                heuristic);
           }
         } else {
-          SortedDocValues sub = leaf.reader().getSortedDocValues(fieldName);
+          SortedDocValues sub = leaf.reader().getSortedDocValues(state.field);
           if (sub == null) {
             sub = DocValues.emptySorted();
           }
-          refCount.addAndGet(accumSingle(sparseKeys, counts, startTermIndex, sub, disi, startDocID, endDocID, subIndex,
-              lookup, System.nanoTime()-startTime, heuristic, indexHitCount, indexMaxDoc));
+          accumSingle(state, sub, disi, startDocID, endDocID, subIndex, lookup, System.nanoTime() - startTime, heuristic);
         }
         return this;
       } finally {
@@ -604,42 +628,43 @@ public class SparseDocValuesFacets {
    * so this should not blow the heap.
    */
   @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter")
-  private static ValueCounter acquireCounter(
-      SparseKeys sparseKeys, SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
-      SchemaField schemaField, final SparseCounterPool pool) throws IOException {
+  private static ValueCounter acquireCounter(SparseState state) throws IOException {
     // Overall the code gets a bit muddy as we do lazy extraction of meta data about the ordinals
+    // state.lookup.si, state.lookup.ordinalMap
+    final SparseKeys sparseKeys = state.keys;
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.array) {
-      ensureBasic(searcher, si, globalMap, schemaField, pool);
-      return pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.array);
+      ensureBasic(state);
+      return state.pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.array);
     }
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.packed) {
-      ensureBasic(searcher, si, globalMap, schemaField, pool);
-      return pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.packed);
+      ensureBasic(state);
+      return state.pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.packed);
     }
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.auto) {
-      ensureBasic(searcher, si, globalMap, schemaField, pool);
-      return pool.usePacked(sparseKeys) ?
-          pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.packed) :
-          pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.array);
+      ensureBasic(state);
+      return state.pool.usePacked(sparseKeys) ?
+          state.pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.packed) :
+          state.pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.array);
     }
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.dualplane) {
-      ensureBasic(searcher, si, globalMap, schemaField, pool);
-      return pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.dualplane);
+      ensureBasic(state);
+      return state.pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.dualplane);
     }
     // nplane is very heavy at first call: Its overflow bits needs the maximum counts for all ordinals
     // to be calculated.
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.nplane) {
       ValueCounter vc;
-      synchronized (pool) { // Need to synchronize to avoid overlapping BPV-resolving
-        if (!pool.isInitialized() || ((vc = pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplane)) == null)) {
+      synchronized (state.pool) { // Need to synchronize to avoid overlapping BPV-resolving
+        if (!state.pool.isInitialized() ||
+            ((vc = state.pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplane)) == null)) {
           final long allocateTime = System.nanoTime();
-          NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(searcher, si, globalMap, schemaField, pool);
-          NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getHistogram(), false);
+          NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(state);
+          NPlaneMutable.Layout layout = NPlaneMutable.getLayout(state.pool.getHistogram(), false);
           // TODO: Consider switching back and forth between threaded and non-threaded
           PackedInts.Mutable innerCounter = new NPlaneMutable(layout, bpvs, NPlaneMutable.IMPL.tank);
-          vc = new SparseCounterThreaded(SparseKeys.COUNTER_IMPL.nplane, innerCounter, pool.getMaxCountForAny(),
+          vc = new SparseCounterThreaded(SparseKeys.COUNTER_IMPL.nplane, innerCounter, state.pool.getMaxCountForAny(),
               sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
-          pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplane, vc, allocateTime);
+          state.pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplane, vc, allocateTime);
         }
         return vc;
       }
@@ -647,16 +672,17 @@ public class SparseDocValuesFacets {
     if (sparseKeys.counter == SparseKeys.COUNTER_IMPL.nplanez) {
       ValueCounter vc;
       // TODO: Check that acquiring a nplanex after a nplane erases the old nplane
-      synchronized (pool) { // Need to synchronize to avoid overlapping BPV-resolving
-        if (!pool.isInitialized() || ((vc = pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez)) == null)) {
+      synchronized (state.pool) { // Need to synchronize to avoid overlapping BPV-resolving
+        if (!state.pool.isInitialized() ||
+            ((vc = state.pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez)) == null)) {
           final long allocateTime = System.nanoTime();
-          NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(searcher, si, globalMap, schemaField, pool);
-          NPlaneMutable.Layout layout = NPlaneMutable.getLayout(pool.getPlusOneHistogram(), true);
+          NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(state);
+          NPlaneMutable.Layout layout = NPlaneMutable.getLayout(state.pool.getPlusOneHistogram(), true);
           NPlaneMutable innerCounter = new NPlaneMutable(layout, bpvs, NPlaneMutable.IMPL.zethra);
 //        System.out.println(innerCounter.toString(true));
-          vc = new SparseCounterBitmap(SparseKeys.COUNTER_IMPL.nplanez, innerCounter, pool.getMaxCountForAny(),
+          vc = new SparseCounterBitmap(SparseKeys.COUNTER_IMPL.nplanez, innerCounter, state.pool.getMaxCountForAny(),
               sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
-          pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez, vc, allocateTime);
+          state.pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez, vc, allocateTime);
         }
         return vc;
       }
@@ -676,25 +702,24 @@ public class SparseDocValuesFacets {
   }
 
   // Not synchronized as that must be handled outside to avoid duplicate work
-  private static NPlaneMutable.BPVProvider ensureBasicAndGetBPVs(
-      SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
-      SchemaField schemaField, SparseCounterPool pool) throws IOException {
-    NPlaneMutable.BPVProvider globOrdCount = OrdinalUtils.getBPVs(searcher, si, globalMap, schemaField, true);
+  private static NPlaneMutable.BPVProvider ensureBasicAndGetBPVs(SparseState state) throws IOException {
+    NPlaneMutable.BPVProvider globOrdCount = OrdinalUtils.getBPVs(
+        state.searcher, state.lookup.si, state.lookup.ordinalMap, state.schemaField, true);
     // It would be nice to skip this extra run-through, but nplane needs its histogram
-    ensureBasic(globOrdCount, searcher, si, schemaField, pool);
+    ensureBasic(globOrdCount, state.searcher, state.lookup.si, state.schemaField, state.pool);
     globOrdCount.reset();
     return globOrdCount;
   }
 
   @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
-  private static void ensureBasic(
-      SolrIndexSearcher searcher, SortedSetDocValues si, OrdinalMap globalMap,
-      SchemaField schemaField, SparseCounterPool pool) throws IOException {
-    synchronized (pool) {
-      if (pool.isInitialized()) {
+  private static void ensureBasic(SparseState state) throws IOException {
+    synchronized (state.pool) {
+      if (state.pool.isInitialized()) {
         return;
       }
-      ensureBasic(OrdinalUtils.getBPVs(searcher, si, globalMap, schemaField, true), searcher, si, schemaField, pool);
+      ensureBasic(
+          OrdinalUtils.getBPVs(state.searcher, state.lookup.si, state.lookup.ordinalMap, state.schemaField, true),
+          state.searcher, state.lookup.si, state.schemaField, state.pool);
     }
   }
 
@@ -732,13 +757,11 @@ public class SparseDocValuesFacets {
   }
 
   static int warnedOrdinal = 0;
-  private static NamedList<Integer> extractSpecificCounts(
-      SolrIndexSearcher searcher, SparseKeys sparseKeys, SparseCounterPool pool, SortedSetDocValues si, String field,
-      DocSet docs, ValueCounter counts, String termList, boolean heuristic) throws IOException {
+  private static NamedList<Integer> extractSpecificCounts(SparseState state, SortedSetDocValues si) throws IOException {
     // TODO: Extend this to use the pool.getExternalTerms if present
     final long startTime = System.nanoTime();
-    final List<String> terms = StrUtils.splitSmart(termList, ",", true);
-    final FieldType ft = searcher.getSchema().getFieldType(field);
+    final List<String> terms = StrUtils.splitSmart(state.termList, ",", true);
+    final FieldType ft = state.searcher.getSchema().getFieldType(state.field);
 
     int existingTerms = 0;
     NamedList<Integer> res = new NamedList<>();
@@ -750,23 +773,23 @@ public class SparseDocValuesFacets {
       int count;
       if (index < 0) { // This is OK. Asking for a non-existing term is normal in distributed faceting
         count = 0;
-      } else if (index >= counts.size()) {
-        if (warnedOrdinal != searcher.hashCode()) {
-          log.warn("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + field + " was "
-              + index + " but the counts only go from 0 to ordinal " + counts.size() + ". Switching to " +
+      } else if (index >= state.counts.size()) {
+        if (warnedOrdinal != state.searcher.hashCode()) {
+          log.warn("DocValuesFacet.extractSpecificCounts: ordinal for " + term + " in field " + state.field + " was "
+              + index + " but the counts only go from 0 to ordinal " + state.counts.size() + ". Switching to " +
               "searcher.numDocs. This warning will not be repeated until the index has been updated.");
-          warnedOrdinal = searcher.hashCode();
+          warnedOrdinal = state.searcher.hashCode();
         }
-        count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
-      } else if (heuristic && sparseKeys.heuristicFineCount) {
-        count = searcher.numDocs(new TermQuery(new Term(field, internal)), docs);
+        count = state.searcher.numDocs(new TermQuery(new Term(state.field, internal)), state.docs);
+      } else if (state.heuristic && state.keys.heuristicFineCount) {
+        count = state.searcher.numDocs(new TermQuery(new Term(state.field, internal)), state.docs);
       } else {
-        count = (int) counts.get((int) index);
+        count = (int) state.counts.get((int) index);
         existingTerms++;
       }
       res.add(term, count);
     }
-    pool.incTermsListLookupRel(termList, !terms.isEmpty() ? terms.get(terms.size()-1) : "",
+    state.pool.incTermsListLookupRel(state.termList, !terms.isEmpty() ? terms.get(terms.size()-1) : "",
         existingTerms, terms.size()-existingTerms, startTime);
     return res;
   }
@@ -774,13 +797,12 @@ public class SparseDocValuesFacets {
   /*
   Iterate single-value DocValues and update the counters based on delivered ordinals.
    */
-  private static long accumSingle(
-      SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedDocValues si, DocIdSetIterator disi,
-      int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS, boolean heuristic, int indexHitCount,
-      int indexMaxDoc) throws IOException {
+  private static void accumSingle(
+      SparseState state, SortedDocValues si, DocIdSetIterator disi,
+      int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS, boolean heuristic) throws IOException {
     final long startTime = System.nanoTime();
-    final int segmentSampleSize = sparseKeys.segmentSampleSize(indexHitCount, indexMaxDoc, endDocID - startDocID + 1);
-    final int hChunks = !heuristic ? 1 : sparseKeys.heuristicSampleChunks;
+    final int segmentSampleSize = state.keys.segmentSampleSize(state.hitCount, state.maxDoc, endDocID - startDocID + 1);
+    final int hChunks = !heuristic ? 1 : state.keys.heuristicSampleChunks;
     final int hChunkSize = !heuristic ? endDocID-startDocID+1 : segmentSampleSize / hChunks;
     final int hChunkSkip = (endDocID-startDocID+1)/hChunks;
     int doc = disi.nextDoc();
@@ -802,43 +824,43 @@ public class SparseDocValuesFacets {
         if (lookup.ordinalMap != null && term >= 0) {
           term = lookup.getGlobalOrd(subIndex, term);
         }
-        int arrIdx = term-startTermIndex;
-        if (arrIdx>=0 && arrIdx<counts.size()) {
+        int arrIdx = term-state.startTermIndex;
+        if (arrIdx>=0 && arrIdx<state.counts.size()) {
           increments++;
-          counts.inc(arrIdx);
+          state.counts.inc(arrIdx);
         }
         doc = disi.nextDoc();
       }
     }
     // TODO: Remove this when sparse faceting is considered stable
-    if (sparseKeys.logExtended) {
+    if (state.keys.logExtended) {
       final long incNS = (System.nanoTime() - startTime - advanceNS);
-      final double sampleFactor = sparseKeys.segmentSampleFactor(indexHitCount, indexMaxDoc, endDocID - startDocID + 1);
+      final double sampleFactor =
+          state.keys.segmentSampleFactor(state.hitCount, state.maxDoc, endDocID - startDocID + 1);
       log.info(String.format(Locale.ENGLISH,
           "accumSingle(%d->%d) impl=%s, init=%dms, advance=%dms, docHits=%d, increments=%d (%d incs/doc)," +
               " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b (chunks=%d, chunkSize=%d, skip=%d, factor=%f)",
-          startDocID, endDocID, sparseKeys.counter, initNS / M, advanceNS / M, docs, increments,
+          startDocID, endDocID, state.keys.counter, initNS / M, advanceNS / M, docs, increments,
           docs == 0 ? 0 : increments/docs, incNS / M, incNS == 0 ? 0 : increments * M / incNS,
           incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunks, hChunkSize, hChunkSkip, sampleFactor));
     }
-    return increments;
+    state.refCount.addAndGet(increments);
   }
   private static final long M = 1000000;
 
   /*
   Iterate multi-value DocValues and update the counters based on delivered ordinals.
    */
-  private static long accumMulti(
-      SparseKeys sparseKeys, ValueCounter counts, int startTermIndex, SortedSetDocValues ssi, DocIdSetIterator disi,
-      int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS, boolean heuristic, int indexHitCount,
-      int indexMaxDoc) throws IOException {
+  private static void accumMulti(
+      SparseState state, SortedSetDocValues ssi, DocIdSetIterator disi,
+      int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS, boolean heuristic) throws IOException {
     final long startTime = System.nanoTime();
-    final int segmentSampleSize = sparseKeys.segmentSampleSize(indexHitCount, indexMaxDoc, endDocID - startDocID + 1);
-    final int hChunks = !heuristic ? 1 : sparseKeys.heuristicSampleChunks;
+    final int segmentSampleSize = state.keys.segmentSampleSize(state.hitCount, state.maxDoc, endDocID - startDocID + 1);
+    final int hChunks = !heuristic ? 1 : state.keys.heuristicSampleChunks;
     final int hChunkSize = !heuristic ? endDocID-startDocID+1 : segmentSampleSize / hChunks;
     final int hChunkSkip = (endDocID-startDocID+1)/hChunks;
     if (ssi == DocValues.emptySortedSet()) {
-      return 0; // Nothing to process; return immediately
+      return; // Nothing to process; return immediately
     }
     int doc;
     doc = disi.nextDoc();
@@ -862,7 +884,7 @@ public class SparseDocValuesFacets {
         // strange do-while to collect the missing count (first ord is NO_MORE_ORDS)
         int term = (int) ssi.nextOrd();
         if (term < 0) {
-          counts.incMissing();
+          state.counts.incMissing();
           /*if (startTermIndex == -1) {
           counts.inc(0); // missing count
         } */
@@ -871,27 +893,28 @@ public class SparseDocValuesFacets {
 
         do {
           term = lookup.getGlobalOrd(subIndex, term);
-          int arrIdx = term - startTermIndex;
+          int arrIdx = term - state.startTermIndex;
 
-          if (arrIdx >= 0 && arrIdx < counts.size()) {
+          if (arrIdx >= 0 && arrIdx < state.counts.size()) {
             increments++;
-            counts.inc(arrIdx);
+            state.counts.inc(arrIdx);
           }
         } while ((term = (int) ssi.nextOrd()) >= 0);
       }
     }
     // TODO: Remove this when sparse faceting is considered stable
-    if (sparseKeys.logExtended) {
+    if (state.keys.logExtended) {
       final long incNS = (System.nanoTime() - startTime - advanceNS);
-      final double sampleFactor = sparseKeys.segmentSampleFactor(indexHitCount, indexMaxDoc, endDocID - startDocID + 1);
+      final double sampleFactor =
+          state.keys.segmentSampleFactor(state.hitCount, state.maxDoc, endDocID - startDocID + 1);
       log.info(String.format(Locale.ENGLISH,
           "accumMulti(%d->%d) impl=%s, init=%dms, advance=%dms, docHits=%d, increments=%d (%d incs/doc)," +
               " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b (chunks=%d, chunkSize=%d, skip=%d, factor=%f)",
-          startDocID, endDocID, sparseKeys.counter, initNS / M, advanceNS / M, docs, increments,
+          startDocID, endDocID, state.keys.counter, initNS / M, advanceNS / M, docs, increments,
           docs == 0 ? 0 : increments/docs, incNS / M, incNS == 0 ? 0 : increments * M / incNS,
           incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunkSize, hChunkSkip, hChunkSkip, sampleFactor));
     }
-    return increments;
+    state.refCount.addAndGet(increments);
   }
 
   /**
