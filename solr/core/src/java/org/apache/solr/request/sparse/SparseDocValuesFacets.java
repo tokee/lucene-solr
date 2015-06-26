@@ -925,12 +925,14 @@ public class SparseDocValuesFacets {
           state.keys.segmentSampleFactor(state.hitCount, state.maxDoc, endDocID - startDocID + 1);
       log.info(String.format(Locale.ENGLISH,
           "accumSingle(%d->%d) impl=%s, init=%dms, advance=%dms, " +
-              "docHits=%d/%d/%d, increments=%d (%.1f incs/doc)," +
+              "docs(samples=%d, wanted=%d, indexHits=%d, maxDoc=%d), increments=%d " +
+              "(%.1f incs/doc)," +
               " incTime=%dms (%d incs/ms, %d docs/ms), " +
               "heuristic=%b (chunks=%d, factor=%f)",
           startDocID, endDocID, state.keys.counter, initNS / M, advanceNS / M,
-          sampleDocs, state.hitCount, endDocID-startDocID, references, sampleDocs == 0 ? 0 : 1.0*references/sampleDocs,
-          incNS / M, incNS == 0 ? 0 : references * M / incNS, incNS == 0 ? 0 : sampleDocs * M / incNS,
+          sampleDocs, maxSampleDocs, state.hitCount, endDocID-startDocID, references,
+          sampleDocs == 0 ? 0 : 1.0*references/sampleDocs, incNS / M, incNS == 0 ? 0 : references * M / incNS,
+          incNS == 0 ? 0 : sampleDocs * M / incNS,
           heuristic, maxChunks, sampleFactor));
     }
     state.refCount.addAndGet(references);
