@@ -377,6 +377,14 @@ public class SparseKeys {
   public static final int HEURISTIC_SAMPLE_CHUNKS_DEFAULT = 10;
 
   /**
+   * If {@link #HEURISTIC} is true, this parameter sets the minimum size of chunks.
+   * </p><p>
+   * Optional. Default is 1.
+   */
+  public static final String HEURISTIC_SAMPLE_CHUNKS_MINSIZE = "facet.sparse.heuristic.sample.chunks.minsize";
+  public static final int HEURISTIC_SAMPLE_CHUNKS_MINSIZE_DEFAULT = 1;
+
+  /**
    * If {@link #HEURISTIC} is true, this parameter determines if the counts for the heuristically calculated
    * top-X terms should be exact (true) or approximate (false).
    * </p><p>
@@ -408,56 +416,57 @@ public class SparseKeys {
   public static final int HEURISTIC_OVERPROVISION_CONSTANT_DEFAULT = 5;
 
 
-  final public String field;
-  final public List<Pattern> whitelists; // Never null
-  final public List<Pattern> blacklists; // Never null
+  public final String field;
+  public final List<Pattern> whitelists; // Never null
+  public final List<Pattern> blacklists; // Never null
 
-  final public boolean sparse;
-  final public boolean termLookup;
-  final public int termLookupMaxCache;
-  final public int minTags;
-  final public double fraction;
-  final public double cutOff;
-  final public long maxCountsTracked;
-  final public boolean logExtended;
+  public final boolean sparse;
+  public final boolean termLookup;
+  public final int termLookupMaxCache;
+  public final int minTags;
+  public final double fraction;
+  public final double cutOff;
+  public final long maxCountsTracked;
+  public final boolean logExtended;
 
-  final public COUNTER_IMPL counter;
-  final public int countingThreads;
-  final public int countingThreadsMinDocs;
-  final public long packedLimit;
+  public final COUNTER_IMPL counter;
+  public final int countingThreads;
+  public final int countingThreadsMinDocs;
+  public final long packedLimit;
 
-  final public int poolSize;
-  final public int poolMaxCount;
-  final public int poolMinEmpty;
+  public final int poolSize;
+  public final int poolMaxCount;
+  public final int poolMinEmpty;
 
-  final public boolean skipRefinement;
+  public final boolean skipRefinement;
 
   /**
    * If this is non-null, the token unambigiously designates the params defining the counts for the facet.
    * This is used directly with {@link ValueCounter#getStructureKey()} for caching.
    */
-  final public String cacheToken;
+  public final String cacheToken;
 
-  final public boolean legacyShowStats;
-  final public boolean resetStats;
-  final public boolean cacheDistributed;
+  public final boolean legacyShowStats;
+  public final boolean resetStats;
+  public final boolean cacheDistributed;
 
-  final public boolean heuristic;
-  final public int heuristicMinDocs;
-  final public String heuristicFraction;
+  public final boolean heuristic;
+  public final int heuristicMinDocs;
+  public final String heuristicFraction;
 
-  final private boolean fixedHeuristicSample;
-  final public String heuristicSampleSize;
+  private final boolean fixedHeuristicSample;
+  public final String heuristicSampleSize;
   private final double heuristicSampleA;
   private final double heuristicSampleB;
   private final double heuristicSampleMinFactor;
   private final double heuristicSampleMaxFactor;
 
 
-  final public int heuristicSampleChunks;
-  final public boolean heuristicFineCount;
-  final double heuristicOverprovisionFactor;
-  final int heuristicOverprovisionConstant;
+  public final int heuristicSampleChunks;
+  public final int heuristicSampleChunksMinSize;
+  public final boolean heuristicFineCount;
+  public final double heuristicOverprovisionFactor;
+  public final int heuristicOverprovisionConstant;
 
   public SparseKeys(String field, SolrParams params) {
     this.field = field;
@@ -522,6 +531,8 @@ public class SparseKeys {
         HEURISTIC_SAMPLE_MAXFACTOR, HEURISTIC_SAMPLE_MAXFACTOR_DEFAULT);
 
     heuristicSampleChunks = params.getFieldInt(field, HEURISTIC_SAMPLE_CHUNKS, HEURISTIC_SAMPLE_CHUNKS_DEFAULT);
+    heuristicSampleChunksMinSize = params.getFieldInt(field, 
+        HEURISTIC_SAMPLE_CHUNKS_MINSIZE, HEURISTIC_SAMPLE_CHUNKS_MINSIZE_DEFAULT);
     heuristicFineCount = params.getFieldBool(field, HEURISTIC_FINECOUNT, HEURISTIC_FINECOUNT_DEFAULT);
     heuristicOverprovisionFactor = params.getFieldDouble(field,
         HEURISTIC_OVERPROVISION_FACTOR, HEURISTIC_OVERPROVISION_FACTOR_DEFAULT);

@@ -893,7 +893,7 @@ public class SparseDocValuesFacets {
       final int missingSamples = maxSampleDocs - sampleDocs;
       final int missingChunks = maxChunks - visitedChunks;
 
-      final int chunkSize = missingSamples/missingChunks;
+      final int chunkSize = Math.max(state.keys.heuristicSampleChunksMinSize, missingSamples/missingChunks);
       final int nextChunkStart = doc + (endDocID-doc+1)/missingChunks;
       final int chunkDocGoal = sampleDocs + chunkSize;
 
