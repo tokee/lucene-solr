@@ -879,7 +879,14 @@ public class SparseDocValuesFacets {
     final long startTime = System.nanoTime();
 
     final int maxSampleDocs = state.keys.segmentSampleSize(state.hitCount, state.maxDoc, endDocID - startDocID + 1);
-    int maxChunks = !heuristic ? 1 : state.keys.heuristicSampleChunks;
+    int maxChunks = !heuristic ? 1 :
+        Math.max(
+            1,
+            Math.min(
+                state.hitCount / state.keys.heuristicSampleChunksMinSize,
+                state.keys.heuristicSampleChunks
+            )
+        );
 
     int doc = disi.nextDoc();
     if (doc < startDocID && doc != DocIdSetIterator.NO_MORE_DOCS) {
