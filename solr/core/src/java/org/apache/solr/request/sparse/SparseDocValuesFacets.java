@@ -872,8 +872,10 @@ public class SparseDocValuesFacets {
     state.refCount.addAndGet(increments);
   }
   private static void accumSingle(
-      SparseState state, SortedDocValues si, DocIdSetIterator disi,
-      int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS, boolean heuristic) throws IOException {
+      final SparseState state, final SortedDocValues si, final DocIdSetIterator disi,
+      final int startDocID, final int endDocID, final int subIndex, final Lookup lookup,
+      // TODO: Remove initNS
+      long initNS, final boolean heuristic) throws IOException {
     final long startTime = System.nanoTime();
 
     final int maxSampleDocs = state.keys.segmentSampleSize(state.hitCount, state.maxDoc, endDocID - startDocID + 1);
@@ -884,6 +886,8 @@ public class SparseDocValuesFacets {
       doc = disi.advance(startDocID);
     }
     final long advanceNS = System.nanoTime()-startTime;
+    final double sampleFactor =
+        state.keys.segmentSampleFactor(state.hitCount, state.maxDoc, endDocID - startDocID + 1);
 
     int visitedChunks = 0;
     int sampleDocs = 0;
@@ -897,8 +901,10 @@ public class SparseDocValuesFacets {
       final int nextChunkStart = doc + (endDocID-doc+1)/missingChunks;
       final int chunkDocGoal = sampleDocs + chunkSize;
 
-//      log.info(String.format("*** missingSamples=%d, missingChunks=%d, chunkSize=%d, nextChunkStart=%d, chunkDocGoal=%d",
-//          missingSamples, missingChunks, chunkSize, nextChunkStart, chunkDocGoal));
+      log.info(String.format("*** doc=%d, sampleDocs=%d, missingSamples=%d, missingChunks=%d, chunkSize=%d," +
+              " chunkDocGoal=%d, nextChunkStart=%d, indexHits=%d, sampleFactor=%.3f",
+          doc, sampleDocs, missingSamples, missingChunks, chunkSize,
+          chunkDocGoal, nextChunkStart, state.hitCount, sampleFactor));
 
       while (sampleDocs < chunkDocGoal && doc != DocIdSetIterator.NO_MORE_DOCS) {
         sampleDocs++;
@@ -907,6 +913,7 @@ public class SparseDocValuesFacets {
           term = lookup.getGlobalOrd(subIndex, term);
         }
         int arrIdx = term-state.startTermIndex;
+        // TODO: As the arrays are always of full size and counted from 0, much of this could be skipped
         if (arrIdx>=0 && arrIdx<state.counts.size()) {
           references++;
           state.counts.inc(arrIdx);
@@ -921,8 +928,6 @@ public class SparseDocValuesFacets {
     // TODO: Remove this when sparse faceting is considered stable
     if (state.keys.logExtended) {
       final long incNS = (System.nanoTime() - startTime - advanceNS);
-      final double sampleFactor =
-          state.keys.segmentSampleFactor(state.hitCount, state.maxDoc, endDocID - startDocID + 1);
       log.info(String.format(Locale.ENGLISH,
           "accumSingle(%d->%d) impl=%s, init=%dms, advance=%dms, " +
               "docs(samples=%d, wanted=%d, indexHits=%d, maxDoc=%d), increments=%d " +
