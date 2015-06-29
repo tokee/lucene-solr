@@ -65,4 +65,27 @@ public class SparseKeysTest extends SolrTestCaseJ4 {
         sparseKeys.useSegmentHeuristics(HITSHIGH, IMAXDOC, SMAXDOC));
   }
 
+  public void testHeuristicFactor2() {
+    final int HITS = 639951;
+    final int IMAXDOC = 258189147;
+    final int SMAXDOC = 258189147;
+
+    ModifiableSolrParams params = new ModifiableSolrParams();
+    params.set(SparseKeys.HEURISTIC, true);
+    params.set(SparseKeys.HEURISTIC_SEGMENT_MINDOCS, 100000);
+    params.set(SparseKeys.HEURISTIC_FRACTION, 0);
+    params.set(SparseKeys.HEURISTIC_SAMPLE_CHUNKS, 1000000);
+    params.set(SparseKeys.HEURISTIC_SAMPLE_A, "0.01");
+    params.set(SparseKeys.HEURISTIC_SAMPLE_B, "0.0");
+    params.set(SparseKeys.HEURISTIC_SAMPLE_MINFACTOR, "0.001");
+    params.set(SparseKeys.HEURISTIC_SAMPLE_MAXFACTOR, "0.95");
+    SparseKeys sparseKeys = new SparseKeys("foo", params);
+
+    assertTrue("Overall heuristics should be enabled",
+        sparseKeys.useOverallHeuristic(HITS, IMAXDOC));
+    assertTrue("Heuristics should be enabled for the single segment in the index",
+        sparseKeys.useSegmentHeuristics(HITS, IMAXDOC, SMAXDOC));
+    assertEquals("Sample size should be as expected", HITS/100, sparseKeys.segmentSampleSize(HITS, IMAXDOC, SMAXDOC));
+  }
+
 }

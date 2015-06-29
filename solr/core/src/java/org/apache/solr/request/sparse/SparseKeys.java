@@ -564,16 +564,14 @@ public class SparseKeys {
     if (fixedHeuristicSample) {
       return true;
     }
-    // See the JavaDoc for HEURISTIC_SAMPLE_F
-    // a*(h/d)+c
-    double factor = heuristicSampleA*(1.0*indexHitCount/indexDocuments)+heuristicSampleB;
-    return factor <= heuristicSampleMaxFactor;
+    return segmentSampleSizeOrig(indexHitCount, indexDocuments, segmentDocuments)/indexHitCount <=
+        heuristicSampleMaxFactor;
   }
 
   public int segmentSampleSizeOrig(int indexHitCount, int indexDocuments, int segmentDocuments) {
     if (fixedHeuristicSample) {
       return (int) (heuristicSampleSize.contains(".") ?
-          Double.parseDouble(heuristicSampleSize) * segmentDocuments :
+          Double.parseDouble(heuristicSampleSize) * indexHitCount :
           Integer.parseInt(heuristicSampleSize));
     }
     // See the JavaDoc for HEURISTIC_SAMPLE_F
@@ -591,10 +589,13 @@ public class SparseKeys {
           Double.parseDouble(heuristicSampleSize) * segmentDocuments : // Fraction
           Integer.parseInt(heuristicSampleSize)*1.0*segmentDocuments/indexDocuments); // Absolute
     }
-    return (int) (segmentSampleFactor(indexHitCount, indexDocuments, segmentDocuments)*segmentDocuments);
+    double estimatedHitsInSegment = 1.0*indexHitCount*segmentDocuments/indexDocuments;
+    double minSampleSize = heuristicSampleMinFactor*estimatedHitsInSegment;
+    return (int) Math.min(indexHitCount,
+        Math.max(minSampleSize, heuristicSampleA*estimatedHitsInSegment+heuristicSampleB));
   }
 
-  public double segmentSampleFactor(int indexHitCount, int indexDocuments, int segmentDocuments) {
+/*  public double segmentSampleFactor(int indexHitCount, int indexDocuments, int segmentDocuments) {
     if (fixedHeuristicSample) {
       return (int) (heuristicSampleSize.contains(".") ?
           Double.parseDouble(heuristicSampleSize) :
@@ -605,7 +606,7 @@ public class SparseKeys {
     //double factor = heuristicSampleA*(1.0*indexHitCount/indexDocuments)+heuristicSampleB;
     double factor = heuristicSampleA*1.0*indexHitCount+heuristicSampleB;
     return Math.max(factor, heuristicSampleMinFactor);
-  }
+  }*/
 
   @Override
   public String toString() {

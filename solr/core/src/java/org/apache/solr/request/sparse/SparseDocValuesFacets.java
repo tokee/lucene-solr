@@ -553,6 +553,7 @@ public class SparseDocValuesFacets {
       this.subIndex = subIndex;
       this.accumulators = accumulators;
       this.cloneLookup = multiThreadedInLeaf;
+      // TODO: Aggregate the segment-heuristic boolean. If none are heuristic, the overall result is correct
       this.heuristic = state.heuristic &&
           state.keys.useSegmentHeuristics(state.hitCount, state.maxDoc, endDocID-startDocID);
       this.lookup = state.lookup;
@@ -582,7 +583,8 @@ public class SparseDocValuesFacets {
           final SortedDocValues singleton = DocValues.unwrapSingleton(sub);
           if (singleton != null) {
             // some codecs may optimize SORTED_SET storage for single-valued fields
-            accumSingle(state, singleton, disi, startDocID, endDocID, subIndex, lookup, System.nanoTime() - startTime,                heuristic);
+            accumSingle(state, singleton, disi, startDocID, endDocID, subIndex, lookup, System.nanoTime() - startTime,
+                heuristic);
           } else {
             accumMulti(state, sub, disi, startDocID, endDocID, subIndex, lookup, System.nanoTime() - startTime,
                 heuristic);
@@ -860,14 +862,12 @@ public class SparseDocValuesFacets {
     // TODO: Remove this when sparse faceting is considered stable
     if (state.keys.logExtended) {
       final long incNS = (System.nanoTime() - startTime - advanceNS);
-      final double sampleFactor =
-          state.keys.segmentSampleFactor(state.hitCount, state.maxDoc, endDocID - startDocID + 1);
       log.info(String.format(Locale.ENGLISH,
           "accumSingle(%d->%d) impl=%s, init=%dms, advance=%dms, docHits=%d, increments=%d (%d incs/doc)," +
-              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b (chunks=%d, chunkSize=%d, skip=%d, factor=%f)",
+              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b (chunks=%d, chunkSize=%d, skip=%d)",
           startDocID, endDocID, state.keys.counter, initNS / M, advanceNS / M, docs, increments,
           docs == 0 ? 0 : increments/docs, incNS / M, incNS == 0 ? 0 : increments * M / incNS,
-          incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunks, hChunkSize, hChunkSkip, sampleFactor));
+          incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunks, hChunkSize, hChunkSkip));
     }
     state.refCount.addAndGet(increments);
   }
@@ -878,42 +878,41 @@ public class SparseDocValuesFacets {
       long initNS, final boolean heuristic) throws IOException {
     final long startTime = System.nanoTime();
 
-    final int maxSampleDocs = state.keys.segmentSampleSize(state.hitCount, state.maxDoc, endDocID - startDocID + 1);
-    int maxChunks = !heuristic ? 1 :
-        Math.max(
-            1,
-            Math.min(
-                state.hitCount / state.keys.heuristicSampleChunksMinSize,
-                state.keys.heuristicSampleChunks
-            )
-        );
+    final int maxSampleDocs = heuristic ?
+        state.keys.segmentSampleSize(state.hitCount, state.maxDoc, endDocID-startDocID+1) :
+        state.hitCount; // Possibly higher than segment size
 
     int doc = disi.nextDoc();
     if (doc < startDocID && doc != DocIdSetIterator.NO_MORE_DOCS) {
       doc = disi.advance(startDocID);
     }
     final long advanceNS = System.nanoTime()-startTime;
-    final double sampleFactor =
-        state.keys.segmentSampleFactor(state.hitCount, state.maxDoc, endDocID - startDocID + 1);
 
     int visitedChunks = 0;
     int sampleDocs = 0;
     long references = 0;
+    int chunksLeft = !heuristic ? 1 : state.keys.heuristicSampleChunks;
 
-    while (visitedChunks < maxChunks && sampleDocs < maxSampleDocs && doc != DocIdSetIterator.NO_MORE_DOCS) {
+    while (sampleDocs < maxSampleDocs && doc != DocIdSetIterator.NO_MORE_DOCS) {
+      // TODO: Avoid degenerate tail by switching to full mode or breaking when missingSamples gets very low
       final int missingSamples = maxSampleDocs - sampleDocs;
-      final int missingChunks = maxChunks - visitedChunks;
+      chunksLeft = Math.max(
+          1,
+          Math.min(chunksLeft,
+                  (endDocID-doc) / state.keys.heuristicSampleChunksMinSize
+              ));
+      if (missingSamples > endDocID-doc) { // Badly skewed sample distribution if we get here
+        chunksLeft = 1;
+      }
 
-      final int chunkSize = Math.max(state.keys.heuristicSampleChunksMinSize, missingSamples/missingChunks);
-      final int nextChunkStart = doc + (endDocID-doc+1)/missingChunks;
-      final int chunkDocGoal = sampleDocs + chunkSize;
+      final int chunkSize = Math.max(state.keys.heuristicSampleChunksMinSize, missingSamples/chunksLeft);
+      final int nextChunkStart = doc + (endDocID-doc-missingSamples)/chunksLeft;
+      final int chunkSampleGoal = sampleDocs + chunkSize;
 
-      log.info(String.format("*** doc=%d, sampleDocs=%d, missingSamples=%d, missingChunks=%d, chunkSize=%d," +
-              " chunkDocGoal=%d, nextChunkStart=%d, indexHits=%d, sampleFactor=%.3f",
-          doc, sampleDocs, missingSamples, missingChunks, chunkSize,
-          chunkDocGoal, nextChunkStart, state.hitCount, sampleFactor));
+//      log.info(String.format("*** doc=%d, samples:%d->%d, chLeft=%d, chSize=%d, nextChunk=%d",
+//          doc, missingSamples, sampleDocs, chunksLeft, chunkSize, nextChunkStart));
 
-      while (sampleDocs < chunkDocGoal && doc != DocIdSetIterator.NO_MORE_DOCS) {
+      while (sampleDocs < chunkSampleGoal && doc != DocIdSetIterator.NO_MORE_DOCS) {
         sampleDocs++;
         int term = si.getOrd(doc);
         if (lookup.ordinalMap != null && term >= 0) {
@@ -927,6 +926,9 @@ public class SparseDocValuesFacets {
         }
         doc = disi.nextDoc();
       }
+
+      // Prepare next chunk
+      chunksLeft--;
       visitedChunks++;
       if (doc < nextChunkStart && doc != DocIdSetIterator.NO_MORE_DOCS) {
         doc = disi.advance(nextChunkStart);
@@ -940,12 +942,12 @@ public class SparseDocValuesFacets {
               "docs(samples=%d, wanted=%d, indexHits=%d, maxDoc=%d), increments=%d " +
               "(%.1f incs/doc)," +
               " incTime=%dms (%d incs/ms, %d docs/ms), " +
-              "heuristic=%b (chunks=%d, factor=%f)",
+              "heuristic=%b (chunks=%d)",
           startDocID, endDocID, state.keys.counter, initNS / M, advanceNS / M,
           sampleDocs, maxSampleDocs, state.hitCount, endDocID-startDocID, references,
           sampleDocs == 0 ? 0 : 1.0*references/sampleDocs, incNS / M, incNS == 0 ? 0 : references * M / incNS,
           incNS == 0 ? 0 : sampleDocs * M / incNS,
-          heuristic, maxChunks, sampleFactor));
+          heuristic, visitedChunks));
     }
     state.refCount.addAndGet(references);
   }
@@ -1008,14 +1010,12 @@ public class SparseDocValuesFacets {
     // TODO: Remove this when sparse faceting is considered stable
     if (state.keys.logExtended) {
       final long incNS = (System.nanoTime() - startTime - advanceNS);
-      final double sampleFactor =
-          state.keys.segmentSampleFactor(state.hitCount, state.maxDoc, endDocID - startDocID + 1);
       log.info(String.format(Locale.ENGLISH,
           "accumMulti(%d->%d) impl=%s, init=%dms, advance=%dms, docHits=%d, increments=%d (%d incs/doc)," +
-              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b (chunks=%d, chunkSize=%d, skip=%d, factor=%f)",
+              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b (chunks=%d, chunkSize=%d, skip=%d)",
           startDocID, endDocID, state.keys.counter, initNS / M, advanceNS / M, docs, increments,
           docs == 0 ? 0 : increments/docs, incNS / M, incNS == 0 ? 0 : increments * M / incNS,
-          incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunkSize, hChunkSkip, hChunkSkip, sampleFactor));
+          incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunkSize, hChunkSkip, hChunkSkip));
     }
     state.refCount.addAndGet(increments);
   }
