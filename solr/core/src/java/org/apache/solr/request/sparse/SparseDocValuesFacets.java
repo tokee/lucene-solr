@@ -120,6 +120,7 @@ public class SparseDocValuesFacets {
     public int startTermIndex;
     public int endTermIndex;
     public boolean heuristic;
+    public boolean effectiveHeuristic = false;
     public ValueCounter counts;
     public final NamedList<Integer> res = new NamedList<>();
     public boolean optimizedExtract;
@@ -162,7 +163,7 @@ public class SparseDocValuesFacets {
       SolrIndexSearcher searcher, DocSet docs, String fieldName, int offset, int limit, int minCount, boolean missing,
       String sort, String prefix, String termList, SparseKeys sparseKeys, SparseCounterPool pool) throws IOException {
     if (sparseKeys.logExtended) {
-      log.info(sparseKeys.toString());
+      log.info(sparseKeys.toString() + " q=" + sparseKeys.q);
     }
     if (!sparseKeys.sparse) { // Skip sparse part completely
       return termList == null ?
@@ -223,7 +224,7 @@ public class SparseDocValuesFacets {
       try {
         return extractSpecificCounts(state, state.lookup.si);
       } finally  {
-        if (state.heuristic && sparseKeys.heuristicFineCount) { // Counts are unreliable so don't store
+        if (state.effectiveHeuristic) { // Counts are unreliable so don't store. Consider sparseKeys.heuristicFineCount
           state.counts.setContentKey(SparseCounterPool.NEEDS_CLEANING);
         }
         pool.release(state.counts, sparseKeys);
@@ -233,12 +234,13 @@ public class SparseDocValuesFacets {
         if (log.isInfoEnabled()) {
           log.info(String.format(Locale.ENGLISH,
               "Phase 2 sparse term counts of %s: method=%s, threads=%d, hits=%d, refs=%d, time=%dms "
-                  + "(hitCount=%dms, acquire=%dms, collect=%s, fineCount=%dms), hits/ms=%d, refs/ms=%d, heuristic=%b",
+                  + "(hitCount=%dms, acquire=%dms, collect=%s, fineCount=%dms), hits/ms=%d, refs/ms=%d, " +
+                  "heuristic(requested=%b, effective=%b)",
               fieldName, sparseKeys.counter, sparseKeys.countingThreads, state.hitCount, state.refCount.get(),
               totalTimeNS/M,
               state.hitCountTime/M, state.acquireTime/M, alreadyFilled ? "0ms (reused)" : state.collectTime/M + "ms",
               (System.nanoTime()-fineCountStart)/M, state.hitCount*M/totalTimeNS, state.refCount.get()*M/totalTimeNS,
-              state.heuristic));
+              state.heuristic, state.effectiveHeuristic));
         }
       }
     }
@@ -247,7 +249,7 @@ public class SparseDocValuesFacets {
 
     extractTopTerms(state);
 
-    if (state.heuristic && sparseKeys.heuristicFineCount) { // Counts are unreliable for phase 2
+    if (state.effectiveHeuristic) { // Counts are unreliable for phase 2. Consider  && sparseKeys.heuristicFineCount
       state.counts.setContentKey(SparseCounterPool.NEEDS_CLEANING);
     }
     pool.release(state.counts, sparseKeys);
@@ -259,12 +261,12 @@ public class SparseDocValuesFacets {
       log.info(String.format(Locale.ENGLISH,
           "Phase 1 sparse faceting of %s: method=%s, threads=%d, hits=%d, refs=%d, time=%dms "
               + "(hitCount=%dms, acquire=%dms, collect=%s, extract=%dms (sparse=%b), resolve=%dms), hits/ms=%d, " +
-              "refs/ms=%d, heuristic=%b",
+              "refs/ms=%d, heuristic(requested=%b, effective=%b)",
           fieldName, sparseKeys.counter, sparseKeys.countingThreads, state.hitCount, state.refCount.get(),
           totalTimeNS/M,
           state.hitCountTime/M, state.acquireTime/M, alreadyFilled ? "0ms (reused)" : state.collectTime/M + "ms",
           state.extractTime/M, state.optimizedExtract, state.termResolveTime/M, state.hitCount*M/totalTimeNS,
-          state.refCount.get()*M/totalTimeNS, state.heuristic));
+          state.refCount.get()*M/totalTimeNS, state.heuristic, state.effectiveHeuristic));
     }
     final int missingCount = state.startTermIndex == -1 ? (int) state.counts.getMissing() : -1;
     return finalize(state.res, searcher, state.schemaField, docs, missingCount, missing);
@@ -880,7 +882,8 @@ public class SparseDocValuesFacets {
 
     final int maxSampleDocs = heuristic ?
         state.keys.segmentSampleSize(state.hitCount, state.maxDoc, endDocID-startDocID+1) :
-        state.hitCount; // Possibly higher than segment size
+        endDocID-startDocID+1;
+    final boolean effectiveHeuristic = maxSampleDocs < endDocID-startDocID+1;
 
     int doc = disi.nextDoc();
     if (doc < startDocID && doc != DocIdSetIterator.NO_MORE_DOCS) {
@@ -907,12 +910,27 @@ public class SparseDocValuesFacets {
 
       final int chunkSize = Math.max(state.keys.heuristicSampleChunksMinSize, missingSamples/chunksLeft);
       final int nextChunkStart = doc + (endDocID-doc-missingSamples)/chunksLeft;
-      final int chunkSampleGoal = sampleDocs + chunkSize;
+
+      final int chunkSampleLimit = sampleDocs + chunkSize;
+
+      final int chunkDocLimit;
+      switch (state.keys.heuristicSampleMode) {
+        case index: {
+          chunkDocLimit = doc + chunkSize;
+          break;
+        }
+        case hits: {
+          chunkDocLimit = endDocID+1;
+          break;
+        }
+        default: throw new UnsupportedOperationException(
+            "The heuristic sample mode '" + state.keys.heuristicSampleMode + "' is unsupported");
+      }
 
 //      log.info(String.format("*** doc=%d, samples:%d->%d, chLeft=%d, chSize=%d, nextChunk=%d",
 //          doc, missingSamples, sampleDocs, chunksLeft, chunkSize, nextChunkStart));
 
-      while (sampleDocs < chunkSampleGoal && doc != DocIdSetIterator.NO_MORE_DOCS) {
+      while (sampleDocs < chunkSampleLimit && doc < chunkDocLimit && doc != DocIdSetIterator.NO_MORE_DOCS) {
         sampleDocs++;
         int term = si.getOrd(doc);
         if (lookup.ordinalMap != null && term >= 0) {
@@ -941,14 +959,13 @@ public class SparseDocValuesFacets {
           "accumSingle(%d->%d) impl=%s, init=%dms, advance=%dms, " +
               "docs(samples=%d, wanted=%d, indexHits=%d, maxDoc=%d), increments=%d " +
               "(%.1f incs/doc)," +
-              " incTime=%dms (%d incs/ms, %d docs/ms), " +
-              "heuristic=%b (chunks=%d)",
+              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b, effectiveHeuristic=%b (chunks=%d)",
           startDocID, endDocID, state.keys.counter, initNS / M, advanceNS / M,
           sampleDocs, maxSampleDocs, state.hitCount, endDocID-startDocID, references,
           sampleDocs == 0 ? 0 : 1.0*references/sampleDocs, incNS / M, incNS == 0 ? 0 : references * M / incNS,
-          incNS == 0 ? 0 : sampleDocs * M / incNS,
-          heuristic, visitedChunks));
+          incNS == 0 ? 0 : sampleDocs * M / incNS, heuristic, effectiveHeuristic, visitedChunks));
     }
+    state.effectiveHeuristic |= effectiveHeuristic;
     state.refCount.addAndGet(references);
   }
   private static final long M = 1000000;
@@ -956,7 +973,7 @@ public class SparseDocValuesFacets {
   /*
   Iterate multi-value DocValues and update the counters based on delivered ordinals.
    */
-  private static void accumMulti(
+  private static void accumMultiOrig(
       SparseState state, SortedSetDocValues ssi, DocIdSetIterator disi,
       int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS, boolean heuristic) throws IOException {
     final long startTime = System.nanoTime();
@@ -1018,6 +1035,115 @@ public class SparseDocValuesFacets {
           incNS == 0 ? 0 : docs * M / incNS, heuristic, hChunkSize, hChunkSkip, hChunkSkip));
     }
     state.refCount.addAndGet(increments);
+  }
+  private static void accumMulti(
+      SparseState state, SortedSetDocValues ssi, DocIdSetIterator disi,
+      int startDocID, int endDocID, int subIndex, Lookup lookup, long initNS, boolean heuristic) throws IOException {
+    final long startTime = System.nanoTime();
+    if (ssi == DocValues.emptySortedSet()) {
+      return; // Nothing to process; return immediately
+    }
+    final int maxSampleDocs = heuristic ?
+        state.keys.segmentSampleSize(state.hitCount, state.maxDoc, endDocID-startDocID+1) :
+        endDocID-startDocID+1;
+    final boolean effectiveHeuristic = maxSampleDocs < endDocID-startDocID+1;
+
+    int doc = disi.nextDoc();
+    if (doc < startDocID && doc != DocIdSetIterator.NO_MORE_DOCS) {
+      doc = disi.advance(startDocID);
+    }
+    final long advanceNS = System.nanoTime()-startTime;
+
+    int visitedChunks = 0;
+    int sampleDocs = 0;
+    long references = 0;
+    int chunksLeft = !heuristic ? 1 : state.keys.heuristicSampleChunks;
+
+    while (sampleDocs < maxSampleDocs && doc != DocIdSetIterator.NO_MORE_DOCS) {
+      // TODO: Avoid degenerate tail by switching to full mode or breaking when missingSamples gets very low
+      final int missingSamples = maxSampleDocs - sampleDocs;
+      chunksLeft = Math.max(
+          1,
+          Math.min(chunksLeft,
+                  (endDocID-doc) / state.keys.heuristicSampleChunksMinSize
+              ));
+      if (missingSamples > endDocID-doc) { // Badly skewed sample distribution if we get here
+        chunksLeft = 1;
+      }
+
+      final int chunkSize = Math.max(state.keys.heuristicSampleChunksMinSize, missingSamples/chunksLeft);
+      final int nextChunkStart = doc + (endDocID-doc-missingSamples)/chunksLeft;
+
+      final int chunkSampleLimit = sampleDocs + chunkSize;
+
+      final int chunkDocLimit;
+      switch (state.keys.heuristicSampleMode) {
+        case index: {
+          chunkDocLimit = doc + chunkSize;
+          break;
+        }
+        case hits: {
+          chunkDocLimit = endDocID+1;
+          break;
+        }
+        default: throw new UnsupportedOperationException(
+            "The heuristic sample mode '" + state.keys.heuristicSampleMode + "' is unsupported");
+      }
+
+//      log.info(String.format("*** doc=%d, samples:%d->%d, chLeft=%d, chSize=%d, nextChunk=%d",
+//          doc, missingSamples, sampleDocs, chunksLeft, chunkSize, nextChunkStart));
+
+      while (sampleDocs < chunkSampleLimit && doc < chunkDocLimit && doc != DocIdSetIterator.NO_MORE_DOCS) {
+        sampleDocs++;
+
+        ssi.setDocument(doc);
+        doc = disi.nextDoc();
+
+        // strange do-while to collect the missing count (first ord is NO_MORE_ORDS)
+        int term = (int) ssi.nextOrd();
+        if (term < 0) {
+          state.counts.incMissing();
+          /*if (startTermIndex == -1) {
+          counts.inc(0); // missing count
+        } */
+          continue;
+        }
+
+        do {
+          term = lookup.getGlobalOrd(subIndex, term);
+          int arrIdx = term - state.startTermIndex;
+
+        // TODO: As the arrays are always of full size and counted from 0, much of this could be skipped
+          if (arrIdx >= 0 && arrIdx < state.counts.size()) {
+            references++;
+            state.counts.inc(arrIdx);
+          }
+        } while ((term = (int) ssi.nextOrd()) >= 0);
+      }
+
+
+      // Prepare next chunk
+      chunksLeft--;
+      visitedChunks++;
+      if (doc < nextChunkStart && doc != DocIdSetIterator.NO_MORE_DOCS) {
+        doc = disi.advance(nextChunkStart);
+      }
+    }
+    // TODO: Remove this when sparse faceting is considered stable
+    if (state.keys.logExtended) {
+      final long incNS = (System.nanoTime() - startTime - advanceNS);
+      log.info(String.format(Locale.ENGLISH,
+          "accumMulti(%d->%d) impl=%s, init=%dms, advance=%dms, " +
+              "docs(samples=%d, wanted=%d, indexHits=%d, maxDoc=%d), increments=%d " +
+              "(%.1f incs/doc)," +
+              " incTime=%dms (%d incs/ms, %d docs/ms), heuristic=%b, effectiveHeuristic=%b (chunks=%d)",
+          startDocID, endDocID, state.keys.counter, initNS / M, advanceNS / M,
+          sampleDocs, maxSampleDocs, state.hitCount, endDocID-startDocID, references,
+          sampleDocs == 0 ? 0 : 1.0*references/sampleDocs, incNS / M, incNS == 0 ? 0 : references * M / incNS,
+          incNS == 0 ? 0 : sampleDocs * M / incNS, heuristic, effectiveHeuristic, visitedChunks));
+    }
+    state.effectiveHeuristic |= effectiveHeuristic;
+    state.refCount.addAndGet(references);
   }
 
   /**
