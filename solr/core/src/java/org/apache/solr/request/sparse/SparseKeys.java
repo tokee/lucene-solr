@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
+import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.common.params.SolrParams;
 
 public class SparseKeys {
@@ -485,19 +486,21 @@ public class SparseKeys {
   public final int heuristicSegmentMinDocs;
   public final String heuristicBoundary;
 
-  private final String heuristicSampleH;
-  private final String heuristicSampleT;
-  private final String heuristicSampleS;
-  private final int heuristicSampleB;
-  private final double heuristicSampleMinFactor;
-  private final double heuristicSampleMaxFactor;
-  private final HEURISTIC_SAMPLE_MODES heuristicSampleMode;
+  public final String heuristicSampleH;
+  public final String heuristicSampleT;
+  public final String heuristicSampleS;
+  public final int heuristicSampleB;
+  public final double heuristicSampleMinFactor;
+  public final double heuristicSampleMaxFactor;
+  public final HEURISTIC_SAMPLE_MODES heuristicSampleMode;
 
   public final int heuristicSampleChunks;
   public final int heuristicSampleChunksMinSize;
   public final boolean heuristicFineCount;
   public final double heuristicOverprovisionFactor;
   public final int heuristicOverprovisionConstant;
+
+  public final String q; // Only use for logging and debugging!
 
   public SparseKeys(String field, SolrParams params) {
     this.field = field;
@@ -564,6 +567,8 @@ public class SparseKeys {
         HEURISTIC_OVERPROVISION_FACTOR, HEURISTIC_OVERPROVISION_FACTOR_DEFAULT);
     heuristicOverprovisionConstant = params.getFieldInt(field,
         HEURISTIC_OVERPROVISION_CONSTANT, HEURISTIC_OVERPROVISION_CONSTANT_DEFAULT);
+
+    q = params.get(CommonParams.Q, "");
   }
 
   private List<Pattern> getRegexps(SolrParams params, String field, String key) {
@@ -582,7 +587,7 @@ public class SparseKeys {
     return heuristic && hitCount >= multiVal(heuristicBoundary, maxDoc);
   }
   public boolean useSegmentHeuristics(int indexHitCount, int indexDocuments, int segmentDocuments) {
-    return segmentSampleSize(indexHitCount, indexDocuments, segmentDocuments) < heuristicSegmentMinDocs;
+    return segmentSampleSize(indexHitCount, indexDocuments, segmentDocuments) < segmentDocuments;
   }
 
   // Obeys the limits
@@ -592,7 +597,6 @@ public class SparseKeys {
     }
     long raw = (long) (multiVal(heuristicSampleH, indexHitCount) + multiVal(heuristicSampleT, indexDocuments) +
             multiVal(heuristicSampleS, segmentDocuments) + heuristicSampleB);
-    raw = Math.min(indexHitCount, raw);
     raw = Math.min(segmentDocuments, raw);
 
     double factor;
@@ -606,6 +610,7 @@ public class SparseKeys {
         break;
       }
       case hits: { // Hits are estimated if #segments > 1
+        raw = Math.min(indexHitCount, raw);
         double estimatedHits= indexHitCount*(1.0*segmentDocuments/indexDocuments);
         factor = raw/estimatedHits;
         if (factor < heuristicSampleMinFactor) {
