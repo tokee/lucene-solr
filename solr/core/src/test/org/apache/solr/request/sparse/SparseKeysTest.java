@@ -17,7 +17,6 @@ package org.apache.solr.request.sparse;
  * limitations under the License.
  */
 
-import junit.framework.TestCase;
 import org.apache.solr.SolrTestCaseJ4;
 import org.apache.solr.common.params.ModifiableSolrParams;
 import org.junit.BeforeClass;
@@ -47,9 +46,9 @@ public class SparseKeysTest extends SolrTestCaseJ4 {
     ModifiableSolrParams params = new ModifiableSolrParams();
     params.set(SparseKeys.HEURISTIC, true);
     params.set(SparseKeys.HEURISTIC_SEGMENT_MINDOCS, 100000);
-    params.set(SparseKeys.HEURISTIC_FRACTION, 0);
+    params.set(SparseKeys.HEURISTIC_BOUNDARY, 0);
     params.set(SparseKeys.HEURISTIC_SAMPLE_CHUNKS, 1000000);
-    params.set(SparseKeys.HEURISTIC_SAMPLE_A, "-19");
+    params.set(SparseKeys.HEURISTIC_SAMPLE_H, "-19");
     params.set(SparseKeys.HEURISTIC_SAMPLE_B, "0.78");
     params.set(SparseKeys.HEURISTIC_SAMPLE_MINFACTOR, "0.001");
     params.set(SparseKeys.HEURISTIC_SAMPLE_MAXFACTOR, "0.5");
@@ -73,9 +72,9 @@ public class SparseKeysTest extends SolrTestCaseJ4 {
     ModifiableSolrParams params = new ModifiableSolrParams();
     params.set(SparseKeys.HEURISTIC, true);
     params.set(SparseKeys.HEURISTIC_SEGMENT_MINDOCS, 100000);
-    params.set(SparseKeys.HEURISTIC_FRACTION, 0);
+    params.set(SparseKeys.HEURISTIC_BOUNDARY, 0);
     params.set(SparseKeys.HEURISTIC_SAMPLE_CHUNKS, 1000000);
-    params.set(SparseKeys.HEURISTIC_SAMPLE_A, "0.01");
+    params.set(SparseKeys.HEURISTIC_SAMPLE_H, "0.01");
     params.set(SparseKeys.HEURISTIC_SAMPLE_B, "0.0");
     params.set(SparseKeys.HEURISTIC_SAMPLE_MINFACTOR, "0.001");
     params.set(SparseKeys.HEURISTIC_SAMPLE_MAXFACTOR, "0.95");

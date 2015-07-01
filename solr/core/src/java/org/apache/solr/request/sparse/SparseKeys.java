@@ -278,7 +278,7 @@ public class SparseKeys {
 
   /**
    * Whether or not the calculation of the top-X terms should be done heuristically or not for large result sets.
-   * @see {@link #HEURISTIC_SEGMENT_MINDOCS} and {@link #HEURISTIC_FRACTION} for setting the limit for heuristic processing.
+   * @see {@link #HEURISTIC_SEGMENT_MINDOCS} and {@link #HEURISTIC_BOUNDARY} for setting the limit for heuristic processing.
    * </p><p>
    * Optional. Default is false.
    */
@@ -293,12 +293,12 @@ public class SparseKeys {
    * </p><p>
    * Optional. Default is 0.10.
    */
-  public static final String HEURISTIC_FRACTION = "facet.sparse.heuristic.fraction";
-  public static final String HEURISTIC_FRACTION_DEFAULT = "0.10";
+  public static final String HEURISTIC_BOUNDARY = "facet.sparse.heuristic.hitsboundary";
+  public static final String HEURISTIC_BOUNDARY_DEFAULT = "0.10";
 
   /**
    * The minimum number of documents in a segment for heuristic processing to be enabled.
-   * This parameter acts as a sanity check for {@link #HEURISTIC_FRACTION} if that is defined as a fraction.
+   * This parameter acts as a sanity check for {@link #HEURISTIC_BOUNDARY} if that is defined as a fraction.
    * Each segment is evaluated against this number.
    *  </p><p>
    * Optional. Default is 100000.
@@ -307,46 +307,78 @@ public class SparseKeys {
   public static final int HEURISTIC_SEGMENT_MINDOCS_DEFAULT = 100000;
 
   /**
-   * If {@link #HEURISTIC} is not set, this parameter has no effect.
-   * If this parameter is set, it overrides {@link #HEURISTIC_SAMPLE_A} and {@link #HEURISTIC_SAMPLE_B}.
+   * If {@link #HEURISTIC} is not set, this parameter has no effect.<br/>
+   * If the parameter is a double (defined by containing a {@code .}), its value us multiplied with query & corpus
+   * derived parameter. If the parameter is an integer, it is used directly.
    * </p></p>
-   * This size is evaluated relative to segment document count and is independent of result set size.
-   * This can be an absolute number of hits (e.g. the integer 1000000)
-   * or a fraction of maxDoc (e.g. the double 0.10).
+   * Parameter to the formula {@code h*H + t*T + s*S + b} where<br/>
+   * H = total hits in the result set.<br/>
+   * T = total documents in the index.<br/>
+   * S = total documents in the current segment.<br/>
    * </p><p>
-   * Optional. Default is the value of {@link #HEURISTIC_FRACTION} if {@link #HEURISTIC_SAMPLE_A} and
-   * {@link #HEURISTIC_SAMPLE_B} are not set.
+   * Optional. Default is 0.0.
    */
-  public static final String HEURISTIC_SAMPLE_SIZE = "facet.sparse.heuristic.sample.size";
+  public static final String HEURISTIC_SAMPLE_H = "facet.sparse.heuristic.sample.h";
+  public static final String HEURISTIC_SAMPLE_H_DEFAULT = "0.0";
 
   /**
-   * If {@link #HEURISTIC} is not set, this parameter has no effect.
-   * If {@link #HEURISTIC_SAMPLE_SIZE} is set, this parameter has no effect.
+   * If {@link #HEURISTIC} is not set, this parameter has no effect.<br/>
+   * If the parameter is a double (defined by containing a {@code .}), its value us multiplied with query & corpus
+   * derived parameter. If the parameter is an integer, it is used directly.
    * </p></p>
-   * This represents how large a part of the full segment document set should be used as a sample for heuristic
-   * faceting. The factor is calculated with the formula {@code a*(h/d)+c}, where h = hits in the result set,
-   * d=documents in the segment, a is this argument and b is {@link #HEURISTIC_SAMPLE_B}.
+   * Parameter to the formula {@code h*H + t*T + s*S + b} where<br/>
+   * H = total hits in the result set.<br/>
+   * T = total documents in the index.<br/>
+   * S = total documents in the current segment.<br/>
    * </p><p>
-   * Optional. Recommended values are -1 to -20.
+   * Optional. Default is 0.1 (10% of the total number of documents in the index).
    */
-  public static final String HEURISTIC_SAMPLE_A = "facet.sparse.heuristic.sample.a";
+  public static final String HEURISTIC_SAMPLE_T = "facet.sparse.heuristic.sample.t";
+  public static final String HEURISTIC_SAMPLE_T_DEFAULT = "0.1";
 
   /**
-   * If {@link #HEURISTIC} is not set, this parameter has no effect.
-   * If {@link #HEURISTIC_SAMPLE_SIZE} is set, this parameter has no effect.
+   * If {@link #HEURISTIC} is not set, this parameter has no effect.<br/>
+   * If the parameter is a double (defined by containing a {@code .}), its value us multiplied with query & corpus
+   * derived parameter. If the parameter is an integer, it is used directly.
    * </p></p>
-   * This represents how large a part of the full segment document set should be used as a sample for heuristic
-   * faceting. The factor is calculated with the formula {@code a*(h/d)+c}, where h = hits in the result set,
-   * d=documents in the segment, a is {@link #HEURISTIC_SAMPLE_A} and b is this argument.
+   * Parameter to the formula {@code h*H + t*T + s*S + b} where<br/>
+   * H = total hits in the result set.<br/>
+   * T = total documents in the index.<br/>
+   * S = total documents in the current segment.<br/>
    * </p><p>
-   * Optional. Default is 0.5.
+   * Optional. Default is 0.1 (10% of the total number of documents in the index).
+   */
+  public static final String HEURISTIC_SAMPLE_S = "facet.sparse.heuristic.sample.s";
+  public static final String HEURISTIC_SAMPLE_S_DEFAULT = "0.0";
+
+  /**
+   * If {@link #HEURISTIC} is not set, this parameter has no effect.<br/>
+   * </p></p>
+   * Parameter to the formula {@code h*H + t*T + s*S + b} where<br/>
+   * H = total hits in the result set.<br/>
+   * T = total documents in the index.<br/>
+   * S = total documents in the current segment.<br/>
+   * </p><p>
+   * Optional. Default is 0.
    */
   public static final String HEURISTIC_SAMPLE_B = "facet.sparse.heuristic.sample.b";
-  public static final double HEURISTIC_SAMPLE_B_DEFAULT = 0.5;
+  public static final int HEURISTIC_SAMPLE_B_DEFAULT = 0;
 
   /**
-   * The minimum sample factor used for heuristic faceting.
-   * Only takes effect if {@link #HEURISTIC_SAMPLE_A} is defined.
+   * The way to perform the sampling, using the sample-size derived from {@link #HEURISTIC_SAMPLE_H},
+   * {@link #HEURISTIC_SAMPLE_T}, {@link #HEURISTIC_SAMPLE_S} and {@link #HEURISTIC_SAMPLE_B}.
+   * </p><p>
+   * Optional. Default is 'hits'. Valid values are<br/>
+   * index = sampling is performed with chunks of equal size and distribution over the full index.<br/>
+   * hits = sampling is adaptive with chunks expanding to the number of documents needed to contain the wanted
+   * number of hits.
+   */
+  public static final String HEURISTIC_SAMPLE_MODE = "facet.sparse.heuristic.sample.mode";
+  public static final String HEURISTIC_SAMPLE_MODE_DEFAULT = HEURISTIC_SAMPLE_MODES.index.toString();
+  public static enum HEURISTIC_SAMPLE_MODES {index, hits}
+
+  /**
+   * The minimum sample factor used for heuristic faceting, relative to segment size or estimated segment hits.
    * If the concrete factor gets below this threshold, it will be rounded up to the threshold.
    * </p><p>
    * Optional. Default is 1.0.
@@ -355,8 +387,8 @@ public class SparseKeys {
   public static final double HEURISTIC_SAMPLE_MINFACTOR_DEFAULT = 0.001;
 
   /**
-   * The maximum sample factor allowed for heuristic faceting.
-   * Only takes effect if {@link #HEURISTIC_SAMPLE_A} is defined.
+   * The minimum sample factor used for heuristic faceting, relative to segment size or estimated segment hits.
+   * If the concrete factor gets above this threshold, heuristics is disabled for the segment.
    * </p><p>
    * Optional. Default is 0.5.
    */
@@ -365,16 +397,15 @@ public class SparseKeys {
 
   /**
    * If {@link #HEURISTIC} is true, this parameter sets the number of sample chunks for each segment in the index.
-   * Each chunk will be {@link #HEURISTIC_SAMPLE_SIZE}/HEURISTIC_SAMPLE_CHUNKS is size.
    * </p><p>
    * Increasing this number increases the quality of the heuristic, at the cost of speed.
    * With a heterogeneous index with multiple segments, 1 is a fine value. With a fully optimized index a high
-   * degree of document clustering, a higher value is needed.
+   * degree of document clustering, a much higher value (x1000+) might be needed.
    * </p><p>
-   * Optional. Default is 10.
+   * Optional. Default is 1000.
    */
   public static final String HEURISTIC_SAMPLE_CHUNKS = "facet.sparse.heuristic.sample.chunks";
-  public static final int HEURISTIC_SAMPLE_CHUNKS_DEFAULT = 10;
+  public static final int HEURISTIC_SAMPLE_CHUNKS_DEFAULT = 1000;
 
   /**
    * If {@link #HEURISTIC} is true, this parameter sets the minimum size of chunks.
@@ -451,16 +482,16 @@ public class SparseKeys {
   public final boolean cacheDistributed;
 
   public final boolean heuristic;
-  public final int heuristicMinDocs;
-  public final String heuristicFraction;
+  public final int heuristicSegmentMinDocs;
+  public final String heuristicBoundary;
 
-  private final boolean fixedHeuristicSample;
-  public final String heuristicSampleSize;
-  private final double heuristicSampleA;
-  private final double heuristicSampleB;
+  private final String heuristicSampleH;
+  private final String heuristicSampleT;
+  private final String heuristicSampleS;
+  private final int heuristicSampleB;
   private final double heuristicSampleMinFactor;
   private final double heuristicSampleMaxFactor;
-
+  private final HEURISTIC_SAMPLE_MODES heuristicSampleMode;
 
   public final int heuristicSampleChunks;
   public final int heuristicSampleChunksMinSize;
@@ -511,24 +542,19 @@ public class SparseKeys {
     resetStats = params.getFieldBool(field, STATS_RESET, false);
 
     heuristic  = params.getFieldBool(field, HEURISTIC, HEURISTIC_DEFAULT);
-    heuristicFraction = params.getFieldParam(field, HEURISTIC_FRACTION, HEURISTIC_FRACTION_DEFAULT);
-    heuristicMinDocs = params.getFieldInt(field, HEURISTIC_SEGMENT_MINDOCS, HEURISTIC_SEGMENT_MINDOCS_DEFAULT);
+    heuristicBoundary = params.getFieldParam(field, HEURISTIC_BOUNDARY, HEURISTIC_BOUNDARY_DEFAULT);
+    heuristicSegmentMinDocs = params.getFieldInt(field, HEURISTIC_SEGMENT_MINDOCS, HEURISTIC_SEGMENT_MINDOCS_DEFAULT);
 
-    // sampleSize defined or no sampleF
-    String hss = params.getFieldParam(field, HEURISTIC_SAMPLE_SIZE, "");
-    if (!"".equals(hss) || params.getFieldDouble(field, HEURISTIC_SAMPLE_B, -1.0) < 0) {
-      fixedHeuristicSample = true;
-      heuristicSampleSize = "".equals(hss) ? heuristicFraction : hss;
-    } else {
-      fixedHeuristicSample = false;
-      heuristicSampleSize = "-1";
-    }
-    heuristicSampleA = params.getFieldDouble(field, HEURISTIC_SAMPLE_A, -1);
-    heuristicSampleB = params.getFieldDouble(field, HEURISTIC_SAMPLE_B, HEURISTIC_SAMPLE_B_DEFAULT);
+    heuristicSampleH = params.getFieldParam(field, HEURISTIC_SAMPLE_H, HEURISTIC_SAMPLE_H_DEFAULT);
+    heuristicSampleT = params.getFieldParam(field, HEURISTIC_SAMPLE_T, HEURISTIC_SAMPLE_T_DEFAULT);
+    heuristicSampleS = params.getFieldParam(field, HEURISTIC_SAMPLE_S, HEURISTIC_SAMPLE_S_DEFAULT);
+    heuristicSampleB = params.getFieldInt(field, HEURISTIC_SAMPLE_B, HEURISTIC_SAMPLE_B_DEFAULT);
     heuristicSampleMinFactor = params.getFieldDouble(field,
         HEURISTIC_SAMPLE_MINFACTOR, HEURISTIC_SAMPLE_MINFACTOR_DEFAULT);
     heuristicSampleMaxFactor = params.getFieldDouble(field,
         HEURISTIC_SAMPLE_MAXFACTOR, HEURISTIC_SAMPLE_MAXFACTOR_DEFAULT);
+    heuristicSampleMode = HEURISTIC_SAMPLE_MODES.valueOf(
+        params.getFieldParam(field, HEURISTIC_SAMPLE_MODE, HEURISTIC_SAMPLE_MODE_DEFAULT));
 
     heuristicSampleChunks = params.getFieldInt(field, HEURISTIC_SAMPLE_CHUNKS, HEURISTIC_SAMPLE_CHUNKS_DEFAULT);
     heuristicSampleChunksMinSize = params.getFieldInt(field, 
@@ -553,46 +579,52 @@ public class SparseKeys {
   }
 
   public boolean useOverallHeuristic(int hitCount, int maxDoc) {
-    return heuristic && (heuristicFraction.contains(".") ?
-        hitCount > Double.parseDouble(heuristicFraction) * maxDoc :
-        hitCount > Long.parseLong(heuristicFraction));
+    return heuristic && hitCount >= multiVal(heuristicBoundary, maxDoc);
   }
   public boolean useSegmentHeuristics(int indexHitCount, int indexDocuments, int segmentDocuments) {
-    if (!heuristic || segmentDocuments < heuristicMinDocs) { // TODO: Add check for segmentSampleSize
-      return false;
-    }
-    if (fixedHeuristicSample) {
-      return true;
-    }
-    return segmentSampleSizeOrig(indexHitCount, indexDocuments, segmentDocuments)/indexHitCount <=
-        heuristicSampleMaxFactor;
+    return segmentSampleSize(indexHitCount, indexDocuments, segmentDocuments) < heuristicSegmentMinDocs;
   }
 
-  public int segmentSampleSizeOrig(int indexHitCount, int indexDocuments, int segmentDocuments) {
-    if (fixedHeuristicSample) {
-      return (int) (heuristicSampleSize.contains(".") ?
-          Double.parseDouble(heuristicSampleSize) * indexHitCount :
-          Integer.parseInt(heuristicSampleSize));
-    }
-    // See the JavaDoc for HEURISTIC_SAMPLE_F
-    // a*(h/d)+c
-    double factor = heuristicSampleA*(1.0*indexHitCount/indexDocuments)+heuristicSampleB;
-    return (int) (Math.max(factor, heuristicSampleMinFactor)*segmentDocuments);
-  }
-
+  // Obeys the limits
   public int segmentSampleSize(int indexHitCount, int indexDocuments, int segmentDocuments) {
-    if (!heuristic || segmentDocuments < heuristicMinDocs) {
+    if (!heuristic || segmentDocuments < heuristicSegmentMinDocs) {
       return segmentDocuments; // Everything
     }
-    if (fixedHeuristicSample) {
-      return (int) (heuristicSampleSize.contains(".") ?
-          Double.parseDouble(heuristicSampleSize) * segmentDocuments : // Fraction
-          Integer.parseInt(heuristicSampleSize)*1.0*segmentDocuments/indexDocuments); // Absolute
+    long raw = (long) (multiVal(heuristicSampleH, indexHitCount) + multiVal(heuristicSampleT, indexDocuments) +
+            multiVal(heuristicSampleS, segmentDocuments) + heuristicSampleB);
+    raw = Math.min(indexHitCount, raw);
+    raw = Math.min(segmentDocuments, raw);
+
+    double factor;
+    switch (heuristicSampleMode) { //
+      case index: {
+        factor = 1.0*raw/segmentDocuments;
+        if (factor < heuristicSampleMinFactor) {
+          factor = heuristicSampleMinFactor;
+          raw = (long) (factor*segmentDocuments);
+        }
+        break;
+      }
+      case hits: { // Hits are estimated if #segments > 1
+        double estimatedHits= indexHitCount*(1.0*segmentDocuments/indexDocuments);
+        factor = raw/estimatedHits;
+        if (factor < heuristicSampleMinFactor) {
+          factor = heuristicSampleMinFactor;
+          raw = (long) (factor*estimatedHits);
+        }
+        break;
+      }
+      default: throw new UnsupportedOperationException(
+          "The heuristic sample mode '" + heuristicSampleMode + "' is unsupported");
     }
-    double estimatedHitsInSegment = 1.0*indexHitCount*segmentDocuments/indexDocuments;
-    double minSampleSize = heuristicSampleMinFactor*estimatedHitsInSegment;
-    return (int) Math.min(indexHitCount,
-        Math.max(minSampleSize, heuristicSampleA*estimatedHitsInSegment+heuristicSampleB));
+    if (factor > heuristicSampleMaxFactor) {
+      return segmentDocuments; // Too high a factor for sampling to make sense
+    }
+    return (int) raw;
+  }
+  // Derive whether the multi is a factor or a constant and either multiply or return the constant
+  private double multiVal(String multi, int value) {
+    return Double.parseDouble(multi) * (multi.contains(".") ? value : 1);
   }
 
 /*  public double segmentSampleFactor(int indexHitCount, int indexDocuments, int segmentDocuments) {
@@ -603,8 +635,8 @@ public class SparseKeys {
     }
     // See the JavaDoc for HEURISTIC_SAMPLE_F
     // a*(h/d)+c
-    //double factor = heuristicSampleA*(1.0*indexHitCount/indexDocuments)+heuristicSampleB;
-    double factor = heuristicSampleA*1.0*indexHitCount+heuristicSampleB;
+    //double factor = heuristicSampleH*(1.0*indexHitCount/indexDocuments)+heuristicSampleB;
+    double factor = heuristicSampleH*1.0*indexHitCount+heuristicSampleB;
     return Math.max(factor, heuristicSampleMinFactor);
   }*/
 
@@ -634,15 +666,16 @@ public class SparseKeys {
         ", resetStats=" + resetStats +
         ", cacheDistributed=" + cacheDistributed +
         ", heuristic(enabled=" + heuristic +
-        ", minDocs=" + heuristicMinDocs +
-        ", fraction=" + heuristicFraction +
-        ", sample(fixedSize=" + fixedHeuristicSample +
-        ", sampleSize=" + heuristicSampleSize +
-        ", sampleChunks=" + heuristicSampleChunks +
-        ", sampleA=" + heuristicSampleA +
-        ", sampleB=" + heuristicSampleB +
+        ", minDocs=" + heuristicSegmentMinDocs +
+        ", boundary=" + heuristicBoundary +
+        ", sample(h=" + heuristicSampleH +
+        ", t=" + heuristicSampleT +
+        ", s=" + heuristicSampleS +
+        ", b=" + heuristicSampleB +
         ", sampleMinFactor=" + heuristicSampleMinFactor +
         ", sampleMaxFactor=" + heuristicSampleMaxFactor +
+        ", sampleMode=" + heuristicSampleMode +
+        ", sampleChunks=" + heuristicSampleChunks +
         ")" +
         ", fineCount=" + heuristicFineCount +
         ", overprovisionFactor=" + heuristicOverprovisionFactor +

@@ -312,8 +312,8 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
       params.set(SparseKeys.HEURISTIC, true);
       params.set(SparseKeys.HEURISTIC_FINECOUNT, false);
       params.set(SparseKeys.HEURISTIC_SAMPLE_CHUNKS, 2);
-      params.set(SparseKeys.HEURISTIC_FRACTION, "0.2");
-      params.set(SparseKeys.HEURISTIC_SAMPLE_SIZE, "0.5");
+      params.set(SparseKeys.HEURISTIC_BOUNDARY, "0.2");
+      params.set(SparseKeys.HEURISTIC_SAMPLE_T, "0.5");
       params.set(SparseKeys.HEURISTIC_SEGMENT_MINDOCS, 6);
       params.set("indent", true);
       req.setParams(params);
@@ -331,8 +331,8 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
       params.set(SparseKeys.HEURISTIC, true);
       params.set(SparseKeys.HEURISTIC_FINECOUNT, true);
       params.set(SparseKeys.HEURISTIC_SAMPLE_CHUNKS, 2);
-      params.set(SparseKeys.HEURISTIC_FRACTION, "0.2");
-      params.set(SparseKeys.HEURISTIC_SAMPLE_SIZE, "0.5");
+      params.set(SparseKeys.HEURISTIC_BOUNDARY, "0.2");
+      params.set(SparseKeys.HEURISTIC_SAMPLE_T, "0.5");
       params.set(SparseKeys.HEURISTIC_SEGMENT_MINDOCS, 6);
       params.set("indent", true);
       req.setParams(params);
