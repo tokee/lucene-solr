@@ -100,6 +100,21 @@ public class SparseKeys {
   public static final boolean SKIPREFINEMENTS_DEFAULT = false;
 
   /**
+   * For distributed faceting, fine counting (phase 2) needs a cached & filled counter for optimal processing.
+   * If such a previously filled counter is not available, one can be created or the code can fall back to vanilla
+   * Solr fine count. The best choice, from a processing time point of view, depends on the size of the result set.
+   * </p><p>
+   * If no cached and filled counters are available, requests with hit count above the given boundary will be
+   * processed with vanilla Solr fine count.
+   * </p><p>
+   * The limit can be expressed as an absolute number (integer) or a fraction of maxDoc for the full index (double).
+   * </p><p>
+   * Optional. Default is 0.5 (50% of the number of documents in the index, including deletes).
+   */
+  public static final String FINECOUNT_BOUNDARY = "facet.sparse.finecount.boundary";
+  public static final String FINECOUNT_BOUNDARY_DEFAULT = "0.5";
+
+  /**
    * If specified (not -1), this is the maximum number any facet term counter will reach for a single shard.
    * Facet terms with a count exceeding this will still be returned and for distributed search, the total
    * count might exceed this.
@@ -471,6 +486,7 @@ public class SparseKeys {
   public final int poolMinEmpty;
 
   public final boolean skipRefinement;
+  public final String fineCountBoundary;
 
   /**
    * If this is non-null, the token unambigiously designates the params defining the counts for the facet.
@@ -537,6 +553,7 @@ public class SparseKeys {
     poolMinEmpty = params.getFieldInt(field, POOL_MIN_EMPTY, POOL_MIN_EMPTY_DEFAULT);
 
     skipRefinement = params.getFieldBool(field, SKIPREFINEMENTS, SKIPREFINEMENTS_DEFAULT);
+    fineCountBoundary = params.getFieldParam(field, FINECOUNT_BOUNDARY, FINECOUNT_BOUNDARY_DEFAULT);
 
     cacheDistributed = params.getFieldBool(field, CACHE_DISTRIBUTED, CACHE_DISTRIBUTED_DEFAULT);
     cacheToken = cacheDistributed ? params.getFieldParam(field, CACHE_TOKEN, null) : null;
@@ -632,6 +649,10 @@ public class SparseKeys {
     return Double.parseDouble(multi) * (multi.contains(".") ? value : 1);
   }
 
+  public boolean useFallbackFinecount(int hitCount, int indexMaxDoc) {
+    return hitCount > multiVal(fineCountBoundary, indexMaxDoc);
+  }
+
 /*  public double segmentSampleFactor(int indexHitCount, int indexDocuments, int segmentDocuments) {
     if (fixedHeuristicSample) {
       return (int) (heuristicSampleSize.contains(".") ?
@@ -666,6 +687,7 @@ public class SparseKeys {
         ", poolMaxCount=" + poolMaxCount +
         ", poolMinEmpty=" + poolMinEmpty +
         ", skipRefinement=" + skipRefinement +
+        ", fineCountBoundary=" + fineCountBoundary +
         ", cacheToken='" + cacheToken + '\'' +
         ", legacyShowStats=" + legacyShowStats +
         ", resetStats=" + resetStats +

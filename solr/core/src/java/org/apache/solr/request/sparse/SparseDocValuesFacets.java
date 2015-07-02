@@ -207,7 +207,7 @@ public class SparseDocValuesFacets {
     // multi-shard searches
     final boolean alreadyFilled = state.counts.getContentKey() != null;
     state.collectTime = alreadyFilled ? 0 : -System.nanoTime();
-    if (!alreadyFilled) {
+    if (!alreadyFilled && !(state.keys.useFallbackFinecount(state.hitCount, state.maxDoc))) {
       if (!pool.isProbablySparse(state.hitCount, sparseKeys)) {
         // It is guessed that the result set will be to large to be sparse so
         // the sparse tracker is disabled up front to speed up the collection phase
@@ -221,10 +221,13 @@ public class SparseDocValuesFacets {
     if (state.termList != null) {
       // Specific terms were requested. This is used with fine-counting of facet values in distributed faceting
       long fineCountStart = System.nanoTime();
+      final boolean fallback = state.keys.useFallbackFinecount(state.hitCount, state.maxDoc);
       try {
-        return extractSpecificCounts(state, state.lookup.si);
+        return fallback ?
+            SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termList, docs) :
+            extractSpecificCounts(state, state.lookup.si);
       } finally  {
-        if (state.effectiveHeuristic) { // Counts are unreliable so don't store. Consider sparseKeys.heuristicFineCount
+        if (state.effectiveHeuristic || fallback) { // Counts are unreliable so don't store content
           state.counts.setContentKey(SparseCounterPool.NEEDS_CLEANING);
         }
         pool.release(state.counts, sparseKeys);
@@ -235,12 +238,12 @@ public class SparseDocValuesFacets {
           log.info(String.format(Locale.ENGLISH,
               "Phase 2 sparse term counts of %s: method=%s, threads=%d, hits=%d, refs=%d, time=%dms "
                   + "(hitCount=%dms, acquire=%dms, collect=%s, fineCount=%dms), hits/ms=%d, refs/ms=%d, " +
-                  "heuristic(requested=%b, effective=%b)",
+                  "heuristic(requested=%b, effective=%b) fallback=%b",
               fieldName, sparseKeys.counter, sparseKeys.countingThreads, state.hitCount, state.refCount.get(),
               totalTimeNS/M,
               state.hitCountTime/M, state.acquireTime/M, alreadyFilled ? "0ms (reused)" : state.collectTime/M + "ms",
               (System.nanoTime()-fineCountStart)/M, state.hitCount*M/totalTimeNS, state.refCount.get()*M/totalTimeNS,
-              state.heuristic, state.effectiveHeuristic));
+              state.heuristic, state.effectiveHeuristic, fallback));
         }
       }
     }

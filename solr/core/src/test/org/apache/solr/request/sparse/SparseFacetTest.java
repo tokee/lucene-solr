@@ -415,6 +415,97 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     }
   }
 
+  // Very poor unit test as it needs manual inspection of the log to verify correct result
+  public void testTermsCountBoundary() throws Exception {
+    final String FIELD = MULTI_DV_FIELD;
+    final String TERMS = "multi_1,multi_2";
+    final String PREFIX = "multi";
+    final int LIMIT = 10;
+
+    String vanilla;
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, String.format(Locale.ENGLISH, "{!terms=$%1$s__terms}%1$s", FIELD));
+      params.set(String.format(Locale.ENGLISH, "%s__terms", FIELD), TERMS);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, false);
+      params.set("indent", true);
+      req.setParams(params);
+      vanilla = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+      assertEquals("Vanilla Solr faceting should give the expected number of results",
+          TERMS.split(",").length, getEntries(req, "int name..(" + PREFIX + "[^\"]*)").size());
+    }
+
+    {
+      log.info("Expecting fallback=true");
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, String.format(Locale.ENGLISH, "{!terms=$%1$s__terms}%1$s", FIELD));
+      params.set(String.format(Locale.ENGLISH, "%s__terms", FIELD), TERMS);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.FINECOUNT_BOUNDARY, 10);
+      params.set(SparseKeys.CACHE_TOKEN, "MyCacheToken");
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.packed.toString());
+      params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+      params.set(SparseKeys.LOG_EXTENDED, true);
+      params.set(SparseKeys.STATS, true);
+      params.set("indent", true);
+      req.setParams(params);
+      String above = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+      assertTrue("Requesting sparse terms lookup should result in sparse processing\n" + above,
+          above.contains("statistics"));
+    }
+
+    { // above boundary
+      log.info("Expecting fallback=false");
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, String.format(Locale.ENGLISH, "{!terms=$%1$s__terms}%1$s", FIELD));
+      params.set(String.format(Locale.ENGLISH, "%s__terms", FIELD), TERMS);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.FINECOUNT_BOUNDARY, "2.0");
+      params.set(SparseKeys.CACHE_TOKEN, "MyCacheToken");
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.packed.toString());
+      params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+      params.set(SparseKeys.LOG_EXTENDED, true);
+      params.set(SparseKeys.STATS, true);
+      params.set("indent", true);
+      req.setParams(params);
+      String below = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+      assertTrue("Requesting sparse fsior terms lookup should result in sparse processing\n" + below,
+          below.contains("statistics"));
+    }
+
+    {
+      log.info("Expecting fallback=false due to cached counter");
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, String.format(Locale.ENGLISH, "{!terms=$%1$s__terms}%1$s", FIELD));
+      params.set(String.format(Locale.ENGLISH, "%s__terms", FIELD), TERMS);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.FINECOUNT_BOUNDARY, 10);
+      params.set(SparseKeys.CACHE_TOKEN, "MyCacheToken");
+      params.set(SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.packed.toString());
+      params.set(SparseKeys.MINTAGS, 1); // Ensure sparse
+      params.set(SparseKeys.LOG_EXTENDED, true);
+      params.set(SparseKeys.STATS, true);
+      params.set("indent", true);
+      req.setParams(params);
+      String above = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+      assertTrue("Requesting sparse terms lookup should result in sparse processing\n" + above,
+          above.contains("statistics"));
+    }
+
+  }
+
   public void testFacetImplementation(
       SparseKeys.COUNTER_IMPL implementation, String field, String resultPrefix, int threads) throws Exception {
     testFacetImplementation(implementation, field, resultPrefix, threads, "*:*", -1);
