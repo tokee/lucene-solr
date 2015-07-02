@@ -491,8 +491,8 @@ public class SimpleFacets {
             // TODO: Sparse: Add optimized termList handling to multi token field faceting
             // FIXME: Re-enable sparse counting of non-DV when TestFaceting passes
 
-            //counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
-            counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix);
+            counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
+            //counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix);
           } else if (termList != null) {
             List<String> terms = StrUtils.splitSmart(termList, ",", true);
             // TODO: Check that this is sparse optimized
