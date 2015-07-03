@@ -30,15 +30,23 @@ import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.BytesRefArray;
+import org.apache.lucene.util.BytesRefBuilder;
+import org.apache.lucene.util.CharsRef;
+import org.apache.lucene.util.Counter;
 import org.apache.lucene.util.packed.NPlaneMutable;
 import org.apache.lucene.util.packed.PackedInts;
+import org.apache.solr.schema.FieldType;
 import org.apache.solr.schema.SchemaField;
 import org.apache.solr.search.SolrIndexSearcher;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Helper methods for ordinal processing. Used by sparse faceting.
  */
 public class OrdinalUtils {
+  private static Logger log = LoggerFactory.getLogger(OrdinalUtils.class);
 
   /**
    * Memory and CPU-power heavy extraction of counts for all global ordinals.
@@ -50,7 +58,7 @@ public class OrdinalUtils {
     final long startTime = System.nanoTime();
     int valueCount = (int) si.getValueCount();
     if (valueCount > 10*1000*1000) { // Counting time will probably not be trivial
-      SparseDocValuesFacets.log.info(
+      log.info(
           "Extracting global ordinal count for field " + schemaField.getName() + " with " + valueCount
               + " values. Temporary memory overhead will be " + 1L*valueCount*Integer.SIZE/8/1024/1024 + "MB");
     }
@@ -123,7 +131,7 @@ public class OrdinalUtils {
         }
       }
     }
-    SparseDocValuesFacets.log.info(String.format(Locale.ENGLISH,
+    log.info(String.format(Locale.ENGLISH,
         "Extracted global ord count for field %s with %d unique values in %dms",
         schemaField.getName(), globOrdCount.length, (System.nanoTime() - startTime) / 1000000));
     return globOrdCount;
@@ -141,7 +149,7 @@ public class OrdinalUtils {
         // Bits live = leaf.reader().getLiveDocs();
         Terms terms = leaf.reader().fields().terms(schemaField.getName());
         if (terms != null) {
-          SparseDocValuesFacets.log.info("Single segment index detected. Creating memory optimized BitsPerValue " +
+          log.info("Single segment index detected. Creating memory optimized BitsPerValue " +
               "provider for field " + schemaField.getName() + " with " + terms.size() + " terms");
           return new SingleSegmentOrdinalCounts(terms);
         }
@@ -149,6 +157,54 @@ public class OrdinalUtils {
     }
     return new NPlaneMutable.BPVIntArrayWrapper(
         getGlobalOrdinalCount(searcher, si, globalMap, schemaField), false);
+  }
+
+  /**
+   * Resolves an ordinal to an external String. The lookup might be cached.
+   *
+   * @param pool       the Searcher-instance-specific pool, potentially holding a cache of lookup terms.
+   * @param sparseKeys the sparse request, stating whether caching of terms should be used or not.
+   * @param si         term provider.
+   * @param ft         field type for mapping internal term representation to external.
+   * @param ordinal    the ordinal for the requested term.
+   * @param charsRef   independent CharsRef to avoid object allocation.
+   * @return an external String directly usable for constructing facet response.
+   */
+  // TODO: Remove brNotUsedAnymore
+  public static String resolveTerm(SparseCounterPool pool, SparseKeys sparseKeys, SortedSetDocValues si,
+                                    FieldType ft, int ordinal, CharsRef charsRef) {
+    // TODO: Check that the cache spans segments instead of just handling one
+    if (sparseKeys.termLookupMaxCache > 0 && sparseKeys.termLookupMaxCache >= si.getValueCount()) {
+      BytesRefArray brf = pool.getExternalTerms();
+      if (brf == null) {
+        // Fill term cache
+        brf = new BytesRefArray(Counter.newCounter()); // TODO: Incorporate this in the overall counters
+        for (int ord = 0; ord < si.getValueCount(); ord++) {
+          BytesRef br = si.lookupOrd(ord);
+          ft.indexedToReadable(br, charsRef);
+          brf.append(new BytesRef(charsRef)); // Is the object allocation avoidable?
+        }
+        pool.setExternalTerms(brf);
+      }
+      // TODO: Re-use the BytesRefBuilder
+      return brf.get(new BytesRefBuilder(), ordinal).utf8ToString();
+    }
+    pool.setExternalTerms(null); // Make sure the memory is freed
+    // No cache, so lookup directly
+    BytesRef br = si.lookupOrd(ordinal);
+    ft.indexedToReadable(br, charsRef);
+    return charsRef.toString();
+  }
+
+  public static String join(long[] values) {
+    StringBuilder sb = new StringBuilder(values.length*5);
+    for (long value: values) {
+      if (sb.length() != 0) {
+        sb.append(", ");
+      }
+      sb.append(Long.toString(value));
+    }
+    return sb.toString();
   }
 
   // Quite the hack with the extra value at the end. There is a 1-off error somewhere yet undiscovered that needs it

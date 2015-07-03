@@ -36,6 +36,8 @@ import java.util.regex.Pattern;
 @LuceneTestCase.SuppressCodecs({"Lucene3x", "Lucene40", "Lucene41", "Lucene42", "Appending"})
 public class SparseFacetTest extends SolrTestCaseJ4 {
 
+    // TODO: Basically everything threaded fails. This is a regression error. Culprit is the port from 4.8 to 4.10
+
   @BeforeClass
   public static void beforeClass() throws Exception {
     // *_dvm_s: Multi-valued DocValues String fields
@@ -146,6 +148,8 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     }
   }
 
+
+  // Seems to fail with -Dtests.seed=98FABA64875F6ADA
   public void testMultiTextValueFaceting() throws Exception {
     for (int mod: MODULOS) {
       assertFacetEquality("Modulo check", MODULO_FIELD + ":mod_" + mod, MULTI_TEXT_FIELD);
