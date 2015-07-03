@@ -33,6 +33,20 @@ public class SparseKeys {
   public static boolean SPARSE_DEFAULT = true;
 
   /**
+   * Requests with hit count above the given boundary will be processed with vanilla Solr faceting, both for
+   * phase 1 and phase 2 calls. This is a temporary property until sparse faceting for large result sets
+   * has been improved to match vanilla Solr speed for same size result sets.
+   * </p><p>
+   * The limit can be expressed as an absolute number (integer) or a fraction of maxDoc for the full index (double).
+   * </p><p>
+   * Note due to rounding, this is not disabled with 1.0. Use 2.0 for that.
+   * </p><p>
+   * Optional. Default is 2.0 (effectively disabling the switch).
+   */
+  public static final String SPARSE_BOUNDARY = "facet.sparse.boundary";
+  public static final String SPARSE_BOUNDARY_DEFAULT = "2.0";
+
+  /**
    * If defined, facet terms matching the regexp are not considered candidates for the facet result.
    * </p><p>
    * Optional. Normally only used at search-time. Regexp. Can be defined multiple times.
@@ -464,6 +478,7 @@ public class SparseKeys {
 
 
   public final String field;
+  public final String boundary;
   public final List<Pattern> whitelists; // Never null
   public final List<Pattern> blacklists; // Never null
 
@@ -525,6 +540,7 @@ public class SparseKeys {
     blacklists = getRegexps(params, field, BLACKLIST);
 
     sparse = params.getFieldBool(field, SPARSE, SPARSE_DEFAULT);
+    boundary = params.getFieldParam(field, SPARSE_BOUNDARY, SPARSE_BOUNDARY_DEFAULT);
     termLookup = params.getFieldBool(field, TERMLOOKUP, TERMLOOKUP_DEFAULT);
     termLookupMaxCache = params.getFieldInt(field, TERMLOOKUP_MAXCACHE, TERMLOOKUP_MAXCACHE_DEFAULT);
     minTags = params.getFieldInt(field, MINTAGS, MINTAGS_DEFAULT);
@@ -600,6 +616,10 @@ public class SparseKeys {
     return patterns;
   }
 
+  public boolean useSparse(int hitCount, int maxDoc) {
+    return sparse && hitCount <= multiVal(boundary, maxDoc);
+  }
+
   public boolean useOverallHeuristic(int hitCount, int maxDoc) {
     return heuristic && hitCount >= multiVal(heuristicBoundary, maxDoc);
   }
@@ -670,6 +690,7 @@ public class SparseKeys {
   public String toString() {
     return "SparseKeys{" +
         "sparse=" + sparse +
+        ", boundary=" + boundary +
         ", field='" + field + '\'' +
         ", whitelists=" + whitelists +
         ", blacklists=" + blacklists +

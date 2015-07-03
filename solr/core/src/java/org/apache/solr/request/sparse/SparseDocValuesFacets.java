@@ -96,7 +96,7 @@ public class SparseDocValuesFacets {
     }
   });
 
-  private SparseDocValuesFacets() {}
+  private SparseDocValuesFacets() {} // Static calls only
 
   private static class SparseState {
     public final SolrIndexSearcher searcher;
@@ -184,6 +184,17 @@ public class SparseDocValuesFacets {
     state.hitCountTime = -System.nanoTime();
     state.hitCount = docs.size();
     state.hitCountTime += System.nanoTime();
+    if (!state.keys.useSparse(state.hitCount, state.maxDoc)) {
+      if (log.isInfoEnabled()) {
+        log.info(String.format(Locale.ENGLISH,
+            "Phase 0 sparse faceting of field=%s, hits=%d, maxDoc=%d, boundary=%s skipped as the result set" +
+                " size exceeded the boundary",
+            fieldName, state.hitCount, state.maxDoc, state.keys.boundary));
+      }
+      return termList == null ?
+          DocValuesFacets.getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
+          SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termList, docs);
+    }
     adjustTermIndexes(state);
 
     if (state.nTerms() <= 0 || state.hitCount < minCount) {
@@ -207,7 +218,7 @@ public class SparseDocValuesFacets {
     // multi-shard searches
     final boolean alreadyFilled = state.counts.getContentKey() != null;
     state.collectTime = alreadyFilled ? 0 : -System.nanoTime();
-    if (!alreadyFilled && !(state.keys.useFallbackFinecount(state.hitCount, state.maxDoc))) {
+    if (!alreadyFilled && !(state.termList != null && state.keys.useFallbackFinecount(state.hitCount, state.maxDoc))) {
       if (!pool.isProbablySparse(state.hitCount, sparseKeys)) {
         // It is guessed that the result set will be to large to be sparse so
         // the sparse tracker is disabled up front to speed up the collection phase

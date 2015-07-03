@@ -101,4 +101,23 @@ public class SparseKeysTest extends SolrTestCaseJ4 {
     assertEquals("Sample size should be as expected", HITS*5/10, sparseKeys.segmentSampleSize(HITS, IMAXDOC, SMAXDOC));
   }
 
+  public void testBoundary() {
+    final int HITS = 256298430;
+    final int IMAXDOC = 258189147;
+
+    { // Exceded
+      ModifiableSolrParams params = new ModifiableSolrParams();
+      params.set(SparseKeys.SPARSE_BOUNDARY, "0.5");
+      SparseKeys sparseKeys = new SparseKeys("foo", params);
+      assertFalse("Should exceed with 0.5", sparseKeys.useSparse(HITS, IMAXDOC));
+    }
+
+    { // OK
+      ModifiableSolrParams params = new ModifiableSolrParams();
+      params.set(SparseKeys.SPARSE_BOUNDARY, "1.0");
+      SparseKeys sparseKeys = new SparseKeys("foo", params);
+      assertTrue("Should be within with 1.0", sparseKeys.useSparse(HITS, IMAXDOC));
+    }
+  }
+
 }
