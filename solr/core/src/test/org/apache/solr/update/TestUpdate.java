@@ -50,8 +50,26 @@ public class TestUpdate extends SolrTestCaseJ4 {
         return null;
       }
     });
+  }
 
+  public void testUpdateNonDV() throws Exception {
+    testUpdateDateFailHelper("datesansdv");
+  }
 
+  public void testUpdateDV() throws Exception {
+    testUpdateDateFailHelper("datedv");
+  }
+
+  private void testUpdateDateFailHelper(String dateField) throws Exception {
+    String D1 = "2013-01-03T20:35:40Z";
+    String D2 = "2014-01-03T20:35:40Z";
+    addAndGetVersion(sdoc("id", "999", dateField, D1), null);
+    assertU(commit("softCommit", "false"));
+    addAndGetVersion(sdoc("id", "999", dateField, map("add", D2)), null);
+    assertU(commit("softCommit", "false"));
+    assertJQ(req("qt", "/get", "id", "999", "fl", "id," + dateField)
+        , "=={'doc':{'id':'999', '" + dateField + "':[\"" + D1 + "\", \"" + D2 + "\"]}}"
+    );
   }
 
   public void doUpdateTest(Callable afterUpdate) throws Exception {
@@ -77,7 +95,6 @@ public class TestUpdate extends SolrTestCaseJ4 {
     assertJQ(req("qt","/get", "id","1", "fl","id,*_i,*_is")
         ,"=={'doc':{'id':'1', 'val_i':100, 'val_is':[10,5,-1]}}"
     );
-
 
     // Do a search to get all stored fields back and make sure that the stored copyfield target only
     // has one copy of the source.  This may not be supported forever!
