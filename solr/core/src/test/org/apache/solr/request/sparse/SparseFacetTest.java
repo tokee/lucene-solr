@@ -36,7 +36,7 @@ import java.util.regex.Pattern;
 @LuceneTestCase.SuppressCodecs({"Lucene3x", "Lucene40", "Lucene41", "Lucene42", "Appending"})
 public class SparseFacetTest extends SolrTestCaseJ4 {
 
-    // TODO: Basically everything threaded fails. This is a regression error. Culprit is the port from 4.8 to 4.10
+  // TODO: Basically everything threaded fails. This is a regression error. Culprit is the port from 4.8 to 4.10
 
   @BeforeClass
   public static void beforeClass() throws Exception {
@@ -345,6 +345,53 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
 
     assertFalse("sparse and heuristic should differ but were identical", sparse.equals(heuristic));
     assertEquals("sparse and heuristic with fine count should be identical", sparse, heuristicFine);
+  }
+
+  public void testHeuristicWholeSingle() throws Exception {
+    testHeuristicWhole(SINGLE_DV_FIELD);
+  }
+  public void testHeuristicWholeMulti() throws Exception {
+    testHeuristicWhole(MULTI_DV_FIELD);
+  }
+  private void testHeuristicWhole(String field) throws Exception {
+    final int LIMIT = 10;
+
+    String sparse;
+    { // Dry run
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, field);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, true);
+      params.set("indent", true);
+      req.setParams(params);
+      sparse = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+    }
+
+    String heuristic;
+    {
+      SolrQueryRequest req = req("*:*");
+      ModifiableSolrParams params = new ModifiableSolrParams(req.getParams());
+      params.set(FacetParams.FACET, true);
+      params.set(FacetParams.FACET_FIELD, field);
+      params.set(FacetParams.FACET_LIMIT, LIMIT);
+      params.set(SparseKeys.SPARSE, true);
+      params.set(SparseKeys.HEURISTIC, true);
+      params.set(SparseKeys.HEURISTIC_FINECOUNT, false);
+      params.set(SparseKeys.HEURISTIC_SAMPLE_CHUNKS, 2);
+      params.set(SparseKeys.HEURISTIC_BOUNDARY, "0.2");
+      params.set(SparseKeys.HEURISTIC_SAMPLE_T, "0.5");
+      params.set(SparseKeys.HEURISTIC_SEGMENT_MINDOCS, 6);
+      params.set(SparseKeys.LOG_EXTENDED, true);
+      params.set(SparseKeys.HEURISTIC_SAMPLE_MODE, SparseKeys.HEURISTIC_SAMPLE_MODES.whole.toString());
+      params.set("indent", true);
+      req.setParams(params);
+      heuristic = h.query(req).replaceAll("QTime\">[0-9]+", "QTime\">");
+    }
+
+    assertFalse("sparse and heuristic should differ for field " + field + " but were identical",
+        sparse.equals(heuristic));
   }
 
   public void testTermsCount() throws Exception {

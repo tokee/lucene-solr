@@ -117,10 +117,16 @@ public class SparseCount {
       long initNS, final boolean heuristic) throws IOException {
     final long startTime = System.nanoTime();
 
+    // TODO: Harden edge cases
     final int maxSampleDocs = heuristic ?
         state.keys.segmentSampleSize(state.hitCount, state.maxDoc, endDocID-startDocID+1) :
         endDocID-startDocID+1;
     final boolean effectiveHeuristic = maxSampleDocs < endDocID-startDocID+1;
+
+    if (effectiveHeuristic && state.keys.heuristicSampleMode == SparseKeys.HEURISTIC_SAMPLE_MODES.whole) {
+      accumSingleHeuristicWhole(state, si, disi, startDocID, endDocID, subIndex, lookup, initNS);
+      return;
+    }
 
     int doc = disi.nextDoc();
     if (doc < startDocID && doc != DocIdSetIterator.NO_MORE_DOCS) {
@@ -139,8 +145,8 @@ public class SparseCount {
       chunksLeft = Math.max(
           1,
           Math.min(chunksLeft,
-                  (endDocID-doc) / state.keys.heuristicSampleChunksMinSize
-              ));
+              (endDocID-doc) / state.keys.heuristicSampleChunksMinSize
+          ));
       if (missingSamples > endDocID-doc) { // Badly skewed sample distribution if we get here
         chunksLeft = 1;
       }
@@ -151,17 +157,21 @@ public class SparseCount {
       final int chunkSampleLimit = sampleDocs + chunkSize;
 
       final int chunkDocLimit;
-      switch (state.keys.heuristicSampleMode) {
-        case index: {
-          chunkDocLimit = doc + chunkSize;
-          break;
+      if (heuristic) {
+        switch (state.keys.heuristicSampleMode) {
+          case index: {
+            chunkDocLimit = doc + chunkSize;
+            break;
+          }
+          case hits: {
+            chunkDocLimit = endDocID+1;
+            break;
+          }
+          default: throw new UnsupportedOperationException(
+              "The heuristic sample mode '" + state.keys.heuristicSampleMode + "' is unsupported");
         }
-        case hits: {
-          chunkDocLimit = endDocID+1;
-          break;
-        }
-        default: throw new UnsupportedOperationException(
-            "The heuristic sample mode '" + state.keys.heuristicSampleMode + "' is unsupported");
+      } else {
+        chunkDocLimit = endDocID+1;
       }
 
 //      log.info(String.format("*** doc=%d, samples:%d->%d, chLeft=%d, chSize=%d, nextChunk=%d",
@@ -206,9 +216,69 @@ public class SparseCount {
     state.refCount.addAndGet(references);
   }
 
+  private static void accumSingleHeuristicWhole(
+      final SparseState state, final SortedDocValues si, final DocIdSetIterator disi,
+      final int startDocID, final int endDocID, final int subIndex, final TermOrdinalLookup lookup,
+      // TODO: Remove initNS
+      long initNS) throws IOException {
+    final long startTime = System.nanoTime();
+
+    final int segmentSize = endDocID-startDocID+1;
+    final int rawSampleSize = state.keys.segmentRawSampleSize(state.hitCount, state.maxDoc, segmentSize);
+    final int every = rawSampleSize >= segmentSize ? 1 : segmentSize/rawSampleSize;
+
+    int doc = disi.nextDoc();
+    if (doc < startDocID && doc != DocIdSetIterator.NO_MORE_DOCS) {
+      doc = disi.advance(startDocID);
+    }
+    final long advanceNS = System.nanoTime()-startTime;
+
+    int sampleDocs = 0;
+    long references = 0;
+
+    long fastForwardNS = 0;
+
+    while (doc != DocIdSetIterator.NO_MORE_DOCS) {
+      sampleDocs++;
+      int term = si.getOrd(doc);
+      if (lookup.ordinalMap != null && term >= 0) {
+        term = lookup.getGlobalOrd(subIndex, term);
+      }
+      int arrIdx = term-state.startTermIndex;
+      // TODO: As the arrays are always of full size and counted from 0, much of this could be skipped
+      if (arrIdx>=0 && arrIdx<state.counts.size()) {
+        references++;
+        state.counts.inc(arrIdx);
+      }
+      fastForwardNS -= System.nanoTime();
+      for (int i = 0 ; i < every ; i++) {
+        if ((doc = disi.nextDoc()) == DocIdSetIterator.NO_MORE_DOCS) {
+          break;
+        }
+      }
+      fastForwardNS += System.nanoTime();
+    }
+    if (state.keys.logExtended) {
+      final long incNS = (System.nanoTime() - startTime - advanceNS);
+      log.info(String.format(Locale.ENGLISH,
+          "accumSingleHeuristicWhole(%d->%d) impl=%s, init=%dms, advance=%dms, " +
+              "docs(samples=%d, wanted=%d, indexHits=%d, maxDoc=%d), increments=%d, " +
+              "(%.1f incs/doc), every=%d," +
+              " incTime=%dms (%d incs/ms, %d docs/ms)," +
+              "fastForward=%dms (%d docs/ms)",
+          startDocID, endDocID, state.keys.counter, initNS / M, advanceNS / M,
+          sampleDocs, rawSampleSize, state.hitCount, endDocID-startDocID, references,
+          sampleDocs == 0 ? 0 : 1.0*references/sampleDocs, every,
+          incNS / M, actsPerMS(references, incNS), actsPerMS(sampleDocs, incNS),
+          fastForwardNS, actsPerMS(sampleDocs * every, fastForwardNS)));
+    }
+    state.effectiveHeuristic |= true;
+    state.refCount.addAndGet(references);
+  }
+
   private static void accumMulti(
-      SparseState state, SortedSetDocValues ssi, DocIdSetIterator disi,
-      int startDocID, int endDocID, int subIndex, TermOrdinalLookup lookup, long initNS, boolean heuristic) throws IOException {
+      SparseState state, SortedSetDocValues ssi, DocIdSetIterator disi, int startDocID, int endDocID,
+      int subIndex, TermOrdinalLookup lookup, long initNS, boolean heuristic) throws IOException {
     final long startTime = System.nanoTime();
     if (ssi == DocValues.emptySortedSet()) {
       return; // Nothing to process; return immediately
@@ -217,6 +287,11 @@ public class SparseCount {
         state.keys.segmentSampleSize(state.hitCount, state.maxDoc, endDocID-startDocID+1) :
         endDocID-startDocID+1;
     final boolean effectiveHeuristic = maxSampleDocs < endDocID-startDocID+1;
+
+    if (effectiveHeuristic && state.keys.heuristicSampleMode == SparseKeys.HEURISTIC_SAMPLE_MODES.whole) {
+      accumMultiHeuristicWhole(state, ssi, disi, startDocID, endDocID, subIndex, lookup, initNS);
+      return;
+    }
 
     int doc = disi.nextDoc();
     if (doc < startDocID && doc != DocIdSetIterator.NO_MORE_DOCS) {
@@ -235,8 +310,8 @@ public class SparseCount {
       chunksLeft = Math.max(
           1,
           Math.min(chunksLeft,
-                  (endDocID-doc) / state.keys.heuristicSampleChunksMinSize
-              ));
+              (endDocID-doc) / state.keys.heuristicSampleChunksMinSize
+          ));
       if (missingSamples > endDocID-doc) { // Badly skewed sample distribution if we get here
         chunksLeft = 1;
       }
@@ -247,17 +322,21 @@ public class SparseCount {
       final int chunkSampleLimit = sampleDocs + chunkSize;
 
       final int chunkDocLimit;
-      switch (state.keys.heuristicSampleMode) {
-        case index: {
-          chunkDocLimit = doc + chunkSize;
-          break;
+      if (heuristic) {
+        switch (state.keys.heuristicSampleMode) {
+          case index: {
+            chunkDocLimit = doc + chunkSize;
+            break;
+          }
+          case hits: {
+            chunkDocLimit = endDocID+1;
+            break;
+          }
+          default: throw new UnsupportedOperationException(
+              "The heuristic sample mode '" + state.keys.heuristicSampleMode + "' is unsupported");
         }
-        case hits: {
-          chunkDocLimit = endDocID+1;
-          break;
-        }
-        default: throw new UnsupportedOperationException(
-            "The heuristic sample mode '" + state.keys.heuristicSampleMode + "' is unsupported");
+      } else {
+        chunkDocLimit = endDocID+1;
       }
 
 //      log.info(String.format("*** doc=%d, samples:%d->%d, chLeft=%d, chSize=%d, nextChunk=%d",
@@ -283,7 +362,7 @@ public class SparseCount {
           term = lookup.getGlobalOrd(subIndex, term);
           int arrIdx = term - state.startTermIndex;
 
-        // TODO: As the arrays are always of full size and counted from 0, much of this could be skipped
+          // TODO: As the arrays are always of full size and counted from 0, much of this could be skipped
           if (arrIdx >= 0 && arrIdx < state.counts.size()) {
             references++;
             state.counts.inc(arrIdx);
@@ -316,6 +395,90 @@ public class SparseCount {
     state.refCount.addAndGet(references);
   }
 
+  private static void accumMultiHeuristicWhole(
+      SparseState state, SortedSetDocValues ssi, DocIdSetIterator disi, int startDocID, int endDocID,
+      int subIndex, TermOrdinalLookup lookup, long initNS) throws IOException {
+    final long startTime = System.nanoTime();
+    if (ssi == DocValues.emptySortedSet()) {
+      return; // Nothing to process; return immediately
+    }
+    final int segmentSize = endDocID-startDocID+1;
+    final int rawSampleSize = state.keys.segmentRawSampleSize(state.hitCount, state.maxDoc, segmentSize);
+    final int every = rawSampleSize >= segmentSize ? 1 : segmentSize/rawSampleSize;
+
+    int doc = disi.nextDoc();
+    if (doc < startDocID && doc != DocIdSetIterator.NO_MORE_DOCS) {
+      doc = disi.advance(startDocID);
+    }
+    final long advanceNS = System.nanoTime()-startTime;
+
+    int sampleDocs = 0;
+    long references = 0;
+
+    long fastForwardNS = 0;
+    while (doc != DocIdSetIterator.NO_MORE_DOCS) {
+      sampleDocs++;
+      ssi.setDocument(doc);
+
+      // strange do-while to collect the missing count (first ord is NO_MORE_ORDS)
+      int term = (int) ssi.nextOrd();
+      if (term < 0) {
+        state.counts.incMissing();
+          /*if (startTermIndex == -1) {
+          counts.inc(0); // missing count
+        } */
+
+        // TODO: Duplicate code is ugly but we want to track time - maybe move time to state?
+        fastForwardNS -= System.nanoTime();
+        for (int i = 0 ; i < every ; i++) {
+          if ((doc = disi.nextDoc()) == DocIdSetIterator.NO_MORE_DOCS) {
+            break;
+          }
+        }
+        fastForwardNS += System.nanoTime();
+      }
+
+      do {
+        term = lookup.getGlobalOrd(subIndex, term);
+        int arrIdx = term - state.startTermIndex;
+
+        // TODO: As the arrays are always of full size and counted from 0, much of this could be skipped
+        if (arrIdx >= 0 && arrIdx < state.counts.size()) {
+          references++;
+          state.counts.inc(arrIdx);
+        }
+      } while ((term = (int) ssi.nextOrd()) >= 0);
+
+      fastForwardNS -= System.nanoTime();
+      for (int i = 0 ; i < every ; i++) {
+        if ((doc = disi.nextDoc()) == DocIdSetIterator.NO_MORE_DOCS) {
+          break;
+        }
+      }
+      fastForwardNS += System.nanoTime();
+    }
+    // TODO: Remove this when sparse faceting is considered stable
+    if (state.keys.logExtended) {
+      final long incNS = (System.nanoTime() - startTime - advanceNS);
+      log.info(String.format(Locale.ENGLISH,
+          "accumMultiHeuristicWhole(%d->%d) impl=%s, init=%dms, advance=%dms, " +
+              "docs(samples=%d, wanted=%d, indexHits=%d, maxDoc=%d), increments=%d, " +
+              "(%.1f incs/doc), every=%d, " +
+              "incTime=%dms (%d incs/ms, %d docs/ms), " +
+              "fastForward=%dms (%d docs/ms)",
+          startDocID, endDocID, state.keys.counter, initNS / M, advanceNS / M,
+          sampleDocs, rawSampleSize, state.hitCount, endDocID-startDocID, references,
+          sampleDocs == 0 ? 0 : 1.0*references/sampleDocs, every,
+          incNS / M, actsPerMS(references, incNS), actsPerMS(sampleDocs, incNS),
+          fastForwardNS/M, actsPerMS(sampleDocs*every, fastForwardNS)));
+    }
+    state.effectiveHeuristic |= true;
+    state.refCount.addAndGet(references);
+  }
+
+  private static long actsPerMS(long actions, long ns) {
+    return ns == 0 ? 0 : actions * M / ns;
+  }
 
   private static class Accumulator implements Callable<Accumulator> {
     private final AtomicReaderContext leaf;

@@ -39,7 +39,7 @@ public class SparseKeys {
    * </p><p>
    * The limit can be expressed as an absolute number (integer) or a fraction of maxDoc for the full index (double).
    * </p><p>
-   * Note due to rounding, this is not disabled with 1.0. Use 2.0 for that.
+   * Note due to rounding, this is not always disabled with 1.0. Use 2.0 or above to be sure.
    * </p><p>
    * Optional. Default is 2.0 (effectively disabling the switch).
    */
@@ -401,11 +401,13 @@ public class SparseKeys {
    * Optional. Default is 'hits'. Valid values are<br/>
    * index = sampling is performed with chunks of equal size and distribution over the full index.<br/>
    * hits = sampling is adaptive with chunks expanding to the number of documents needed to contain the wanted
-   * number of hits.
+   * number of hits.<br/>
+   * whole = no chunking: All hits are iterated and every X is used to update the counters. Relatively slow for
+   * document counts in the hundreds of millions, but is not as vulnerable to clustering as hits.
    */
   public static final String HEURISTIC_SAMPLE_MODE = "facet.sparse.heuristic.sample.mode";
   public static final String HEURISTIC_SAMPLE_MODE_DEFAULT = HEURISTIC_SAMPLE_MODES.index.toString();
-  public static enum HEURISTIC_SAMPLE_MODES {index, hits}
+  public static enum HEURISTIC_SAMPLE_MODES {index, hits, whole}
 
   /**
    * The minimum sample factor used for heuristic faceting, relative to segment size or estimated segment hits.
@@ -632,27 +634,27 @@ public class SparseKeys {
     if (!heuristic || segmentDocuments < heuristicSegmentMinDocs) {
       return segmentDocuments; // Everything
     }
-    long raw = (long) (multiVal(heuristicSampleH, indexHitCount) + multiVal(heuristicSampleT, indexDocuments) +
-            multiVal(heuristicSampleS, segmentDocuments) + heuristicSampleB);
-    raw = Math.min(segmentDocuments, raw);
+    long sampleSize = segmentRawSampleSize(indexHitCount, indexDocuments, segmentDocuments);
 
     double factor;
     switch (heuristicSampleMode) { //
       case index: {
-        factor = 1.0*raw/segmentDocuments;
+        factor = 1.0*sampleSize/segmentDocuments;
         if (factor < heuristicSampleMinFactor) {
           factor = heuristicSampleMinFactor;
-          raw = (long) (factor*segmentDocuments);
+          sampleSize = (long) (factor*segmentDocuments);
         }
         break;
       }
-      case hits: { // Hits are estimated if #segments > 1
-        raw = Math.min(indexHitCount, raw);
+      case hits:
+      case whole:
+      { // Hits are estimated if #segments > 1
+        sampleSize = Math.min(indexHitCount, sampleSize);
         double estimatedHits= indexHitCount*(1.0*segmentDocuments/indexDocuments);
-        factor = raw/estimatedHits;
+        factor = sampleSize/estimatedHits;
         if (factor < heuristicSampleMinFactor) {
           factor = heuristicSampleMinFactor;
-          raw = (long) (factor*estimatedHits);
+          sampleSize = (long) (factor*estimatedHits);
         }
         break;
       }
@@ -662,11 +664,17 @@ public class SparseKeys {
     if (factor > heuristicSampleMaxFactor) {
       return segmentDocuments; // Too high a factor for sampling to make sense
     }
-    return (int) raw;
+    return (int) sampleSize;
   }
   // Derive whether the multi is a factor or a constant and either multiply or return the constant
   private double multiVal(String multi, int value) {
     return Double.parseDouble(multi) * (multi.contains(".") ? value : 1);
+  }
+
+  public int segmentRawSampleSize(int indexHitCount, int indexDocuments, int segmentDocuments) {
+    long raw = (long) (multiVal(heuristicSampleH, indexHitCount) + multiVal(heuristicSampleT, indexDocuments) +
+            multiVal(heuristicSampleS, segmentDocuments) + heuristicSampleB);
+    return (int) Math.min(segmentDocuments, raw);
   }
 
   public boolean useFallbackFinecount(int hitCount, int indexMaxDoc) {
