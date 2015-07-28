@@ -419,7 +419,7 @@ public class SparseKeys {
   public static final double HEURISTIC_SAMPLE_MINFACTOR_DEFAULT = 0.001;
 
   /**
-   * The minimum sample factor used for heuristic faceting, relative to segment size or estimated segment hits.
+   * The maximum sample factor used for heuristic faceting, relative to segment size or estimated segment hits.
    * If the concrete factor gets above this threshold, heuristics is disabled for the segment.
    * </p><p>
    * Optional. Default is 0.5.
