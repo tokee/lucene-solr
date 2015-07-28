@@ -406,7 +406,7 @@ public class SparseKeys {
    * document counts in the hundreds of millions, but is not as vulnerable to clustering as hits.
    */
   public static final String HEURISTIC_SAMPLE_MODE = "facet.sparse.heuristic.sample.mode";
-  public static final String HEURISTIC_SAMPLE_MODE_DEFAULT = HEURISTIC_SAMPLE_MODES.index.toString();
+  public static final String HEURISTIC_SAMPLE_MODE_DEFAULT = HEURISTIC_SAMPLE_MODES.whole.toString();
   public static enum HEURISTIC_SAMPLE_MODES {index, hits, whole}
 
   /**
