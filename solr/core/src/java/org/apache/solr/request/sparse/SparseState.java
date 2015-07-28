@@ -82,7 +82,22 @@ public class SparseState {
     lookup = new TermOrdinalLookup(searcher, schemaField);
   }
 
+  /**
+   * @return the number of terms to consider; either all terms or limited by facet.prefix.
+   */
   public int nTerms() {
     return endTermIndex-startTermIndex;
   }
+
+  /**
+   * If heuristics is in effect, the limit is adjusted with over-provisioning. Else it is returned as is.
+   * @return the limit to use when extracting top-X terms by count.
+   */
+  public int getOverprovisionedLimit() {
+    return effectiveHeuristic ?
+        (int) (limit*keys.heuristicOverprovisionFactor + keys.heuristicOverprovisionConstant) :
+        limit;
+  }
+
+
 }

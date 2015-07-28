@@ -88,13 +88,14 @@ public class SparseExtract {
 
   private static void extractTopTermsCount(SparseState state) throws IOException {
     int off=state.offset;
-    int lim=state.limit>=0 ? state.limit : Integer.MAX_VALUE;
+    int lim=state.limit>=0 ? state.getOverprovisionedLimit() : Integer.MAX_VALUE;
     final FieldType ft = state.schemaField.getType();
     final CharsRef charsRef = new CharsRef(10);
     state.extractTime = System.nanoTime();
-    int maxsize = state.limit>0 ? state.offset+state.limit : Integer.MAX_VALUE-1;
+    // TODO: Add over-provisioning for heuristics here
+    int maxsize = state.limit>0 ? state.offset+state.getOverprovisionedLimit() : Integer.MAX_VALUE-1;
     maxsize = Math.min(maxsize, state.nTerms());
-    LongPriorityQueue queue = new LongPriorityQueue(Math.min(maxsize,1000), maxsize, Long.MIN_VALUE);
+    LongPriorityQueue queue = new LongPriorityQueue(Math.min(maxsize, 1000), maxsize, Long.MIN_VALUE);
 
 //        int min=mincount-1;  // the smallest value in the top 'N' values
 
@@ -146,16 +147,15 @@ public class SparseExtract {
       res.add(charsRef.toString(), c);*/
     }
     if (state.heuristic && state.keys.heuristicFineCount) { // Order might be off
-      sortByCount(state.res);
+      sortByCount(state);
     }
-    // TODO: Trim result set based on heuristic overprovision
     state.pool.incTermResolveTimeRel(state.termResolveTime);
     state.termResolveTime = System.nanoTime()-state.termResolveTime;
   }
 
-  private static void sortByCount(NamedList<Integer> res) {
-    List<SimpleFacets.CountPair<String, Integer>> entries = new ArrayList<>(res.size());
-    for (Map.Entry<String, Integer> next : res) {
+  private static void sortByCount(SparseState state) {
+    List<SimpleFacets.CountPair<String, Integer>> entries = new ArrayList<>(state.res.size());
+    for (Map.Entry<String, Integer> next : state.res) {
       entries.add(new SimpleFacets.CountPair<>(next.getKey(), next.getValue()));
     }
     Collections.sort(entries, new Comparator<SimpleFacets.CountPair<String, Integer>>() {
@@ -165,9 +165,13 @@ public class SparseExtract {
         return cs != 0 ? cs : o1.key.compareTo(o2.key);
       }
     });
-    res.clear();
+    // Trim result set based on heuristic overprovision
+    if (entries.size() > state.limit) {
+      entries = entries.subList(0, state.limit);
+    }
+    state.res.clear();
     for (SimpleFacets.CountPair<String, Integer> entry: entries) {
-      res.add(entry.key, entry.val);
+      state.res.add(entry.key, entry.val);
     }
   }
 
