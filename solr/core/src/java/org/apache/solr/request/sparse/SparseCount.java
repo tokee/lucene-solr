@@ -225,7 +225,8 @@ public class SparseCount {
 
     final int segmentSize = endDocID-startDocID+1;
     final int rawSampleSize = state.keys.segmentRawSampleSize(state.hitCount, state.maxDoc, segmentSize);
-    final int every = rawSampleSize >= segmentSize ? 1 : segmentSize/rawSampleSize;
+    final int estimatedSegmentHits = (int) (1L*segmentSize*state.hitCount/state.maxDoc);
+    final int every = rawSampleSize >= estimatedSegmentHits ? 1 : estimatedSegmentHits/rawSampleSize;
 
     int doc = disi.nextDoc();
     if (doc < startDocID && doc != DocIdSetIterator.NO_MORE_DOCS) {
@@ -404,7 +405,8 @@ public class SparseCount {
     }
     final int segmentSize = endDocID-startDocID+1;
     final int rawSampleSize = state.keys.segmentRawSampleSize(state.hitCount, state.maxDoc, segmentSize);
-    final int every = rawSampleSize >= segmentSize ? 1 : segmentSize/rawSampleSize;
+    final int estimatedSegmentHits = (int) (1L*segmentSize*state.hitCount/state.maxDoc);
+    final int every = rawSampleSize >= estimatedSegmentHits ? 1 : estimatedSegmentHits/rawSampleSize;
 
     int doc = disi.nextDoc();
     if (doc < startDocID && doc != DocIdSetIterator.NO_MORE_DOCS) {
