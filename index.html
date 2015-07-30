@@ -143,15 +143,31 @@ Maxtracked sets an upper limit for the counts in the facets in the shards (the t
 
 <p><code>facet.sparse.counting.threads=X</code> is an experimental feature that use multi-threading to update the counter structures. This speeds up faceting for large result sets, where the number of references from documents to terms is in the tens of millions or more. This only works with <code>facet.sparse.counter=packed</code> and <code>facet.sparse.counter=nplanez</code>.</p>
 
+<p>Important: A regression has been discovered for threaded faceting (see <a href="https://github.com/tokee/lucene-solr/issues/46">bug #46</a>). The results are unreliable and should only be used for performance testing.</p>
+
 <h4>
 <a id="6-regexp-based-blacklists-and-whitelists" class="anchor" href="#6-regexp-based-blacklists-and-whitelists" aria-hidden="true"><span class="octicon octicon-link"></span></a>6. Regexp based blacklists and whitelists</h4>
 
 <p>It is possible to filter the facet result based on regular expressions, using either <code>facet.sparse.whitelist</code> or <code>facet.sparse.whitelist</code>. If the user wants only the terms that starts with <em>foo</em> and does not contain any digits, the arguments would be <code>facet.sparse.whitelist=^foo.*&amp;facet.sparse.blacklist=.*[0-9]+.*</code>. For details, read <a href="https://sbdevel.wordpress.com/2015/04/10/facet-filtering/">Facet filtering</a>.</p>
 
+<h4>
+<a id="7-heuristic-faceting" class="anchor" href="#7-heuristic-faceting" aria-hidden="true"><span class="octicon octicon-link"></span></a>7. Heuristic faceting</h4>
+
+<p>For large result sets it is possible to use a sample of the hits instead of all of them for calculating the facets. The sampling is used to determine the top-X facet entries, which are then (optionally) fine counted. This means that while the top-X terms from heuristically calculated faceting are only probably correct, their counts are guaranteed to be correct (at least for single-shard faceting, but that is no different from vanilla Solr).</p>
+
+<p>See the blog posts <a href="https://sbdevel.wordpress.com/2015/06/19/dubious-guesses-counted-correctly/">Dubious guesses, counted correctly</a> and  <a href="https://sbdevel.wordpress.com/2015/07/30/sampling-methods-for-heuristic-faceting/">Sampling methods for heuristic faceting</a> for details.</p>
+
+<p>Heuristic faceting can be enabled with <code>facet.sparse.heuristic=true</code>. There are a lot of knobs to tweak, with the following two being the most important: </p>
+
+<ul>
+<li>Sample size in controlled with <code>facet.sparse.heuristic.sample.t=xxx</code>, where <code>xxx</code> is the fraction of the total number of documents in the index to use for sampling. Is there are 100M documents, setting the fraction to 0.001 means that 100K documents from the result set will be sampled.</li>
+<li>Over provisioning is controlled with <code>facet.sparse.heuristic.overprovision.factor=xxx</code>, where <code>xxx</code> will be multiplied internally with <code>facet.limit</code>, when calculating the result. The extra terms will be removed before returning the final result. Over provisioning raises the chances of correct results at the cost of more fine counts.</li>
+</ul>
+
 <h3>
 <a id="limitations" class="anchor" href="#limitations" aria-hidden="true"><span class="octicon octicon-link"></span></a>Limitations</h3>
 
-<p>Sparse faceting will not help with single-shard searches with large result sets (&gt; 8% of index size). Fortunately it does not hurt either as it falls back to the Solr standard way of counting: There are a lot of knobs to tune this, but the default are chosen conservatively, so the chance of having worse-than-standard response times should be quite low.</p>
+<p>Sparse faceting only helps for single-shard searches with large result sets (&gt; 8% of index size) if heuristics is used. Fortunately it does not hurt either as it falls back to the Solr standard way of counting: There are a lot of knobs to tune this, but the default are chosen conservatively, so the chance of having worse-than-standard response times should be quite low. Addendum: In 4.10 this is not quite true any more. See <a href="https://github.com/tokee/lucene-solr/issues/50">issue #50</a> for details.</p>
 
 <p>For multi-shard searches, sparse faceting should be faster for most setups and result set sizes, due to the more efficient fine-counting method.</p>
 
