@@ -92,7 +92,6 @@ public class SparseExtract {
     final FieldType ft = state.schemaField.getType();
     final CharsRef charsRef = new CharsRef(10);
     state.extractTime = System.nanoTime();
-    // TODO: Add over-provisioning for heuristics here
     int maxsize = state.limit>0 ? state.offset+state.getOverprovisionedLimit() : Integer.MAX_VALUE-1;
     maxsize = Math.min(maxsize, state.nTerms());
     LongPriorityQueue queue = new LongPriorityQueue(Math.min(maxsize, 1000), maxsize, Long.MIN_VALUE);

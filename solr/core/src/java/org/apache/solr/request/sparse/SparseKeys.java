@@ -361,10 +361,10 @@ public class SparseKeys {
    * T = total documents in the index.<br/>
    * S = total documents in the current segment.<br/>
    * </p><p>
-   * Optional. Default is 0.1 (10% of the total number of documents in the index).
+   * Optional. Default is 0.01 (1% of the total number of documents in the index).
    */
   public static final String HEURISTIC_SAMPLE_T = "facet.sparse.heuristic.sample.t";
-  public static final String HEURISTIC_SAMPLE_T_DEFAULT = "0.1";
+  public static final String HEURISTIC_SAMPLE_T_DEFAULT = "0.01";
 
   /**
    * If {@link #HEURISTIC} is not set, this parameter has no effect.<br/>
@@ -413,10 +413,10 @@ public class SparseKeys {
    * The minimum sample factor used for heuristic faceting, relative to segment size or estimated segment hits.
    * If the concrete factor gets below this threshold, it will be rounded up to the threshold.
    * </p><p>
-   * Optional. Default is 1.0.
+   * Optional. Default is 0.0001.
    */
   public static final String HEURISTIC_SAMPLE_MINFACTOR = "facet.sparse.heuristic.sample.minfactor";
-  public static final double HEURISTIC_SAMPLE_MINFACTOR_DEFAULT = 0.001;
+  public static final double HEURISTIC_SAMPLE_MINFACTOR_DEFAULT = 0.0001;
 
   /**
    * The maximum sample factor used for heuristic faceting, relative to segment size or estimated segment hits.
@@ -434,10 +434,10 @@ public class SparseKeys {
    * With a heterogeneous index with multiple segments, 1 is a fine value. With a fully optimized index a high
    * degree of document clustering, a much higher value (x1000+) might be needed.
    * </p><p>
-   * Optional. Default is 1000.
+   * Optional. Default is 10000.
    */
   public static final String HEURISTIC_SAMPLE_CHUNKS = "facet.sparse.heuristic.sample.chunks";
-  public static final int HEURISTIC_SAMPLE_CHUNKS_DEFAULT = 1000;
+  public static final int HEURISTIC_SAMPLE_CHUNKS_DEFAULT = 10000;
 
   /**
    * If {@link #HEURISTIC} is true, this parameter sets the minimum size of chunks.
@@ -462,6 +462,8 @@ public class SparseKeys {
    * Increasing this option increases the probability that the terms are the right ones, but does not affect their
    * count. It also increases processing time.
    * </p><p>
+   * Disable over provisioning by setting this to 1.0 and {@link #HEURISTIC_OVERPROVISION_CONSTANT} to 0.
+   * </p><p>
    * Optional, double. Default is 2.0.
    */
   public static final String HEURISTIC_OVERPROVISION_FACTOR = "facet.sparse.heuristic.overprovision.factor";
@@ -473,11 +475,12 @@ public class SparseKeys {
    * Increasing this option increases the probability that the terms are the right ones, but does not affect their
    * count. It also increases processing time.
    * </p><p>
-   * Optional, integer. Default is 5.
+   * Disable over provisioning by setting this to 0 and {@link #HEURISTIC_OVERPROVISION_FACTOR} to 1.0.
+   * </p><p>
+   * Optional, integer. Default is 10.
    */
   public static final String HEURISTIC_OVERPROVISION_CONSTANT = "facet.sparse.heuristic.overprovision.constant";
-  public static final int HEURISTIC_OVERPROVISION_CONSTANT_DEFAULT = 5;
-
+  public static final int HEURISTIC_OVERPROVISION_CONSTANT_DEFAULT = 10;
 
   public final String field;
   public final String boundary;
@@ -712,30 +715,43 @@ public class SparseKeys {
         ", countingThreads=" + countingThreads +
         ", countingThreadsMinDocs=" + countingThreadsMinDocs +
         ", packedLimit=" + packedLimit +
-        ", poolSize=" + poolSize +
-        ", poolMaxCount=" + poolMaxCount +
-        ", poolMinEmpty=" + poolMinEmpty +
+
+        ", pool(" +
+        "size=" + poolSize +
+        ", maxCount=" + poolMaxCount +
+        ", minEmpty=" + poolMinEmpty +
+        ")" +
+
         ", skipRefinement=" + skipRefinement +
         ", fineCountBoundary=" + fineCountBoundary +
         ", cacheToken='" + cacheToken + '\'' +
         ", legacyShowStats=" + legacyShowStats +
         ", resetStats=" + resetStats +
         ", cacheDistributed=" + cacheDistributed +
-        ", heuristic(enabled=" + heuristic +
+
+        ", heuristic(" +
+        "enabled=" + heuristic +
         ", minDocs=" + heuristicSegmentMinDocs +
         ", boundary=" + heuristicBoundary +
-        ", sample(h=" + heuristicSampleH +
+
+        ", sample(" +
+        "mode=" + heuristicSampleMode +
+        ", h=" + heuristicSampleH +
         ", t=" + heuristicSampleT +
         ", s=" + heuristicSampleS +
         ", b=" + heuristicSampleB +
-        ", sampleMinFactor=" + heuristicSampleMinFactor +
-        ", sampleMaxFactor=" + heuristicSampleMaxFactor +
-        ", sampleMode=" + heuristicSampleMode +
-        ", sampleChunks=" + heuristicSampleChunks +
+        ", minFactor=" + heuristicSampleMinFactor +
+        ", maxFactor=" + heuristicSampleMaxFactor +
+        ", chunks=" + heuristicSampleChunks +
         ")" +
+
         ", fineCount=" + heuristicFineCount +
-        ", overprovisionFactor=" + heuristicOverprovisionFactor +
-        ", overprovisionConstant=" + heuristicOverprovisionConstant +
-        ")}";
+
+        ", overprovision(" +
+        "factor=" + heuristicOverprovisionFactor +
+        ", , constant=" + heuristicOverprovisionConstant +
+        ")" +
+
+        "}";
   }
 }
