@@ -134,7 +134,7 @@ public class SparseExtract {
       int tnum = Integer.MAX_VALUE - (int)pair;
       final String term = OrdinalUtils.resolveTerm(
           state.pool, state.keys, state.lookup.si, ft, state.startTermIndex + tnum, charsRef);
-      if (state.heuristic && state.keys.heuristicFineCount) { // Need to fine-count
+      if (state.effectiveHeuristic && state.keys.heuristicFineCount) { // Need to fine-count
         // TODO: Add heuristics lookup-stats to pool
         state.res.add(term, state.searcher.numDocs(
             new TermQuery(new Term(state.field, ft.toInternal(term))), state.docs));
@@ -145,7 +145,7 @@ public class SparseExtract {
       ft.indexedToReadable(br, charsRef);
       res.add(charsRef.toString(), c);*/
     }
-    if (state.heuristic && state.keys.heuristicFineCount) { // Order might be off
+    if (state.effectiveHeuristic && state.keys.heuristicFineCount) { // Order might be off
       sortByCount(state);
     }
     state.pool.incTermResolveTimeRel(state.termResolveTime);
@@ -198,7 +198,7 @@ public class SparseExtract {
           warnedOrdinal = state.searcher.hashCode();
         }
         count = state.searcher.numDocs(new TermQuery(new Term(state.field, internal)), state.docs);
-      } else if (state.heuristic && state.keys.heuristicFineCount) {
+      } else if (state.effectiveHeuristic && state.keys.heuristicFineCount) {
         count = state.searcher.numDocs(new TermQuery(new Term(state.field, internal)), state.docs);
       } else {
         count = (int) state.counts.get((int) index);
