@@ -70,16 +70,35 @@ public class LongTailPerformance {
     int[]  MAX_PLANES = toIntArray(getArgs(args, "-p", 64));
     long[] HISTOGRAM = toLongArray(getArgs(args, "-m", toString(links20150209).split(", ")));
     double FACTOR =  toDoubleArray(getArgs(args, "-d", 1.0))[0];
+    char[] WHITELIST = toCharArray(getArgs(args, "-w", 1.0));
 
     int UPDATES = (int) (UPDD*MI);
     HISTOGRAM = reduce(pad(HISTOGRAM), 1/FACTOR);
     System.out.println(String.format(Locale.ENGLISH,
         "LongTailPerformance: runs=%d, entry=%d, threads=%s, splits=%s, instances=%d, updates=%d, ncaches=[%s]," +
-            " nmaxplanes=[%s], histogram=[%s](factor=%4.2f)",
+            " nmaxplanes=[%s], histogram=[%s](factor=%4.2f), whitelist=%s",
         RUNS, ENTRY, THREADS == Integer.MAX_VALUE ? "unlimited" : THREADS, join(SPLITS), INSTANCES, UPDATES,
-        join(NCACHES), join(MAX_PLANES), join(HISTOGRAM), FACTOR));
+        join(NCACHES), join(MAX_PLANES), join(HISTOGRAM), FACTOR, new String(WHITELIST)));
     measurePerformance(HISTOGRAM, RUNS, ENTRY, INSTANCES, UPDATES, MEASURE_POINTS, NCACHES, MAX_PLANES, THREADS,
-        SPLITS, false, null);
+        SPLITS, false, WHITELIST);
+  }
+
+  private static char[] toCharArray(List<String> args) {
+    if (args == null || args.isEmpty()) {
+      return null;
+    }
+    int whites = 0;
+    for (String arg: args) {
+      whites += arg.length();
+    }
+    char[] whitelist = new char[whites];
+    int index = 0;
+    for (String arg: args) {
+      for (char c: arg.toCharArray()) {
+        whitelist[index++] = c;
+      }
+    }
+    return whitelist;
   }
 
   static void measurePerformance(
@@ -96,10 +115,10 @@ public class LongTailPerformance {
 //    int cache = NPlaneMutable.DEFAULT_OVERFLOW_BUCKET_SIZE;
 
     // Create the instances
-    char id = 'a';
+    char id = 'a'-1;
     for (int d = 0; d < instances; d++) {
       for (int split : splits) { // Counters that support threaded updates (currently only tank)
-        if (acceptID(whitelist, id++)) {
+        if (acceptID(whitelist, ++id)) {
           stats.add(new StatHolder(
               new DummyMutable(maxima.size()), id, "Dummy(s=" + split + ")", updates, measurePoints, split));
         }
@@ -115,7 +134,7 @@ public class LongTailPerformance {
           // Disabled split as it is always worse than spank
 //          for (NPlaneMutable.IMPL impl : new NPlaneMutable.IMPL[]{NPlaneMutable.IMPL.split, NPlaneMutable.IMPL.shift}) {
           for (NPlaneMutable.IMPL impl : new NPlaneMutable.IMPL[]{NPlaneMutable.IMPL.shift}) {
-            if (acceptID(whitelist, id++)) {
+            if (acceptID(whitelist, ++id)) {
               NPlaneMutable nplane = new NPlaneMutable(layout, new NPlaneMutable.BPVPackedWrapper(maxima, false), impl);
               stats.add(new StatHolder(nplane, id,
                   "N-" + impl + "(#" + nplane.getPlaneCount() + ", 1/" + cache + ")", updates, measurePoints, 1));
@@ -123,7 +142,7 @@ public class LongTailPerformance {
           }
         }
         for (int split : splits) { // Counters that support threaded updates (currently only tank)
-          if (acceptID(whitelist, id++)) {
+          if (acceptID(whitelist, ++id)) {
             NPlaneMutable nplane = layout == null ?
                 new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), 0, mp,
                     NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.tank) :
@@ -133,7 +152,7 @@ public class LongTailPerformance {
                 updates, measurePoints, split));
           }
         }
-        if (acceptID(whitelist, id++)) {
+        if (acceptID(whitelist, ++id)) {
           NPlaneMutable nplane = layout == null ?
               new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), 0, mp,
                   NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.spank) :
@@ -141,7 +160,7 @@ public class LongTailPerformance {
           stats.add(new StatHolder(nplane, id,
               "N-" + NPlaneMutable.IMPL.spank + "(#" + nplane.getPlaneCount() + ")", updates, measurePoints, 1));
         }
-        if (acceptID(whitelist, id++)) {
+        if (acceptID(whitelist, ++id)) {
           NPlaneMutable nplane = layoutZero == null ?
               new NPlaneMutable(new NPlaneMutable.BPVPackedWrapper(maxima, false), 0, mp,
                   NPlaneMutable.DEFAULT_COLLAPSE_FRACTION, NPlaneMutable.IMPL.zethra) :
@@ -151,12 +170,12 @@ public class LongTailPerformance {
               "N-" + NPlaneMutable.IMPL.zethra + "(#" + nplane.getPlaneCount() + ")", updates, measurePoints, 1));
         }
       }
-      if (acceptID(whitelist, id++)) {
+      if (acceptID(whitelist, ++id)) {
         stats.add(new StatHolder(
             DualPlaneMutable.create(bitStats.histogram, 0.99), id,
             "Dual-plane", updates, measurePoints, 1));
       }
-      if (acceptID(whitelist, id++)) {
+      if (acceptID(whitelist, ++id)) {
         stats.add(new StatHolder(
             PackedInts.getMutable(maxima.size(), maxBit(bitStats.histogram), PackedInts.COMPACT), id,
             "PackedInts.COMPACT", updates, measurePoints, 1));
@@ -164,7 +183,7 @@ public class LongTailPerformance {
       for (int split : splits) { // Counters that support threaded updates (currently only tank)
         for (int candidateBPV = maxBit(bitStats.histogram); candidateBPV < 64 ; candidateBPV++) {
           if (PackedOpportunistic.isSupported(candidateBPV)) {
-            if (acceptID(whitelist, id++)) {
+            if (acceptID(whitelist, ++id)) {
               stats.add(new StatHolder(
                   PackedOpportunistic.create(maxima.size(), candidateBPV), id,
                   "PackedOpport(s=" + split + ")", updates, measurePoints, split));
@@ -173,7 +192,7 @@ public class LongTailPerformance {
           }
         }
       }
-      if (acceptID(whitelist, id++)) {
+      if (acceptID(whitelist, ++id)) {
         stats.add(new StatHolder(
             PackedInts.getMutable(maxima.size(), maxBit(bitStats.histogram), PackedInts.FAST), id,
             "PackedInts.FAST",
@@ -473,6 +492,7 @@ public class LongTailPerformance {
           System.err.println(String.format(Locale.ENGLISH,
               "Exception calling %s.inc(%d) #%d with maximum=%d on %s. Aborting updates",
               counters, increments.get(i), totalIncs, maxima.get((int) increments.get(i)), counters));
+          e.printStackTrace();
           break;
         }
         int left = nextPing - statHolder.getPingFrequency() - (start + length);
@@ -811,7 +831,8 @@ public class LongTailPerformance {
           "-c x*: Cache-setups for N-plane. Default: 1000 500 200 111 50 20\n" +
           "-p x*: Max planes for N-plane. Default: 64\n" +
           "-m x*: Histogram maxima. Default: 425799733 85835129 52695663...\n" +
-          "-d x:  Histogram multiplication factor. Default: 1.0\n\n" +
-          "Note the absence of a warmup round. As the median over all runs is used, " +
+          "-d x:  Histogram multiplication factor. Default: 1.0\n" +
+          "-w c*: Whitelist of implementations to create and test. Default: all\n" +
+          "\nNote the absence of a warmup round. As the median over all runs is used, " +
           "the initial fluctuations of the JIT and the caches should not be irrelevant.";
 }
