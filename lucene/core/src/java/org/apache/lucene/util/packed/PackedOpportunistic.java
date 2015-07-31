@@ -334,15 +334,14 @@ public abstract class PackedOpportunistic extends PackedInts.MutableImpl impleme
     // Instead of overflowing, the value stays at the ceiling
     public STATUS incrementCeilStatus(int index) {
       final int o = index >>> 6;
-      final int shift = index & 63; // b
+//      final int shift = index & 63; // b
+      final long mask = 1L << (index & 63);
       while (true) {
         final long old = blocks.get(o);
-        final long newValue = ((old >>> shift) & 1L)+1;
-        if (newValue == 2) { // incOverflow == 2^1 == 2
+        if ((old & mask) != 0) { // incOverflow == 2^1 == 2
           return STATUS.overflowed;
         }
-        final long setNew = newValue << shift;
-        if (blocks.compareAndSet(o, old, (old & ~(1L << shift)) | setNew)) {
+        if (blocks.compareAndSet(o, old, old | mask)) {
           return STATUS.wasZero;
           //return newValue == 1 ? STATUS.wasZero : STATUS.ok;
         }
