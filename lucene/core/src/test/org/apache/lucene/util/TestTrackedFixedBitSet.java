@@ -81,16 +81,25 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     assertEquals("Tracker 2 should have bit 0 set in word 1",        0b1, tracked.tracker2[1]); // 64*64*64
   }
 
-  public void testTrackMonkeySet() {
-    final int RUNS = 10;
-    final int UPDATES = 10000;
+  /**
+   * Verify that {@link org.apache.lucene.util.TrackedFixedBitSet#set(int)} and
+   * {@link org.apache.lucene.util.TrackedFixedBitSet#getAndSet(int)} updates the trackers correctly.
+   */
+  public void testTrackMonkey() {
+    final int RUNS = 50;
+    final int MAX_UPDATES = 10000;
+    final int MAX_SIZE = 64*64*64*10;
 
     for (int r = 0 ; r < RUNS ; r++) {
-      TrackedFixedBitSet bitset = new TrackedFixedBitSet(64*64*64+1); // 64*64+1 longs (2 entries in tracker 2)
-      for (int i = 0 ; i < UPDATES ; i++) {
+      TrackedFixedBitSet bitset = new TrackedFixedBitSet(random().nextInt(MAX_SIZE-1)+1);
+      final int updates = random().nextInt(MAX_UPDATES/4); // Multiple updates per iteration
+      for (int i = 0 ; i < updates ; i++) {
         bitset.set(random().nextInt(bitset.length()));
+        bitset.getAndSet(random().nextInt(bitset.length()));
+        bitset.clear(random().nextInt(bitset.length()));
+        bitset.getAndClear(random().nextInt(bitset.length()));
       }
-      assertTrackers("Monkey sets run " + r, bitset);
+      assertTrackers("Monkey run=" + r + ", size=" + bitset.numBits + ", updates=" + updates, bitset);
     }
   }
 

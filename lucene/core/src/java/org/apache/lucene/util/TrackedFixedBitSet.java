@@ -119,6 +119,76 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     }
   }
 
+  private static final class DirtyWordIterator {
+    public static final int NO_MORE_DOCS = DocIdSetIterator.NO_MORE_DOCS;
+
+    final int numBits, numWords;
+    final long[] bits;
+    final long[] t1;
+    final long[] t2;
+    int word = -1;
+    int t1pos = 0;
+    int t2pos = 0;
+    long t1Bitset;
+    long t2Bitset;
+
+    public DirtyWordIterator(TrackedFixedBitSet bits) {
+      this(bits.bits, bits.numBits, bits.tracker1, bits.tracker2, bits.numWords);
+    }
+
+    /** Creates an iterator over the given array of bits. */
+    public DirtyWordIterator(long[] bits, int numBits, long[] t1, long[] t2, int wordLength) {
+      this.bits = bits;
+      this.numBits = numBits;
+      this.numWords = wordLength;
+      this.t1 = t1;
+      this.t1Bitset = t1[0];
+      this.t2 = t2;
+      this.t2Bitset = t2[0];
+    }
+
+    public int nextWordNum() {
+      if (word == NO_MORE_DOCS) {
+        return NO_MORE_DOCS;
+      }
+      throw new UnsupportedOperationException("Not implemented yet");
+/*
+      for (int tti = 0 ; tti < trackerTracker.length() ; tti++) {
+        long ttBitset = trackerTracker.get(tti);
+        while (ttBitset != 0) {
+          final long tt = ttBitset & -ttBitset;
+          final int ti = Long.bitCount(tt-1);
+          ttBitset ^= tt;
+
+          long tBitset = tracker.get(tti * 64 + ti);
+          while (tBitset != 0) {
+            final long t = tBitset & -tBitset;
+            final int i = Long.bitCount(t-1);
+            tBitset ^= t;
+            long vBitset = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
+            while (vBitset != 0) {
+              final long v = vBitset & -vBitset;
+              final int z = Long.bitCount(v-1);
+              vBitset ^= v;
+
+              final int counter = tti*64*64*64 + ti*64*64 + i*64 + z;
+              final long value = get(counter);
+              if (counter >= start && counter <= end && value >= sparseMinValue) {
+                filled |= callback.handle(counter, value);
+              }
+            }
+          }
+        }
+      }*/
+
+    }
+
+    public long word() {
+      return bits[word];
+    }
+
+  }
+
   /**
    * If the given {@link org.apache.lucene.util.TrackedFixedBitSet} is large enough to hold {@code numBits},
    * returns the given bits, otherwise returns a new {@link org.apache.lucene.util.TrackedFixedBitSet} which
@@ -250,10 +320,17 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    * @param wordNum the word in {@link #bits} to update trackers for.
    */
   private void updateTrackersWithWord(int wordNum) {
-    long setBit = 1L << (wordNum & 63);
-    if ((tracker1[wordNum >>> 6] |= setBit) != setBit) {
+    final long setBit = 1L << (wordNum & 63);
+    if ((tracker1[wordNum >>> 6] |= setBit) == setBit) {
       // Probably the first update in tracker1[wordNum >>> 6]. Trigger level 2 tracking
       tracker2[wordNum >>> 12] |= 1L << ((wordNum >>> 6) & 63);
+    }
+  }
+  private void removeFromTrackersWithWord(int wordNum) {
+    final long removeBit = 1L << (wordNum & 63);
+    if ((tracker1[wordNum >>> 6] &= ~removeBit) == 0) {
+      // Probably the first update in tracker1[wordNum >>> 6]. Trigger level 2 tracking
+      tracker2[wordNum >>> 12] &= ~(1L << ((wordNum >>> 6) & 63));
     }
   }
 
@@ -280,7 +357,8 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
   @Override
   public long ramBytesUsed() {
-    return BASE_RAM_BYTES_USED + RamUsageEstimator.sizeOf(bits);
+    return BASE_RAM_BYTES_USED + RamUsageEstimator.sizeOf(bits) +
+        RamUsageEstimator.sizeOf(tracker1) + RamUsageEstimator.sizeOf(tracker1);
   }
 
   /** Expert. */
@@ -310,7 +388,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     assert index >= 0 && index < numBits: "index=" + index + ", numBits=" + numBits;
     int wordNum = index >> 6;      // div 64
     long bitmask = 1L << index;
-    if ((bits[wordNum] |= bitmask) == bitmask) { // First bit (or duplicate, but that only harms performance)
+    if ((bits[wordNum] |= bitmask) == bitmask) { // First bit in word (or duplicate, but that only harms performance)
       updateTrackersWithWord(wordNum);
     }
   }
@@ -320,8 +398,9 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     int wordNum = index >> 6;      // div 64
     long bitmask = 1L << index;
     boolean val = (bits[wordNum] & bitmask) != 0;
-    bits[wordNum] |= bitmask;
-    // TODO: Update trackers
+    if ((bits[wordNum] |= bitmask) == bitmask) { // First bit in word (or duplicate, but that only harms performance)
+      updateTrackersWithWord(wordNum);
+    }
     return val;
   }
 
@@ -329,8 +408,9 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     assert index >= 0 && index < numBits;
     int wordNum = index >> 6;
     long bitmask = 1L << index;
-    bits[wordNum] &= ~bitmask;
-    // TODO: Update trackers
+    if ((bits[wordNum] &= ~bitmask) == 0) {
+      removeFromTrackersWithWord(wordNum);
+    }
   }
 
   public boolean getAndClear(int index) {
@@ -338,8 +418,9 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     int wordNum = index >> 6;      // div 64
     long bitmask = 1L << index;
     boolean val = (bits[wordNum] & bitmask) != 0;
-    bits[wordNum] &= ~bitmask;
-    // TODO: Update trackers
+    if ((bits[wordNum] &= ~bitmask) == 0) {
+      removeFromTrackersWithWord(wordNum);
+    }
     return val;
   }
 
@@ -625,7 +706,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    * @param endIndex one-past the last bit to clear
    */
   public void clear(int startIndex, int endIndex) {
-    // TODO: Update trackers
+    // TODO: Use & Update trackers
     assert startIndex >= 0 && startIndex < numBits : "startIndex=" + startIndex + ", numBits=" + numBits;
     assert endIndex >= 0 && endIndex <= numBits : "endIndex=" + endIndex + ", numBits=" + numBits;
     if (endIndex <= startIndex) {
