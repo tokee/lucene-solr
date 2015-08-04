@@ -82,12 +82,16 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
   }
 
   public void testTrackMonkeySet() {
-    int UPDATES = 10000;
-    TrackedFixedBitSet bitset = new TrackedFixedBitSet(64*64*64+1); // 64*64+1 longs (2 entries in tracker 2)
-    for (int i = 0 ; i < UPDATES ; i++) {
-      bitset.set(random().nextInt(bitset.length()));
+    final int RUNS = 10;
+    final int UPDATES = 10000;
+
+    for (int r = 0 ; r < RUNS ; r++) {
+      TrackedFixedBitSet bitset = new TrackedFixedBitSet(64*64*64+1); // 64*64+1 longs (2 entries in tracker 2)
+      for (int i = 0 ; i < UPDATES ; i++) {
+        bitset.set(random().nextInt(bitset.length()));
+      }
+      assertTrackers("Monkey sets run " + r, bitset);
     }
-    assertTrackers("Monkey sets", bitset);
   }
 
   private void assertTrackers(String message, TrackedFixedBitSet tracked) {

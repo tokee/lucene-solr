@@ -245,6 +245,18 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     }
   }
 
+  /**
+   * The given word is not-0. Update trackers accordingly.
+   * @param wordNum the word in {@link #bits} to update trackers for.
+   */
+  private void updateTrackersWithWord(int wordNum) {
+    long setBit = 1L << (wordNum & 63);
+    if ((tracker1[wordNum >>> 6] |= setBit) != setBit) {
+      // Probably the first update in tracker1[wordNum >>> 6]. Trigger level 2 tracking
+      tracker2[wordNum >>> 12] |= 1L << ((wordNum >>> 6) & 63);
+    }
+  }
+
   @Override
   public DocIdSetIterator iterator() {
     return new TrackedFixedBitSetIterator(bits, numBits, tracker1, tracker2, numWords);
@@ -298,7 +310,9 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     assert index >= 0 && index < numBits: "index=" + index + ", numBits=" + numBits;
     int wordNum = index >> 6;      // div 64
     long bitmask = 1L << index;
-    bits[wordNum] |= bitmask;
+    if ((bits[wordNum] |= bitmask) == bitmask) { // First bit (or duplicate, but that only harms performance)
+      updateTrackersWithWord(wordNum);
+    }
   }
 
   public boolean getAndSet(int index) {
