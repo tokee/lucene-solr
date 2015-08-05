@@ -319,18 +319,42 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    * The given word is not-0. Update trackers accordingly.
    * @param wordNum the word in {@link #bits} to update trackers for.
    */
-  private void updateTrackersWithWord(int wordNum) {
+  private void trackWord(int wordNum) {
     final long setBit = 1L << (wordNum & 63);
     if ((tracker1[wordNum >>> 6] |= setBit) == setBit) {
       // Probably the first update in tracker1[wordNum >>> 6]. Trigger level 2 tracking
       tracker2[wordNum >>> 12] |= 1L << ((wordNum >>> 6) & 63);
     }
   }
-  private void removeFromTrackersWithWord(int wordNum) {
+
+  private void untrackWord(int wordNum) {
     final long removeBit = 1L << (wordNum & 63);
     if ((tracker1[wordNum >>> 6] &= ~removeBit) == 0) {
       // Probably the first update in tracker1[wordNum >>> 6]. Trigger level 2 tracking
       tracker2[wordNum >>> 12] &= ~(1L << ((wordNum >>> 6) & 63));
+    }
+  }
+
+  /**
+   * Informs the trackers that the word range contains only zeroes.
+   * @param startWord inclusive.
+   * @param endWord exclusive.
+   */
+  // TODO: Optimize this method so that Arrays.fill is used for zeroing the trackers
+  private void untrackWords(int startWord, int endWord) {
+    for (int middleWord = startWord ; middleWord < endWord ; middleWord++) {
+      untrackWord(middleWord);
+    }
+  }
+  /**
+   * Informs the trackers that the word range contains non-zero values.
+   * @param startWord inclusive.
+   * @param endWord exclusive.
+   */
+  // TODO: Optimize this method so that Arrays.fill is used for zeroing the trackers
+  private void trackWords(int startWord, int endWord) {
+    for (int middleWord = startWord ; middleWord < endWord ; middleWord++) {
+      trackWord(middleWord);
     }
   }
 
@@ -366,12 +390,28 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     return bits;
   }
 
-  /** Returns number of set bits.  NOTE: this visits every
+  /** Returns number of set bits.  NOTE: this visits every not-0
    *  long in the backing bits array, and the result is not
    *  internally cached! */
   public int cardinality() {
-    // TODO: Use trackers
-    return (int) BitUtil.pop_array(bits, 0, bits.length);
+    int cardinality = 0;
+    for (int tti = 0 ; tti < tracker2.length ; tti++) {
+      long ttBitset = tracker2[tti];
+      while (ttBitset != 0) {
+        final long tt = ttBitset & -ttBitset;
+        final int ti = Long.bitCount(tt-1);
+        ttBitset ^= tt;
+
+        long tBitset = tracker1[tti * 64 + ti];
+        while (tBitset != 0) {
+          final long t = tBitset & -tBitset;
+          final int i = Long.bitCount(t-1);
+          tBitset ^= t;
+          cardinality += Long.bitCount(bits[tti*64*64 + ti*64 + i]);
+        }
+      }
+    }
+    return cardinality;
   }
 
   @Override
@@ -389,7 +429,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     int wordNum = index >> 6;      // div 64
     long bitmask = 1L << index;
     if ((bits[wordNum] |= bitmask) == bitmask) { // First bit in word (or duplicate, but that only harms performance)
-      updateTrackersWithWord(wordNum);
+      trackWord(wordNum);
     }
   }
 
@@ -399,7 +439,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     long bitmask = 1L << index;
     boolean val = (bits[wordNum] & bitmask) != 0;
     if ((bits[wordNum] |= bitmask) == bitmask) { // First bit in word (or duplicate, but that only harms performance)
-      updateTrackersWithWord(wordNum);
+      trackWord(wordNum);
     }
     return val;
   }
@@ -409,7 +449,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     int wordNum = index >> 6;
     long bitmask = 1L << index;
     if ((bits[wordNum] &= ~bitmask) == 0) {
-      removeFromTrackersWithWord(wordNum);
+      untrackWord(wordNum);
     }
   }
 
@@ -419,7 +459,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     long bitmask = 1L << index;
     boolean val = (bits[wordNum] & bitmask) != 0;
     if ((bits[wordNum] &= ~bitmask) == 0) {
-      removeFromTrackersWithWord(wordNum);
+      untrackWord(wordNum);
     }
     return val;
   }
@@ -690,6 +730,10 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     long startmask = -1L << startIndex;
     long endmask = -1L >>> -endIndex;  // 64-(endIndex&0x3f) is the same as -endIndex due to wrap
 
+    if (bits[startWord] == 0) {
+      trackWord(startWord);
+    }
+
     if (startWord == endWord) {
       bits[startWord] |= (startmask & endmask);
       return;
@@ -697,6 +741,11 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
     bits[startWord] |= startmask;
     Arrays.fill(bits, startWord+1, endWord, -1L);
+    trackWords(startWord + 1, endWord);
+
+    if (bits[endWord] == 0) {
+      trackWord(endWord);
+    }
     bits[endWord] |= endmask;
   }
 
@@ -706,7 +755,6 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    * @param endIndex one-past the last bit to clear
    */
   public void clear(int startIndex, int endIndex) {
-    // TODO: Use & Update trackers
     assert startIndex >= 0 && startIndex < numBits : "startIndex=" + startIndex + ", numBits=" + numBits;
     assert endIndex >= 0 && endIndex <= numBits : "endIndex=" + endIndex + ", numBits=" + numBits;
     if (endIndex <= startIndex) {
@@ -724,13 +772,22 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     endmask = ~endmask;
 
     if (startWord == endWord) {
-      bits[startWord] &= (startmask | endmask);
+      if (bits[startWord] != 0 && ((bits[startWord] &= (startmask | endmask)) == 0)) {
+        untrackWord(startWord);
+      }
       return;
     }
 
-    bits[startWord] &= startmask;
+    if (bits[startWord] != 0 && ((bits[startWord] &= startmask) == 0)) {
+      untrackWord(startWord);
+    }
+
     Arrays.fill(bits, startWord+1, endWord, 0L);
-    bits[endWord] &= endmask;
+    untrackWords(startWord + 1, endWord);
+
+    if (bits[endWord] != 0 && ((bits[endWord] &= endmask) == 0)) {
+      untrackWord(endWord);
+    }
   }
 
   @Override

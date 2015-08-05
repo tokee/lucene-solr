@@ -85,21 +85,84 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
    * Verify that {@link org.apache.lucene.util.TrackedFixedBitSet#set(int)} and
    * {@link org.apache.lucene.util.TrackedFixedBitSet#getAndSet(int)} updates the trackers correctly.
    */
-  public void testTrackMonkey() {
+  public void testTrackedGetSetMonkey() {
     final int RUNS = 50;
     final int MAX_UPDATES = 10000;
     final int MAX_SIZE = 64*64*64*10;
 
     for (int r = 0 ; r < RUNS ; r++) {
-      TrackedFixedBitSet bitset = new TrackedFixedBitSet(random().nextInt(MAX_SIZE-1)+1);
-      final int updates = random().nextInt(MAX_UPDATES/4); // Multiple updates per iteration
-      for (int i = 0 ; i < updates ; i++) {
-        bitset.set(random().nextInt(bitset.length()));
-        bitset.getAndSet(random().nextInt(bitset.length()));
-        bitset.clear(random().nextInt(bitset.length()));
-        bitset.getAndClear(random().nextInt(bitset.length()));
+      getRandomTracked("Monkey run=1", MAX_SIZE, MAX_UPDATES);
+    }
+  }
+
+  public void testTrackedClearRangeMonkey() {
+    final int RUNS = 50;
+    final int MAX_UPDATES = 10000;
+    final int MAX_SIZE = 64*64*64*10;
+
+    for (int r = 0 ; r < RUNS ; r++) {
+      TrackedFixedBitSet bitset = getRandomTracked("Monkey run=1", MAX_SIZE, MAX_UPDATES);
+      int range = random().nextInt(bitset.numBits);
+      if (range > 0) {
+        int start = random().nextInt((bitset.numBits-range-1)/2);
+        bitset.clear(start, start+range);
+        assertTrackers(
+            "TrackedClear(" + start + ", " + (start+range) + ") run=" + r + ",  bitset=" + bitset.numBits, bitset);
       }
-      assertTrackers("Monkey run=" + r + ", size=" + bitset.numBits + ", updates=" + updates, bitset);
+    }
+  }
+
+  public void testTrackedSetRange128() {
+    TrackedFixedBitSet bitset = new TrackedFixedBitSet(256);
+    bitset.set(1, 128);
+    assertTrackers("bitmap(256).set(1, 128)", bitset);
+  }
+
+  public void testTrackedSetRange129() {
+    TrackedFixedBitSet bitset = new TrackedFixedBitSet(256);
+    bitset.set(1, 129);
+    assertTrackers("bitmap(256).set(1, 129)", bitset);
+  }
+
+  public void testTrackedSetRangeMonkey() {
+    final int RUNS = 50;
+    final int MAX_UPDATES = 10000;
+    final int MAX_SIZE = 64*64*64*10;
+
+    for (int r = 0 ; r < RUNS ; r++) {
+      TrackedFixedBitSet bitset = getRandomTracked("Monkey run=1", MAX_SIZE, MAX_UPDATES);
+      int range = random().nextInt(bitset.numBits);
+      if (range > 0) {
+        int start = random().nextInt((bitset.numBits-range-1)/2);
+        bitset.set(start, start + range);
+        assertTrackers(
+            "TrackedSet(" + start + ", " + (start+range) + ") run=" + r + ",  bitset=" + bitset.numBits, bitset);
+      }
+    }
+  }
+
+  private TrackedFixedBitSet getRandomTracked(String message, int maxSize, int maxUpdates) {
+    TrackedFixedBitSet bitset = new TrackedFixedBitSet(random().nextInt(maxSize -1)+1);
+    final int updates = random().nextInt(maxUpdates /4); // Multiple updates per iteration
+    for (int i = 0 ; i < updates ; i++) {
+      bitset.set(random().nextInt(bitset.length()));
+      bitset.getAndSet(random().nextInt(bitset.length()));
+      bitset.clear(random().nextInt(bitset.length()));
+      bitset.getAndClear(random().nextInt(bitset.length()));
+    }
+    assertTrackers(message + ": size=" + bitset.numBits + ", updates=" + updates, bitset);
+    return bitset;
+  }
+
+  public void testTrackedCardinalityMonkey() {
+    final int RUNS = 50;
+    final int MAX_UPDATES = 10000;
+    final int MAX_SIZE = 64*64*64*10;
+
+    for (int r = 0 ; r < RUNS ; r++) {
+      TrackedFixedBitSet tracked = getRandomTracked("Monkey run=1", MAX_SIZE, MAX_UPDATES);
+      int expected = (int) BitUtil.pop_array(tracked.bits, 0, tracked.bits.length);
+      assertEquals("At run=" + r + ", tracked cardinality should be correct", expected, tracked.cardinality());
     }
   }
 
