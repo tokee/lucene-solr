@@ -141,6 +141,33 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     testTrackedUpdates("flip range", TrackedFixedBitSet::flip);
   }
 
+  public void testIntersects() {
+    final int RUNS = 100;
+    int intersectsCount = 0;
+    for (int r = 0 ; r < RUNS ; r++) {
+      TrackedFixedBitSet bitset1 = getRandomTracked(10000, 1000);
+      TrackedFixedBitSet bitset2 = getRandomTracked(10000, 1000);
+      boolean expectedIntersects = false;
+      for (int i = 0 ; i < Math.min(bitset1.numWords, bitset2.numWords) ; i++) {
+        if ((bitset1.bits[i] & bitset2.bits[i]) != 0) {
+          expectedIntersects = true;
+          intersectsCount++;
+          break;
+        }
+      }
+      assertEquals("Intersects for run=" + r + " should be correct", expectedIntersects, bitset1.intersects(bitset2));
+    }
+    if (intersectsCount == 0) {
+      System.out.println(
+          "Warning: testIntersects had 0 intersects from " + RUNS + " runs. Load factor should be adjusted upwards");
+    } else if (intersectsCount == RUNS) {
+      System.out.println(
+          "Warning: testIntersects had " + intersectsCount + " intersects from " + RUNS + " runs. " +
+              "Load factor should be adjusted downwards");
+    }
+
+  }
+
   // Fails with -Dtests.seed=34189F61443AC28
   public void testTrackedWordIterator() {
     TrackedFixedBitSet bitset = getRandomTracked("WordIterator", 10000, 1000);

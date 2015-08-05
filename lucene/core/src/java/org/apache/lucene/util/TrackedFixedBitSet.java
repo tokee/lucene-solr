@@ -659,26 +659,27 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   }
 
   /**
-   * returns true if the sets have any elements in common.
    * Due to both sets being tracked, this is very fast for all non-pathological cases.
+   * @return true if the sets have any elements in common.
    **/
   public boolean intersects(TrackedFixedBitSet other) {
-    // TODO: We can increase speed significantly by iterating on this.tracker2 & other.tracker2
-    WordIterator words1 = this.wordIterator();
-    WordIterator words2 = this.wordIterator();
-    int wordNum1 = words1.nextWordNum();
-    int wordNum2 = words2.nextWordNum();
-    while (wordNum1 != WordIterator.NO_MORE_DOCS && wordNum2 != WordIterator.NO_MORE_DOCS) {
-      if (wordNum1 == wordNum2) {
-        if ((words1.word() & words2.word()) != 0) {
-          return true;
+    final int tracker2length = Math.min(this.tracker2.length, other.tracker2.length);
+    for (int tti = 0 ; tti < tracker2length ; tti++) {
+      long ttBitset = this.tracker2[tti] & other.tracker2[tti];
+      while (ttBitset != 0) {
+        final long tt = ttBitset & -ttBitset;
+        final int ti = Long.bitCount(tt-1);
+        ttBitset ^= tt;
+
+        long tBitset = this.tracker1[tti * 64 + ti] & other.tracker1[tti * 64 + ti];
+        while (tBitset != 0) {
+          final long t = tBitset & -tBitset;
+          final int i = Long.bitCount(t-1);
+          tBitset ^= t;
+          if ((this.bits[tti*64*64 + ti*64 + i] & other.bits[tti*64*64 + ti*64 + i]) != 0) {
+            return true;
+          }
         }
-        wordNum1 = words1.nextWordNum();
-        wordNum2 = words1.nextWordNum();
-      } else if (wordNum1 < wordNum2) {
-        wordNum1 = words1.nextWordNum();
-      } else {
-        wordNum2 = words2.nextWordNum();
       }
     }
     return false;
