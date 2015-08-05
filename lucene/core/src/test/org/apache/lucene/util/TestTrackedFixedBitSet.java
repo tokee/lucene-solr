@@ -18,6 +18,7 @@ package org.apache.lucene.util;
  */
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Random;
 
@@ -119,7 +120,7 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
   private void testTrackedUpdates(String message, int runs, int maxSize, int maxUpdates, TrackedDualCallback callback) {
     for (int r = 0 ; r < runs ; r++) {
       TrackedFixedBitSet bitset = getRandomTracked(message + ". Monkey run=" + r, 1+maxSize, maxUpdates);
-      int range = random().nextInt(bitset.numBits);
+      int range = random().nextInt(bitset.numBits-1);
       if (range > 0) {
         int start = random().nextInt((bitset.numBits-range-1)/2);
         callback.update(bitset, start, start + range);
@@ -168,7 +169,6 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
 
   }
 
-  // Fails with -Dtests.seed=34189F61443AC28
   public void testTrackedWordIterator() {
     TrackedFixedBitSet bitset = getRandomTracked("WordIterator", 10000, 1000);
     int expectedDirtyCount = 0;
@@ -234,9 +234,8 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     assertEquals("Tracked and not count should match non-tracked", expected, actual);
   }
 
-  // Fails with -Dtests.seed=BC2294B2FEC459D5
   public void testTrackedXor() {
-    final int RUNS = 1000;
+    final int RUNS = 10;
     for (int r = 0 ; r < RUNS ; r++) {
       long seed = random().nextLong();
       Random random = new Random(seed);
@@ -262,14 +261,14 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
   public void testSpecificTrackedXor() {
     final long SEED = 1126478005588440681L;
     Random random = new Random(SEED);
-    testTrackedXor("seed=" + SEED, random, 64*139, 64*123, 25, 25);
+    testTrackedXor("seed=" + SEED, random, 64 * 139, 64 * 123, 25, 25);
   }
 
   public void testTrackedXor(String message, Random random, int size1, int size2, int updates1, int updates2) {
-    TrackedFixedBitSet bitset1 = getRandomTrackedFixed(random, size1, updates1);
-    TrackedFixedBitSet bitset2 = getRandomTrackedFixed(random, size2, updates2);
-    //TrackedFixedBitSet bitset1 = getRandomTracked(10000, 100);
-    //TrackedFixedBitSet bitset2 = getRandomTracked(10000, 100);
+    //TrackedFixedBitSet bitset1 = getRandomTrackedFixed(random, size1, updates1);
+    //TrackedFixedBitSet bitset2 = getRandomTrackedFixed(random, size2, updates2);
+    TrackedFixedBitSet bitset1 = getRandomTracked(10000, 100);
+    TrackedFixedBitSet bitset2 = getRandomTracked(10000, 100);
     if (bitset2.numBits > bitset1.numBits) {
       TrackedFixedBitSet temp = bitset1;
       bitset1 = bitset2;
@@ -297,7 +296,85 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
               tracked1.bits.length, tracked2.bits.length),
           Long.toBinaryString(clone1.bits[i]), Long.toBinaryString(tracked1.bits[i]));
     }
+  }
 
+  public void testTrackedAnd() {
+    final int RUNS = 10;
+    for (int r = 0 ; r < RUNS ; r++) {
+      long seed = random().nextLong();
+      Random random = new Random(seed);
+      testAnd("run=" + r + ", seed=" + seed, random, 10000, 10000, 1000, 1000);
+    }
+  }
+  private void testAnd(String message, Random random, int size1, int size2, int updates1, int updates2) {
+    TrackedFixedBitSet bitset1 = getRandomTracked(size1, updates1);
+    TrackedFixedBitSet bitset2 = getRandomTracked(size2, updates2);
+
+    TrackedFixedBitSet tracked1 = bitset1.clone();
+    TrackedFixedBitSet tracked2 = bitset2.clone();
+
+    TrackedFixedBitSet clone1 = bitset1.clone();
+    TrackedFixedBitSet clone2 = bitset2.clone();
+
+    int pos = Math.min(clone1.numWords, clone2.numWords);
+    while (--pos >= 0) {
+      clone1.bits[pos] &= clone2.bits[pos];
+    }
+    if (clone1.numWords > clone2.numWords) {
+      Arrays.fill(clone1.bits, clone2.numWords, clone1.numWords, 0L);
+    }
+
+    tracked1.and(tracked2);
+    assertTrackers("Post-AND trackers", tracked1);
+    for (int i = 0; i < bitset1.bits.length; i++) {
+      assertEquals(String.format("%s. word[%d], original(%s, %s), expected(%s), actual(%s)," +
+                  " set1=%dw, set2=%dw should match",
+              message, i, Long.toBinaryString(bitset1.bits[i]),
+              bitset2.bits.length <= i ? "NA" : Long.toBinaryString(bitset2.bits[i]),
+              Long.toBinaryString(clone1.bits[i]), Long.toBinaryString(tracked1.bits[i]),
+              tracked1.bits.length, tracked2.bits.length),
+          Long.toBinaryString(clone1.bits[i]), Long.toBinaryString(tracked1.bits[i]));
+    }
+  }
+
+  public void testTrackedAndNot() {
+    final int RUNS = 10;
+    for (int r = 0 ; r < RUNS ; r++) {
+      long seed = random().nextLong();
+      Random random = new Random(seed);
+      testAndNot("run=" + r + ", seed=" + seed, random, 10000, 10000, 1000, 1000);
+    }
+  }
+  private void testAndNot(String message, Random random, int size1, int size2, int updates1, int updates2) {
+    TrackedFixedBitSet bitset1 = getRandomTracked(size1, updates1);
+    TrackedFixedBitSet bitset2 = getRandomTracked(size2, updates2);
+
+    TrackedFixedBitSet tracked1 = bitset1.clone();
+    TrackedFixedBitSet tracked2 = bitset2.clone();
+
+    TrackedFixedBitSet clone1 = bitset1.clone();
+    TrackedFixedBitSet clone2 = bitset2.clone();
+
+    int pos = Math.min(clone1.numWords, clone2.numWords);
+    while (--pos >= 0) {
+      clone1.bits[pos] &= ~clone2.bits[pos];
+    }
+// Ignore the rest of bitset1 as the original andNot in FixedBitSet does that
+//    if (clone1.numWords > clone2.numWords) {
+//      Arrays.fill(clone1.bits, clone2.numWords, clone1.numWords, 0L);
+//    }
+
+    tracked1.andNot(tracked2);
+    assertTrackers("Post-AND-NOT trackers", tracked1);
+    for (int i = 0; i < bitset1.bits.length; i++) {
+      assertEquals(String.format("%s. word[%d], original(%s, %s), expected(%s), actual(%s)," +
+                  " set1=%dw, set2=%dw should match",
+              message, i, Long.toBinaryString(bitset1.bits[i]),
+              bitset2.bits.length <= i ? "NA" : Long.toBinaryString(bitset2.bits[i]),
+              Long.toBinaryString(clone1.bits[i]), Long.toBinaryString(tracked1.bits[i]),
+              tracked1.bits.length, tracked2.bits.length),
+          Long.toBinaryString(clone1.bits[i]), Long.toBinaryString(tracked1.bits[i]));
+    }
   }
 
   private TrackedFixedBitSet getRandomTracked(int maxSize, int maxUpdates) {

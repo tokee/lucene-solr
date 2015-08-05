@@ -41,25 +41,21 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    * {@link org.apache.lucene.util.TrackedFixedBitSet}.
    */
   public static final class TrackedFixedBitSetIterator extends DocIdSetIterator {
-
+    final TrackedFixedBitSet source;
     final int numBits, numWords;
-    final long[] t2;
-    final long[] t1;
     final long[] bits;
+    final long[] t1;
+    final long[] t2;
     int doc = -1;
 
     /** Creates an iterator over the given {@link org.apache.lucene.util.TrackedFixedBitSet}. */
-    public TrackedFixedBitSetIterator(TrackedFixedBitSet bits) {
-      this(bits.bits, bits.numBits, bits.tracker1, bits.tracker2, bits.numWords);
-    }
-
-    /** Creates an iterator over the given array of bits. */
-    public TrackedFixedBitSetIterator(long[] bits, int numBits, long[] t1, long[] t2, int wordLength) {
-      this.bits = bits;
-      this.numBits = numBits;
-      this.t1 = t1;
-      this.t2 = t2;
-      this.numWords = wordLength;
+    public TrackedFixedBitSetIterator(TrackedFixedBitSet bitset) {
+      this.bits = bitset.bits;
+      this.numBits = bitset.numBits;
+      this.t1 = bitset.tracker1;
+      this.t2 = bitset.tracker2;
+      this.numWords = bitset.numWords;
+      this.source = bitset;
     }
 
     @Override
@@ -241,7 +237,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       if (numWords >= arr.length) {
         arr = ArrayUtil.grow(arr, numWords + 1);
       }
-    // TODO: Copy existing tracking bits
+      // TODO: Copy existing tracking bits instead of recreating them
       return new TrackedFixedBitSet(arr, arr.length << 6);
     }
   }
@@ -394,7 +390,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
   @Override
   public DocIdSetIterator iterator() {
-    return new TrackedFixedBitSetIterator(bits, numBits, tracker1, tracker2, numWords);
+    return new TrackedFixedBitSetIterator(this);
   }
 
   @Override
@@ -548,7 +544,6 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   /** Does in-place OR of the bits provided by the
    *  iterator. */
   public void or(DocIdSetIterator iter) throws IOException {
-    // TODO: Use trackers
     if (iter instanceof OpenBitSetIterator && iter.docID() == -1) {
       final OpenBitSetIterator obs = (OpenBitSetIterator) iter;
       or(obs.arr, obs.words);
@@ -557,7 +552,8 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       obs.advance(numBits);
     } else if (iter instanceof TrackedFixedBitSetIterator && iter.docID() == -1) {
       final TrackedFixedBitSetIterator fbs = (TrackedFixedBitSetIterator) iter;
-      or(fbs.bits, fbs.numWords);
+      or(fbs.source);
+//      or(fbs.bits, fbs.numWords);
       // advance after last doc that would be accepted if standard
       // iteration is used (to exhaust it):
       fbs.advance(numBits);
@@ -571,8 +567,17 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
   /** this = this OR other */
   public void or(TrackedFixedBitSet other) {
-    // TODO: Use trackers
-    or(other.bits, other.numWords);
+    merge(this, other, false, (wordNum, word1, word2) -> {
+      if (word2 != 0) {
+        long original = bits[wordNum];
+        bits[wordNum] = word1 | word2;
+        if (original == 0) {
+          trackWord(wordNum);
+        }
+      }
+      return 0;
+    });
+//    or(other.bits, other.numWords);
   }
   
   private void or(final long[] otherArr, final int otherNumWords) {
@@ -592,7 +597,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     int limit = Math.min(numWords, other.numWords);
     merge(this, other, false, (wordNum, word1, word2) -> {
       if (wordNum >= limit) {
-        return 0;
+        return 0; // Some break-out mechanism would be nice
       }
       long original = bits[wordNum];
       bits[wordNum] = word1 ^ word2;
@@ -609,7 +614,6 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     final long[] otherBits = other.bits;
     int pos = Math.min(numWords, other.numWords);
     while (--pos >= 0) {
-    // TODO: Use trackers
       final long original = thisBits[pos];
       thisBits[pos] ^= otherBits[pos];
       if (original == 0 && thisBits[pos] != 0) {
@@ -640,7 +644,8 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       obs.advance(numBits);
     } else if (iter instanceof TrackedFixedBitSetIterator && iter.docID() == -1) {
       final TrackedFixedBitSetIterator fbs = (TrackedFixedBitSetIterator) iter;
-      and(fbs.bits, fbs.numWords);
+      and(fbs.source);
+      //and(fbs.bits, fbs.numWords);
       // advance after last doc that would be accepted if standard
       // iteration is used (to exhaust it):
       fbs.advance(numBits);
@@ -694,8 +699,17 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
   /** this = this AND other */
   public void and(TrackedFixedBitSet other) {
-    // TODO: Use trackers
-    and(other.bits, other.numWords);
+    merge(this, other, false, (wordNum, word1, word2) -> {
+      if (word1 == 0) {
+        return 0;
+      }
+      final long original = bits[wordNum];
+      if (((bits[wordNum] = word1 & word2) == 0) && original != 0) {
+        untrackWord(wordNum);
+      }
+      return 0;
+    });
+//    and(other.bits, other.numWords);
   }
   
   private void and(final long[] otherArr, final int otherNumWords) {
@@ -721,7 +735,8 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       obs.advance(numBits);
     } else if (iter instanceof TrackedFixedBitSetIterator && iter.docID() == -1) {
       final TrackedFixedBitSetIterator fbs = (TrackedFixedBitSetIterator) iter;
-      andNot(fbs.bits, fbs.numWords);
+      andNot(fbs.source);
+//      andNot(fbs.bits, fbs.numWords);
       // advance after last doc that would be accepted if standard
       // iteration is used (to exhaust it):
       fbs.advance(numBits);
@@ -735,21 +750,50 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
   /** this = this AND NOT other */
   public void andNot(TrackedFixedBitSet other) {
-    // TODO: Use trackers
-    andNot(other.bits, other.bits.length);
+    // Mimics the probably false behaviour of andNot(long[], int)
+    merge(this, other, true, (wordNum, word1, word2) -> {
+      if (word1 == 0) {
+        return 0;
+      }
+      final long original = bits[wordNum];
+      if (((bits[wordNum] = word1 & ~word2) == 0) && original != 0) {
+        untrackWord(wordNum);
+      }
+      return 0;
+    });
+//    andNot(other.bits, other.bits.length);
   }
   
   private void andNot(final long[] otherArr, final int otherNumWords) {
-    final long[] thisArr = this.bits;
+    final long[] thisArr = this.bits; // This behavious differs from and where
     int pos = Math.min(this.numWords, otherNumWords);
     while(--pos >= 0) {
+      long original = thisArr[pos];
       thisArr[pos] &= ~otherArr[pos];
+      if (original == 0 && thisArr[pos] != 0) {
+        trackWord(pos);
+      } else if (original != 0 && thisArr[pos] == 0) {
+        untrackWord(pos);
+      }
     }
   }
 
   // NOTE: no .isEmpty() here because that's trappy (ie,
   // typically isEmpty is low cost, but this one wouldn't
   // be)
+
+  /**
+   * With tracking, isEmpty is low cost: It iterates a long[] of length #bits/64/64/64..
+   * @return true is no bits are set, else false.
+   */
+  public boolean isEmpty() {
+    for (long entry : tracker2) {
+      if (entry != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   /** Flips a range of bits
    *
