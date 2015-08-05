@@ -119,7 +119,10 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     }
   }
 
-  static final class WordIterator {
+  public WordIterator wordIterator() {
+    return new WordIterator(this);
+  }
+  public static final class WordIterator {
     public static final int NO_MORE_DOCS = DocIdSetIterator.NO_MORE_DOCS;
 
     final int numBits, numWords;
@@ -166,7 +169,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
         t1Bitset = tracker1[t2Num * 64 + t1Num];
       }
       final long t1Magic = t1Bitset & -t1Bitset;
-      wordNum = Long.bitCount(t1Magic - 1);
+      wordNum = t2Num*64*64 + t1Num*64 + Long.bitCount(t1Magic - 1);
       t1Bitset ^= t1Magic;
       return wordNum;
     }
@@ -177,7 +180,46 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     public int wordNum() {
       return wordNum;
     }
+  }
 
+  @FunctionalInterface
+  private interface MergeCallback {
+    long merge(int wordNum, long word1, long word2);
+  }
+  private static long merge(TrackedFixedBitSet tracked1, TrackedFixedBitSet tracked2,
+                     boolean stopAtFirstDepletion, MergeCallback callback) {
+    long total = 0;
+    WordIterator words1 = tracked1.wordIterator();
+    WordIterator words2 = tracked2.wordIterator();
+    int wordNum1 = words1.nextWordNum();
+    int wordNum2 = words2.nextWordNum();
+    while (wordNum1 != WordIterator.NO_MORE_DOCS && wordNum2 != WordIterator.NO_MORE_DOCS) {
+      if (wordNum1 == wordNum2) {
+        total += callback.merge(wordNum1, words1.word(), words2.word());
+        wordNum1 = words1.nextWordNum();
+        wordNum2 = words2.nextWordNum();
+      } else if (wordNum1 < wordNum2) {
+        total += callback.merge(wordNum1, words1.word(), 0);
+        wordNum1 = words1.nextWordNum();
+      } else {
+        total += callback.merge(wordNum2, 0, words2.word());
+        wordNum2 = words2.nextWordNum();
+      }
+    }
+    if (stopAtFirstDepletion) {
+      return total;
+    }
+
+    // Empty the last one
+    while (wordNum1 != WordIterator.NO_MORE_DOCS) {
+      total += callback.merge(wordNum1, words1.word(), 0);
+      wordNum1 = words1.nextWordNum();
+    }
+    while (wordNum2 != WordIterator.NO_MORE_DOCS) {
+      total += callback.merge(wordNum2, 0, words2.word());
+      wordNum2 = words2.nextWordNum();
+    }
+    return total;
   }
 
   /**
@@ -218,8 +260,8 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    * Neither set is modified.
    */
   public static long intersectionCount(TrackedFixedBitSet a, TrackedFixedBitSet b) {
-    // TODO: Use tracking to optimize
-    return BitUtil.pop_intersect(a.bits, b.bits, 0, Math.min(a.numWords, b.numWords));
+    return merge(a, b, true, (wordNum, word1, word2) -> Long.bitCount(word1 & word2));
+//    return BitUtil.pop_intersect(a.bits, b.bits, 0, Math.min(a.numWords, b.numWords));
   }
 
   /**
@@ -227,14 +269,15 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    * set is modified.
    */
   public static long unionCount(TrackedFixedBitSet a, TrackedFixedBitSet b) {
-    // TODO: Use tracking to optimize
+    return merge(a, b, false, (wordNum, word1, word2) -> Long.bitCount(word1 | word2));
+/*
     long tot = BitUtil.pop_union(a.bits, b.bits, 0, Math.min(a.numWords, b.numWords));
     if (a.numWords < b.numWords) {
       tot += BitUtil.pop_array(b.bits, a.numWords, b.numWords - a.numWords);
     } else if (a.numWords > b.numWords) {
       tot += BitUtil.pop_array(a.bits, b.numWords, a.numWords - b.numWords);
     }
-    return tot;
+    return tot;*/
   }
 
   /**
@@ -242,12 +285,12 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    * "intersection(a, not(b))". Neither set is modified.
    */
   public static long andNotCount(TrackedFixedBitSet a, TrackedFixedBitSet b) {
-    // TODO: Use tracking to optimize
-    long tot = BitUtil.pop_andnot(a.bits, b.bits, 0, Math.min(a.numWords, b.numWords));
+    return merge(a, b, false, (wordNum, word1, word2) -> Long.bitCount(word1 & ~word2));
+/*    long tot = BitUtil.pop_andnot(a.bits, b.bits, 0, Math.min(a.numWords, b.numWords));
     if (a.numWords > b.numWords) {
       tot += BitUtil.pop_array(a.bits, b.numWords, a.numWords - b.numWords);
     }
-    return tot;
+    return tot;*/
   }
 
   final long[] tracker2;
@@ -537,8 +580,9 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     final long[] thisArr = this.bits;
     int pos = Math.min(numWords, otherNumWords);
     while (--pos >= 0) {
-    // TODO: Update trackers
-      thisArr[pos] |= otherArr[pos];
+      if ((thisArr[pos] |= otherArr[pos]) != 0) {
+        trackWord(pos);
+      }
     }
   }
   
@@ -549,8 +593,14 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     final long[] otherBits = other.bits;
     int pos = Math.min(numWords, other.numWords);
     while (--pos >= 0) {
-    // TODO: Update trackers
+    // TODO: Use trackers
+      final long original = thisBits[pos];
       thisBits[pos] ^= otherBits[pos];
+      if (original == 0 && thisBits[pos] != 0) {
+        trackWord(pos);
+      } else if (original != 0 && thisBits[pos] == 0) {
+        untrackWord(pos);
+      }
     }
   }
   
@@ -558,7 +608,6 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   public void xor(DocIdSetIterator iter) throws IOException {
     int doc;
     while ((doc = iter.nextDoc()) < numBits) {
-      // TODO: Update trackers
       flip(doc, doc + 1);
     }
   }
@@ -819,12 +868,23 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     if (numBits != other.length()) {
       return false;
     }
-    return Arrays.equals(bits, other.bits);
+    WordIterator words1 = this.wordIterator();
+    WordIterator words2 = other.wordIterator();
+    int wordNum1 = words1.nextWordNum();
+    int wordNum2 = words2.nextWordNum();
+    while (wordNum1 != WordIterator.NO_MORE_DOCS && wordNum2 != WordIterator.NO_MORE_DOCS) {
+      if (wordNum1 != wordNum2 || words1.word() != words2.word()) {
+        return false;
+      }
+      wordNum1 = words1.nextWordNum();
+      wordNum2 = words2.nextWordNum();
+    }
+    return wordNum1 == WordIterator.NO_MORE_DOCS && wordNum2 == WordIterator.NO_MORE_DOCS;
+    //return Arrays.equals(bits, other.bits);
   }
 
   @Override
   public int hashCode() {
-    // TODO: Use trackers
     long h = 0;
     for (int i = numWords; --i>=0;) {
       h ^= bits[i];

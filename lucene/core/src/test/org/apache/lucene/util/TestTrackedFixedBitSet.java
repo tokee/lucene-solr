@@ -140,8 +140,9 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     testTrackedUpdates("flip range", TrackedFixedBitSet::flip);
   }
 
+  // Fails with -Dtests.seed=34189F61443AC28
   public void testTrackedWordIterator() {
-    TrackedFixedBitSet bitset = getRandomTracked("WordIterator", 10000, 100); // 1% load
+    TrackedFixedBitSet bitset = getRandomTracked("WordIterator", 10000, 1000);
     int expectedDirtyCount = 0;
     for (long word: bitset.bits) {
       if (word != 0) {
@@ -150,9 +151,13 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     }
     {
       int wordIteratorCount = 0;
+      int lastWordNum = -1;
       TrackedFixedBitSet.WordIterator wi = new TrackedFixedBitSet.WordIterator(bitset);
       while (wi.nextWordNum() != TrackedFixedBitSet.WordIterator.NO_MORE_DOCS) {
         wordIteratorCount++;
+        assertTrue("The wordNum should be more than last (" + lastWordNum + ") but was " + wi.wordNum,
+            lastWordNum < wi.wordNum);
+        lastWordNum = wi.wordNum;
       }
       assertEquals("The number of non-0 words should be correct", expectedDirtyCount, wordIteratorCount);
     }
@@ -166,6 +171,44 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
 
   }
 
+  public void testTrackedIntersectionCount() {
+    TrackedFixedBitSet bitset1 = getRandomTracked("Intersection", 10000, 100); // 1% load
+    TrackedFixedBitSet bitset2 = getRandomTracked("Intersection", 10000, 100); // 1% load
+
+    long expected = BitUtil.pop_intersect(bitset1.bits, bitset2.bits, 0, Math.min(bitset1.numWords, bitset2.numWords));
+    long actual = TrackedFixedBitSet.intersectionCount(bitset1, bitset2);
+    assertEquals("Tracked intersection count should match non-tracked", expected, actual);
+  }
+
+  public void testTrackedUnionCount() {
+    TrackedFixedBitSet a = getRandomTracked("Intersection", 10000, 100); // 1% load
+    TrackedFixedBitSet b = getRandomTracked("Intersection", 10000, 100); // 1% load
+
+    long expected = BitUtil.pop_union(a.bits, b.bits, 0, Math.min(a.numWords, b.numWords));
+    if (a.numWords < b.numWords) {
+      expected += BitUtil.pop_array(b.bits, a.numWords, b.numWords - a.numWords);
+    } else if (a.numWords > b.numWords) {
+      expected += BitUtil.pop_array(a.bits, b.numWords, a.numWords - b.numWords);
+    }
+    long actual = TrackedFixedBitSet.unionCount(a, b);
+    assertEquals("Tracked union count should match non-tracked", expected, actual);
+  }
+
+  public void testTrackedAndNotCount() {
+    TrackedFixedBitSet a = getRandomTracked(10000, 100);
+    TrackedFixedBitSet b = getRandomTracked(10000, 100);
+
+    long expected = BitUtil.pop_andnot(a.bits, b.bits, 0, Math.min(a.numWords, b.numWords));
+    if (a.numWords > b.numWords) {
+      expected += BitUtil.pop_array(a.bits, b.numWords, a.numWords - b.numWords);
+    }
+    long actual = TrackedFixedBitSet.andNotCount(a, b);
+    assertEquals("Tracked and not count should match non-tracked", expected, actual);
+  }
+
+  private TrackedFixedBitSet getRandomTracked(int maxSize, int maxUpdates) {
+    return getRandomTracked("Sample request", maxSize, maxUpdates);
+  }
   private TrackedFixedBitSet getRandomTracked(String message, int maxSize, int maxUpdates) {
     TrackedFixedBitSet bitset = new TrackedFixedBitSet(random().nextInt(maxSize -1)+1);
     final int updates = random().nextInt(maxUpdates /4); // Multiple updates per iteration
@@ -178,6 +221,8 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     assertTrackers(message + ": size=" + bitset.numBits + ", updates=" + updates, bitset);
     return bitset;
   }
+
+
 
   public void testTrackedCardinalityMonkey() {
     final int RUNS = 50;
@@ -281,7 +326,7 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
       assertEquals(aa == -1 ? DocIdSetIterator.NO_MORE_DOCS : aa, bb);
     } while (aa>=0);
   }
-
+  // Fails with at __randomizedtesting.SeedInfo.seed([77D50AC618EDD9F7:124027C048F31134]:0)
   void doRandomSets(int maxSize, int iter, int mode) throws IOException {
     BitSet a0=null;
     TrackedFixedBitSet b0=null;
