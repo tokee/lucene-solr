@@ -95,23 +95,6 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     }
   }
 
-  public void testTrackedClearRangeMonkey() {
-    final int RUNS = 50;
-    final int MAX_UPDATES = 10000;
-    final int MAX_SIZE = 64*64*64*10;
-
-    for (int r = 0 ; r < RUNS ; r++) {
-      TrackedFixedBitSet bitset = getRandomTracked("Monkey run=1", MAX_SIZE, MAX_UPDATES);
-      int range = random().nextInt(bitset.numBits);
-      if (range > 0) {
-        int start = random().nextInt((bitset.numBits-range-1)/2);
-        bitset.clear(start, start+range);
-        assertTrackers(
-            "TrackedClear(" + start + ", " + (start+range) + ") run=" + r + ",  bitset=" + bitset.numBits, bitset);
-      }
-    }
-  }
-
   public void testTrackedSetRange128() {
     TrackedFixedBitSet bitset = new TrackedFixedBitSet(256);
     bitset.set(1, 128);
@@ -124,21 +107,37 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     assertTrackers("bitmap(256).set(1, 129)", bitset);
   }
 
-  public void testTrackedSetRangeMonkey() {
-    final int RUNS = 50;
-    final int MAX_UPDATES = 10000;
-    final int MAX_SIZE = 64*64*64*10;
+  @FunctionalInterface
+  private interface TrackedDualCallback {
+    public void update(TrackedFixedBitSet bitset, Integer start, Integer end);
+  }
 
-    for (int r = 0 ; r < RUNS ; r++) {
-      TrackedFixedBitSet bitset = getRandomTracked("Monkey run=1", MAX_SIZE, MAX_UPDATES);
+  private void testTrackedUpdates(String message, TrackedDualCallback callback) {
+    testTrackedUpdates(message, 10, 10000, 64 * 64 * 64 * 10, callback);
+  }
+  private void testTrackedUpdates(String message, int runs, int maxSize, int maxUpdates, TrackedDualCallback callback) {
+    for (int r = 0 ; r < runs ; r++) {
+      TrackedFixedBitSet bitset = getRandomTracked(message + ". Monkey run=" + r, maxSize, maxUpdates);
       int range = random().nextInt(bitset.numBits);
       if (range > 0) {
         int start = random().nextInt((bitset.numBits-range-1)/2);
-        bitset.set(start, start + range);
-        assertTrackers(
-            "TrackedSet(" + start + ", " + (start+range) + ") run=" + r + ",  bitset=" + bitset.numBits, bitset);
+        callback.update(bitset, start, start + range);
+        assertTrackers(message +
+            ": update(" + start + ", " + (start+range) + ") run=" + r + ",  bitset=" + bitset.numBits, bitset);
       }
     }
+  }
+
+  public void testTrackedSetRangeMonkey() {
+    testTrackedUpdates("set range", TrackedFixedBitSet::set);
+  }
+
+  public void testTrackedClearRangeMonkey() {
+    testTrackedUpdates("clear range", TrackedFixedBitSet::clear);
+  }
+
+  public void testTrackedFlipRangeMonkey() {
+    testTrackedUpdates("flip range", TrackedFixedBitSet::flip);
   }
 
   private TrackedFixedBitSet getRandomTracked(String message, int maxSize, int maxUpdates) {

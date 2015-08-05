@@ -697,6 +697,12 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     long startmask = -1L << startIndex;
     long endmask = -1L >>> -endIndex;  // 64-(endIndex&0x3f) is the same as -endIndex due to wrap
 
+    if (bits[startWord] == 0) {
+      trackWord(startWord);
+    } else if (bits[startWord] == -1L) {
+        untrackWord(startWord);
+    }
+
     if (startWord == endWord) {
       bits[startWord] ^= (startmask & endmask);
       return;
@@ -705,9 +711,19 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     bits[startWord] ^= startmask;
 
     for (int i=startWord+1; i<endWord; i++) {
+      if (bits[i] == 0) {
+        trackWord(i);
+      } else if (bits[i] == -1L) {
+          untrackWord(i);
+      }
       bits[i] = ~bits[i];
     }
 
+    if (bits[endWord] == 0) {
+      trackWord(endWord);
+    } else if (bits[endWord] == -1L) {
+        untrackWord(endWord);
+    }
     bits[endWord] ^= endmask;
   }
 
