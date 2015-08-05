@@ -140,6 +140,32 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     testTrackedUpdates("flip range", TrackedFixedBitSet::flip);
   }
 
+  public void testTrackedWordIterator() {
+    TrackedFixedBitSet bitset = getRandomTracked("WordIterator", 10000, 100); // 1% load
+    int expectedDirtyCount = 0;
+    for (long word: bitset.bits) {
+      if (word != 0) {
+        expectedDirtyCount++;
+      }
+    }
+    {
+      int wordIteratorCount = 0;
+      TrackedFixedBitSet.WordIterator wi = new TrackedFixedBitSet.WordIterator(bitset);
+      while (wi.nextWordNum() != TrackedFixedBitSet.WordIterator.NO_MORE_DOCS) {
+        wordIteratorCount++;
+      }
+      assertEquals("The number of non-0 words should be correct", expectedDirtyCount, wordIteratorCount);
+    }
+    TrackedFixedBitSet.WordIterator wi = new TrackedFixedBitSet.WordIterator(bitset);
+    while (wi.nextWordNum() != TrackedFixedBitSet.WordIterator.NO_MORE_DOCS) {
+      assertFalse("The iterated word at wordNum " + wi.wordNum() + " should not be 0",
+          wi.word() == 0);
+      assertFalse("The directly accessed word at wordNum " + wi.wordNum() + " should not be 0",
+          bitset.bits[wi.wordNum()] == 0);
+    }
+
+  }
+
   private TrackedFixedBitSet getRandomTracked(String message, int maxSize, int maxUpdates) {
     TrackedFixedBitSet bitset = new TrackedFixedBitSet(random().nextInt(maxSize -1)+1);
     final int updates = random().nextInt(maxUpdates /4); // Multiple updates per iteration

@@ -119,72 +119,63 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     }
   }
 
-  private static final class DirtyWordIterator {
+  static final class WordIterator {
     public static final int NO_MORE_DOCS = DocIdSetIterator.NO_MORE_DOCS;
 
     final int numBits, numWords;
     final long[] bits;
-    final long[] t1;
-    final long[] t2;
-    int word = -1;
-    int t1pos = 0;
-    int t2pos = 0;
-    long t1Bitset;
-    long t2Bitset;
+    final long[] tracker1;
+    final long[] tracker2;
 
-    public DirtyWordIterator(TrackedFixedBitSet bits) {
+    int t1Num = -1;
+    int t2Num = -1;
+    int wordNum = -1;
+
+    long t1Bitset, t2Bitset;
+
+    public WordIterator(TrackedFixedBitSet bits) {
       this(bits.bits, bits.numBits, bits.tracker1, bits.tracker2, bits.numWords);
     }
 
     /** Creates an iterator over the given array of bits. */
-    public DirtyWordIterator(long[] bits, int numBits, long[] t1, long[] t2, int wordLength) {
+    public WordIterator(long[] bits, int numBits, long[] tracker1, long[] tracker2, int wordLength) {
       this.bits = bits;
       this.numBits = numBits;
       this.numWords = wordLength;
-      this.t1 = t1;
-      this.t1Bitset = t1[0];
-      this.t2 = t2;
-      this.t2Bitset = t2[0];
+      this.tracker1 = tracker1;
+      this.tracker2 = tracker2;
     }
 
+    @SuppressWarnings("StatementWithEmptyBody")
     public int nextWordNum() {
-      if (word == NO_MORE_DOCS) {
+      if (wordNum == NO_MORE_DOCS) {
         return NO_MORE_DOCS;
       }
-      throw new UnsupportedOperationException("Not implemented yet");
-/*
-      for (int tti = 0 ; tti < trackerTracker.length() ; tti++) {
-        long ttBitset = trackerTracker.get(tti);
-        while (ttBitset != 0) {
-          final long tt = ttBitset & -ttBitset;
-          final int ti = Long.bitCount(tt-1);
-          ttBitset ^= tt;
 
-          long tBitset = tracker.get(tti * 64 + ti);
-          while (tBitset != 0) {
-            final long t = tBitset & -tBitset;
-            final int i = Long.bitCount(t-1);
-            tBitset ^= t;
-            long vBitset = counts.getNonZeroBits(tti*64*64 + ti*64 + i);
-            while (vBitset != 0) {
-              final long v = vBitset & -vBitset;
-              final int z = Long.bitCount(v-1);
-              vBitset ^= v;
-
-              final int counter = tti*64*64*64 + ti*64*64 + i*64 + z;
-              final long value = get(counter);
-              if (counter >= start && counter <= end && value >= sparseMinValue) {
-                filled |= callback.handle(counter, value);
-              }
-            }
+      while (t1Bitset == 0) {
+        while (t2Bitset == 0) {
+          if (++t2Num == tracker2.length) {
+            return wordNum = NO_MORE_DOCS;
           }
+          t2Bitset = tracker2[t2Num];
         }
-      }*/
+        final long t2Magic = t2Bitset & -t2Bitset;
+        t1Num = Long.bitCount(t2Magic - 1);
+        t2Bitset ^= t2Magic;
 
+        t1Bitset = tracker1[t2Num * 64 + t1Num];
+      }
+      final long t1Magic = t1Bitset & -t1Bitset;
+      wordNum = Long.bitCount(t1Magic - 1);
+      t1Bitset ^= t1Magic;
+      return wordNum;
     }
 
     public long word() {
-      return bits[word];
+      return bits[wordNum];
+    }
+    public int wordNum() {
+      return wordNum;
     }
 
   }
@@ -677,7 +668,6 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    * @param endIndex one-past the last bit to flip
    */
   public void flip(int startIndex, int endIndex) {
-    // TODO: Update trackers
     assert startIndex >= 0 && startIndex < numBits;
     assert endIndex >= 0 && endIndex <= numBits;
     if (endIndex <= startIndex) {
@@ -733,7 +723,6 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    * @param endIndex one-past the last bit to set
    */
   public void set(int startIndex, int endIndex) {
-    // TODO: Update trackers
     assert startIndex >= 0 && startIndex < numBits;
     assert endIndex >= 0 && endIndex <= numBits;
     if (endIndex <= startIndex) {
