@@ -632,7 +632,6 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   /** Does in-place AND of the bits provided by the
    *  iterator. */
   public void and(DocIdSetIterator iter) throws IOException {
-    // TODO: Update trackers
     if (iter instanceof OpenBitSetIterator && iter.docID() == -1) {
       final OpenBitSetIterator obs = (OpenBitSetIterator) iter;
       and(obs.arr, obs.words);
@@ -659,14 +658,37 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     }
   }
 
-  /** returns true if the sets have any elements in common */
+  /**
+   * returns true if the sets have any elements in common.
+   * Due to both sets being tracked, this is very fast for all non-pathological cases.
+   **/
   public boolean intersects(TrackedFixedBitSet other) {
-    // TODO: Use trackers
+    // TODO: We can increase speed significantly by iterating on this.tracker2 & other.tracker2
+    WordIterator words1 = this.wordIterator();
+    WordIterator words2 = this.wordIterator();
+    int wordNum1 = words1.nextWordNum();
+    int wordNum2 = words2.nextWordNum();
+    while (wordNum1 != WordIterator.NO_MORE_DOCS && wordNum2 != WordIterator.NO_MORE_DOCS) {
+      if (wordNum1 == wordNum2) {
+        if ((words1.word() & words2.word()) != 0) {
+          return true;
+        }
+        wordNum1 = words1.nextWordNum();
+        wordNum2 = words1.nextWordNum();
+      } else if (wordNum1 < wordNum2) {
+        wordNum1 = words1.nextWordNum();
+      } else {
+        wordNum2 = words2.nextWordNum();
+      }
+    }
+    return false;
+
+/*
     int pos = Math.min(numWords, other.numWords);
     while (--pos>=0) {
       if ((bits[pos] & other.bits[pos]) != 0) return true;
     }
-    return false;
+    return false;*/
   }
 
   /** this = this AND other */

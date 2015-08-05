@@ -118,7 +118,7 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
   }
   private void testTrackedUpdates(String message, int runs, int maxSize, int maxUpdates, TrackedDualCallback callback) {
     for (int r = 0 ; r < runs ; r++) {
-      TrackedFixedBitSet bitset = getRandomTracked(message + ". Monkey run=" + r, maxSize, maxUpdates);
+      TrackedFixedBitSet bitset = getRandomTracked(message + ". Monkey run=" + r, 1+maxSize, maxUpdates);
       int range = random().nextInt(bitset.numBits);
       if (range > 0) {
         int start = random().nextInt((bitset.numBits-range-1)/2);
