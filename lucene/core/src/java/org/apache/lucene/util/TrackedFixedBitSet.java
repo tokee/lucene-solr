@@ -183,10 +183,10 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   }
 
   @FunctionalInterface
-  private interface MergeCallback {
+  interface MergeCallback {
     long merge(int wordNum, long word1, long word2);
   }
-  private static long merge(TrackedFixedBitSet tracked1, TrackedFixedBitSet tracked2,
+  static long merge(TrackedFixedBitSet tracked1, TrackedFixedBitSet tracked2,
                      boolean stopAtFirstDepletion, MergeCallback callback) {
     long total = 0;
     WordIterator words1 = tracked1.wordIterator();
@@ -585,15 +585,17 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       }
     }
   }
-  
+
   /** this = this XOR other */
   public void xor(TrackedFixedBitSet other) {
     assert other.numWords <= numWords : "numWords=" + numWords + ", other.numWords=" + other.numWords;
-//    System.out.println("---------------------------------------------------------------------------");
-    merge(this, other, true, (wordNum, word1, word2) -> {
-//      System.out.println("bits[" + wordNum + "] = " + word1 + "^" + word2 + " = " + (word1^word2));
+    int limit = Math.min(numWords, other.numWords);
+    merge(this, other, false, (wordNum, word1, word2) -> {
+      if (wordNum >= limit) {
+        return 0;
+      }
       long original = bits[wordNum];
-      bits[wordNum] = word1^word2;
+      bits[wordNum] = word1 ^ word2;
       if (original == 0 && bits[wordNum] != 0) {
         trackWord(wordNum);
       } else if (original != 0 && bits[wordNum] == 0) {
