@@ -589,6 +589,20 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   /** this = this XOR other */
   public void xor(TrackedFixedBitSet other) {
     assert other.numWords <= numWords : "numWords=" + numWords + ", other.numWords=" + other.numWords;
+//    System.out.println("---------------------------------------------------------------------------");
+    merge(this, other, true, (wordNum, word1, word2) -> {
+//      System.out.println("bits[" + wordNum + "] = " + word1 + "^" + word2 + " = " + (word1^word2));
+      long original = bits[wordNum];
+      bits[wordNum] = word1^word2;
+      if (original == 0 && bits[wordNum] != 0) {
+        trackWord(wordNum);
+      } else if (original != 0 && bits[wordNum] == 0) {
+        untrackWord(wordNum);
+      }
+      return 0; // We only deal in side effects for this
+    });
+
+/*
     final long[] thisBits = this.bits;
     final long[] otherBits = other.bits;
     int pos = Math.min(numWords, other.numWords);
@@ -601,11 +615,12 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       } else if (original != 0 && thisBits[pos] == 0) {
         untrackWord(pos);
       }
-    }
+    }*/
   }
   
   /** Does in-place XOR of the bits provided by the iterator. */
   public void xor(DocIdSetIterator iter) throws IOException {
+    // TODO: Be smart if the iterator is from a TrackedFixedBitSet
     int doc;
     while ((doc = iter.nextDoc()) < numBits) {
       flip(doc, doc + 1);

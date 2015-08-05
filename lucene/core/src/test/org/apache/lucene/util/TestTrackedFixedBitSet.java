@@ -429,7 +429,8 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
       b0=b;
     }
   }
-  
+
+  // FIXME: Fails with -Dtests.seed=1CA43F6F68659338
   // large enough to flush obvious bugs, small enough to run in <.5 sec as part of a
   // larger testsuite.
   public void testSmall() throws IOException {
