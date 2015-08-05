@@ -726,7 +726,6 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   /** Does in-place AND NOT of the bits provided by the
    *  iterator. */
   public void andNot(DocIdSetIterator iter) throws IOException {
-    // TODO: Use trackers
     if (iter instanceof OpenBitSetIterator && iter.docID() == -1) {
       final OpenBitSetIterator obs = (OpenBitSetIterator) iter;
       andNot(obs.arr, obs.words);
@@ -765,7 +764,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   }
   
   private void andNot(final long[] otherArr, final int otherNumWords) {
-    final long[] thisArr = this.bits; // This behavious differs from and where
+    final long[] thisArr = this.bits; // This behavious differs from and
     int pos = Math.min(this.numWords, otherNumWords);
     while(--pos >= 0) {
       long original = thisArr[pos];
