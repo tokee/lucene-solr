@@ -169,6 +169,33 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
 
   }
 
+  public void testTrackedWordAdvance() {
+    TrackedFixedBitSet bitset = new TrackedFixedBitSet(64*64*10);
+    bitset.set(0);       // w0
+    bitset.set(64*1+7);  // w1
+    bitset.set(64*64-1); // w63
+    bitset.set(64*64);   // w64
+    bitset.set(64*80);   // w80
+    bitset.set(64*128);  // w128
+
+    { // Base check
+      final int[] WORDNUMS = new int[]{0, 1, 63, 64, 80};
+      TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
+      for (int wordNum: WORDNUMS) {
+        assertEquals("Base iteration of words", wordNum, words.nextWordNum());
+
+      }
+    }
+    { // Advance A
+      TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
+      assertEquals("Advance start", 0, words.nextWordNum());
+      assertEquals("Advance 1 (match)", 1, words.advance(1));
+      assertEquals("Advance 5 (not match)", 63, words.advance(5));
+      assertEquals("Advance plain next", 64, words.nextWordNum());
+      assertEquals("Advance 81 (skip over)", 128, words.advance(81));
+    }
+  }
+
   public void testTrackedWordIterator() {
     TrackedFixedBitSet bitset = getRandomTracked("WordIterator", 10000, 1000);
     int expectedDirtyCount = 0;

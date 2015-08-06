@@ -31,6 +31,12 @@ import org.apache.lucene.search.DocIdSetIterator;
  * tracking bits, which translates to a memory overhead of #bits/64/8 + #bits/64/64/8 bytes. The dual-layer tracking
  * ensures that worst-case iteration (1 single set bit at the last position in the bitmap) requires bits/64/64/64
  * lookups. For 100M bits that is 381 lookups.
+ * </p><p>
+ * TODO: Handle non-sparse better.
+ * For dense bitsets, the overhead of iterating the trackers could be removed by iterating all words directly, as
+ * {@link org.apache.lucene.util.FixedBitSet} does. Heuristic detection of dense bits could be done fairly fast by
+ * counting bits in the top-level tracker {@link #tracker2} as there are only #bits/64/64/64 of those. If the
+ * amount of set bits at the top level is above a given yet-to-be-determined level, the bitset is probably dense.
  */
 public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
@@ -145,7 +151,6 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       this.tracker2 = tracker2;
     }
 
-    @SuppressWarnings("StatementWithEmptyBody")
     public int nextWordNum() {
       if (wordNum == NO_MORE_DOCS) {
         return NO_MORE_DOCS;
@@ -170,6 +175,51 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       return wordNum;
     }
 
+    /**
+     * Skips the cursor to the next not-0 word at or after the given target. This method utilizes trackers.
+     * @param target the first word to iterate from.
+     * @return the wordNum for the first non-0 word >= target or {@link #NO_MORE_DOCS}.
+     */
+    public int advance(final int target) {
+      if (target >= numBits) {
+        return wordNum = NO_MORE_DOCS;
+      }
+      // Reset
+      t1Bitset = 0;
+      t2Bitset = 0;
+      wordNum = -1;
+      t2Num = target/64/64-1;
+      t1Num = -1;
+
+      // Advance the trackers
+      while (t2Num == target/64/64-1 && t1Num < target%(64/64)/64) { // Positioned before target
+        while (t1Bitset == 0) {
+          while (t2Bitset == 0) {
+            if (++t2Num == tracker2.length) {
+              return wordNum = NO_MORE_DOCS;
+            }
+            t2Bitset = tracker2[t2Num];
+          }
+          // How do we fast-forward to target%(64/64)/64?
+          final long t2Magic = t2Bitset & -t2Bitset;
+          t1Num = Long.bitCount(t2Magic - 1);
+          t2Bitset ^= t2Magic;
+
+          t1Bitset = tracker1[t2Num * 64 + t1Num];
+        }
+      }
+      final long t1Magic = t1Bitset & -t1Bitset;
+      wordNum = t2Num*64*64 + t1Num*64 + Long.bitCount(t1Magic - 1);
+      t1Bitset ^= t1Magic;
+
+      while (wordNum < target) { // Advance the single bits
+        if (nextWordNum() == NO_MORE_DOCS) {
+          return NO_MORE_DOCS;
+        }
+      }
+      return wordNum;
+    }
+
     public long word() {
       return bits[wordNum];
     }
@@ -182,6 +232,17 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   interface MergeCallback {
     long merge(int wordNum, long word1, long word2);
   }
+
+  /**
+   * Iterates through the two given bitsets in parallel, activating callback whenever one of the words are != 0.
+   * The iteration is performed with the {@link WordIterator} and as a consequence takes advantage of the tracked
+   * nature of TrackedFixedBitSet: Merging of sparse bitsets will be fast.
+   * @param tracked1 first bitset, produces word1 in the callback.
+   * @param tracked2 second bitset, produces word2 in the callback.
+   * @param stopAtFirstDepletion if true, iteration is stopped as soon as the smallest bitset has been depleted.
+   * @param callback called for each non-0 word in either of the bitsets.
+   * @return sum of the longs produced by callback.
+   */
   static long merge(TrackedFixedBitSet tracked1, TrackedFixedBitSet tracked2,
                      boolean stopAtFirstDepletion, MergeCallback callback) {
     long total = 0;
@@ -424,24 +485,12 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    *  long in the backing bits array, and the result is not
    *  internally cached! */
   public int cardinality() {
-    int cardinality = 0;
-    for (int tti = 0 ; tti < tracker2.length ; tti++) {
-      long ttBitset = tracker2[tti];
-      while (ttBitset != 0) {
-        final long tt = ttBitset & -ttBitset;
-        final int ti = Long.bitCount(tt-1);
-        ttBitset ^= tt;
-
-        long tBitset = tracker1[tti * 64 + ti];
-        while (tBitset != 0) {
-          final long t = tBitset & -tBitset;
-          final int i = Long.bitCount(t-1);
-          tBitset ^= t;
-          cardinality += Long.bitCount(bits[tti*64*64 + ti*64 + i]);
-        }
-      }
+    long cardinality = 0;
+    WordIterator words = wordIterator();
+    while (words.nextWordNum() != WordIterator.NO_MORE_DOCS) {
+      cardinality++;
     }
-    return cardinality;
+    return (int) cardinality;
   }
 
   @Override
@@ -458,7 +507,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     assert index >= 0 && index < numBits: "index=" + index + ", numBits=" + numBits;
     int wordNum = index >> 6;      // div 64
     long bitmask = 1L << index;
-    if ((bits[wordNum] |= bitmask) == bitmask) { // First bit in word (or duplicate, but that only harms performance)
+    if ((bits[wordNum] |= bitmask) == bitmask) { // First bit in word (or already set, but that only harms performance)
       trackWord(wordNum);
     }
   }
@@ -468,7 +517,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     int wordNum = index >> 6;      // div 64
     long bitmask = 1L << index;
     boolean val = (bits[wordNum] & bitmask) != 0;
-    if ((bits[wordNum] |= bitmask) == bitmask) { // First bit in word (or duplicate, but that only harms performance)
+    if ((bits[wordNum] |= bitmask) == bitmask) { // First bit in word (or already set, but that only harms performance)
       trackWord(wordNum);
     }
     return val;
@@ -478,7 +527,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     assert index >= 0 && index < numBits;
     int wordNum = index >> 6;
     long bitmask = 1L << index;
-    if ((bits[wordNum] &= ~bitmask) == 0) {
+    if ((bits[wordNum] &= ~bitmask) == 0) { // No more bits in word
       untrackWord(wordNum);
     }
   }
@@ -488,7 +537,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     int wordNum = index >> 6;      // div 64
     long bitmask = 1L << index;
     boolean val = (bits[wordNum] & bitmask) != 0;
-    if ((bits[wordNum] &= ~bitmask) == 0) {
+    if ((bits[wordNum] &= ~bitmask) == 0) { // No more bits in word
       untrackWord(wordNum);
     }
     return val;
