@@ -412,7 +412,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   @Override
   public long ramBytesUsed() {
     return BASE_RAM_BYTES_USED + RamUsageEstimator.sizeOf(bits) +
-        RamUsageEstimator.sizeOf(tracker1) + RamUsageEstimator.sizeOf(tracker1);
+        RamUsageEstimator.sizeOf(tracker1) + RamUsageEstimator.sizeOf(tracker2);
   }
 
   /** Expert. */
