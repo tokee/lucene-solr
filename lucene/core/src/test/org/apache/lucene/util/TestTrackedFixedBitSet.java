@@ -188,11 +188,28 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     }
     { // Advance A
       TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
-      assertEquals("Advance start", 0, words.nextWordNum());
-      assertEquals("Advance 1 (match)", 1, words.advance(1));
-      assertEquals("Advance 5 (not match)", 63, words.advance(5));
-      assertEquals("Advance plain next", 64, words.nextWordNum());
-      assertEquals("Advance 81 (skip over)", 128, words.advance(81));
+      assertEquals("A. Advance start", 0, words.nextWordNum());
+      assertEquals("A. Advance 1 (match)", 1, words.advance(1));
+      assertEquals("A. Advance 5 (not match)", 63, words.advance(5));
+      assertEquals("A. Advance plain next", 64, words.nextWordNum());
+      assertEquals("A. Advance 81 (skip over)", 128, words.advance(81));
+    }
+    { // Advance B
+      TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
+      assertEquals("B. Advance start", 0, words.nextWordNum());
+      assertEquals("B. Advance 81 (skip over)", 128, words.advance(81));
+      assertEquals("B. Nor more docs", TrackedFixedBitSet.WordIterator.NO_MORE_DOCS, words.nextWordNum());
+    }
+    { // Advance B
+      TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
+      assertEquals("B. Advance start", 0, words.nextWordNum());
+      assertEquals("B. Advance 81 (skip over)", 128, words.advance(81));
+      assertEquals("B. Advance 128 (STAY)", 128, words.advance(128));
+    }
+    { // Advance C
+      TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
+      assertEquals("C. Advance start", 0, words.nextWordNum());
+      assertEquals("C. Advance 129 (skip over end)", TrackedFixedBitSet.WordIterator.NO_MORE_DOCS, words.advance(129));
     }
   }
 

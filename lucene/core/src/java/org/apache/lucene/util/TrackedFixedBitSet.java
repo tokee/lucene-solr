@@ -675,7 +675,13 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   
   /** Does in-place XOR of the bits provided by the iterator. */
   public void xor(DocIdSetIterator iter) throws IOException {
-    // TODO: Be smart if the iterator is from a TrackedFixedBitSet
+    if (iter instanceof TrackedFixedBitSetIterator && iter.docID() == -1) {
+      TrackedFixedBitSetIterator fbs = (TrackedFixedBitSetIterator) iter;
+      xor(fbs.source);
+      fbs.advance(numBits);
+      return;
+    }
+
     int doc;
     while ((doc = iter.nextDoc()) < numBits) {
       flip(doc, doc + 1);
