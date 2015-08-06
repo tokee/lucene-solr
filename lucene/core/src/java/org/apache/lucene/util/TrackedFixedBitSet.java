@@ -166,24 +166,24 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
           t2Bitset = tracker2[t2Num];
         }
 
-//        t1Num = Long.numberOfTrailingZeros(t2Bitset);
-//        t2Bitset &= ~(1L << t1Num);
+        t1Num = Long.numberOfTrailingZeros(t2Bitset);
+        t2Bitset &= ~(1L << t1Num);
 
         // If Long.numberOfTrailingZeros is not an assembly instruction but Long.bitCount is, the code below is faster
-        final long t2Magic = t2Bitset & -t2Bitset;
-        t1Num = Long.bitCount(t2Magic - 1);
-        t2Bitset ^= t2Magic;
+//        final long t2Magic = t2Bitset & -t2Bitset;
+//        t1Num = Long.bitCount(t2Magic - 1);
+//        t2Bitset ^= t2Magic;
 
         t1Bitset = tracker1[t2Num * 64 + t1Num];
       }
 
-//      final int tBitPos = Long.numberOfTrailingZeros(t1Bitset);
-//      wordNum = t2Num*64*64 + t1Num*64 + tBitPos;
-//      t1Bitset &= ~(1L << tBitPos);
+      final int tBitPos = Long.numberOfTrailingZeros(t1Bitset);
+      wordNum = t2Num*64*64 + t1Num*64 + tBitPos;
+      t1Bitset &= ~(1L << tBitPos);
 
-      final long t1Magic = t1Bitset & -t1Bitset;
-      wordNum = t2Num*64*64 + t1Num*64 + Long.bitCount(t1Magic - 1);
-      t1Bitset ^= t1Magic;
+//      final long t1Magic = t1Bitset & -t1Bitset;
+//      wordNum = t2Num*64*64 + t1Num*64 + Long.bitCount(t1Magic - 1);
+//      t1Bitset ^= t1Magic;
       return wordNum;
     }
 
@@ -213,16 +213,21 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
             t2Bitset = tracker2[t2Num];
           }
           // How do we fast-forward to target%(64/64)/64?
-          final long t2Magic = t2Bitset & -t2Bitset;
-          t1Num = Long.bitCount(t2Magic - 1);
-          t2Bitset ^= t2Magic;
+          t1Num = Long.numberOfTrailingZeros(t2Bitset);
+          t2Bitset &= ~(1L << t1Num);
+//          final long t2Magic = t2Bitset & -t2Bitset;
+//          t1Num = Long.bitCount(t2Magic - 1);
+//          t2Bitset ^= t2Magic;
 
           t1Bitset = tracker1[t2Num * 64 + t1Num];
         }
       }
-      final long t1Magic = t1Bitset & -t1Bitset;
-      wordNum = t2Num*64*64 + t1Num*64 + Long.bitCount(t1Magic - 1);
-      t1Bitset ^= t1Magic;
+      final int tBitPos = Long.numberOfTrailingZeros(t1Bitset);
+      t1Bitset &= ~(1L << tBitPos);
+      wordNum = t2Num*64*64 + t1Num*64 + tBitPos;
+//      final long t1Magic = t1Bitset & -t1Bitset;
+//      wordNum = t2Num*64*64 + t1Num*64 + Long.bitCount(t1Magic - 1);
+//      t1Bitset ^= t1Magic;
 
       while (wordNum < target) { // Advance the single bits
         if (nextWordNum() == NO_MORE_DOCS) {
@@ -589,9 +594,11 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     for (int tti = wordNum/64/64 ; tti < tracker2.length ; tti++) {
       long ttBitset = this.tracker2[tti];
       while (ttBitset != 0) {
-        final long tt = ttBitset & -ttBitset;
-        final int ti = Long.bitCount(tt-1);
-        ttBitset ^= tt;
+        final int ti = Long.numberOfTrailingZeros(ttBitset);
+        ttBitset &= ~(1L << ti);
+//        final long tt = ttBitset & -ttBitset;
+//        final int ti = Long.bitCount(tt-1);
+//        ttBitset ^= tt;
         if (tti*64*64 + ti*64 + 64 < wordNum) { // Guaranteed before entry point so we fast forward
           continue; // TODO: Use a mask instead of this clumsy iteration
         }
@@ -599,9 +606,12 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
         long tBitset = this.tracker1[tti * 64 + ti];
         while (tBitset != 0) {
           // TODO: Use a mask instead of this clumsy iteration
-          final long t = tBitset & -tBitset;
-          final int i = Long.bitCount(t-1);
-          tBitset ^= t;
+          final int i = Long.numberOfTrailingZeros(tBitset);
+          tBitset &= ~(1L << i);
+
+//          final long t = tBitset & -tBitset;
+//          final int i = Long.bitCount(t-1);
+//          tBitset ^= t;
           final int localWordNum = tti*64*64 + ti*64 + i;
           if (localWordNum >= wordNum) {
             return (localWordNum<<6) + Long.numberOfTrailingZeros(bits[localWordNum]);
@@ -772,15 +782,19 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     for (int tti = 0 ; tti < tracker2length ; tti++) {
       long ttBitset = this.tracker2[tti] & other.tracker2[tti];
       while (ttBitset != 0) {
-        final long tt = ttBitset & -ttBitset;
-        final int ti = Long.bitCount(tt-1);
-        ttBitset ^= tt;
+        final int ti = Long.numberOfTrailingZeros(ttBitset);
+        ttBitset &= ~(1L << ti);
+//        final long tt = ttBitset & -ttBitset;
+//        final int ti = Long.bitCount(tt-1);
+//        ttBitset ^= tt;
 
         long tBitset = this.tracker1[tti * 64 + ti] & other.tracker1[tti * 64 + ti];
         while (tBitset != 0) {
-          final long t = tBitset & -tBitset;
-          final int i = Long.bitCount(t-1);
-          tBitset ^= t;
+          final int i = Long.numberOfTrailingZeros(tBitset);
+          tBitset &= ~(1L << i);
+//          final long t = tBitset & -tBitset;
+//          final int i = Long.bitCount(t-1);
+//          tBitset ^= t;
           if ((this.bits[tti*64*64 + ti*64 + i] & other.bits[tti*64*64 + ti*64 + i]) != 0) {
             return true;
           }

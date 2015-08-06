@@ -870,6 +870,7 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     doNextSetBit(bs, obs);
   }
   
+  // Fails with -Dtests.seed=BE3D7DA8520711FB
   public void testNextBitSet() {
     int[] setBits = new int[0+random().nextInt(1000)];
     for (int i = 0; i < setBits.length; i++) {
