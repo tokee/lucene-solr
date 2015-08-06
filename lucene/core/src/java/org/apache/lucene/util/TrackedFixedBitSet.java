@@ -165,12 +165,22 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
           }
           t2Bitset = tracker2[t2Num];
         }
+
+//        t1Num = Long.numberOfTrailingZeros(t2Bitset);
+//        t2Bitset &= ~(1L << t1Num);
+
+        // If Long.numberOfTrailingZeros is not an assembly instruction but Long.bitCount is, the code below is faster
         final long t2Magic = t2Bitset & -t2Bitset;
         t1Num = Long.bitCount(t2Magic - 1);
         t2Bitset ^= t2Magic;
 
         t1Bitset = tracker1[t2Num * 64 + t1Num];
       }
+
+//      final int tBitPos = Long.numberOfTrailingZeros(t1Bitset);
+//      wordNum = t2Num*64*64 + t1Num*64 + tBitPos;
+//      t1Bitset &= ~(1L << tBitPos);
+
       final long t1Magic = t1Bitset & -t1Bitset;
       wordNum = t2Num*64*64 + t1Num*64 + Long.bitCount(t1Magic - 1);
       t1Bitset ^= t1Magic;
@@ -502,7 +512,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     long cardinality = 0;
     WordIterator words = wordIterator();
     while (words.nextWordNum() != WordIterator.NO_MORE_DOCS) {
-      cardinality++;
+      cardinality += Long.bitCount(words.word());
     }
     return (int) cardinality;
   }
@@ -583,11 +593,12 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
         final int ti = Long.bitCount(tt-1);
         ttBitset ^= tt;
         if (tti*64*64 + ti*64 + 64 < wordNum) { // Guaranteed before entry point so we fast forward
-          continue;
+          continue; // TODO: Use a mask instead of this clumsy iteration
         }
         // Candidate in tracker1
         long tBitset = this.tracker1[tti * 64 + ti];
         while (tBitset != 0) {
+          // TODO: Use a mask instead of this clumsy iteration
           final long t = tBitset & -tBitset;
           final int i = Long.bitCount(t-1);
           tBitset ^= t;
@@ -610,7 +621,6 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     int i = index >> 6;
     final int subIndex = index & 0x3f;  // index within the word
     long word = (bits[i] << (63-subIndex));  // skip all the bits to the left of index
-
     if (word != 0) {
       return (i << 6) + subIndex - Long.numberOfLeadingZeros(word); // See LUCENE-3197
     }
@@ -909,17 +919,18 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     long endmask = -1L >>> -endIndex;  // 64-(endIndex&0x3f) is the same as -endIndex due to wrap
 
     if (bits[startWord] == 0) {
-      trackWord(startWord);
-    } else if (bits[startWord] == -1L) {
-        untrackWord(startWord);
+      trackWord(startWord); // We know at least 1 bit will flip and the end result cannot be 0
     }
-
     if (startWord == endWord) {
-      bits[startWord] ^= (startmask & endmask);
+      if ((bits[startWord] ^= (startmask & endmask)) == 0) {
+        untrackWord(startWord); // We know at least 1 bit was flipped and now it's 0
+      }
       return;
     }
 
-    bits[startWord] ^= startmask;
+    if ((bits[startWord] ^= startmask) == 0) {
+      untrackWord(startWord); // We know at least 1 bit was flipped and now it's 0
+    }
 
     for (int i=startWord+1; i<endWord; i++) {
       if (bits[i] == 0) {
@@ -930,12 +941,13 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       bits[i] = ~bits[i];
     }
 
+    // Same tracking logic as for startWord
     if (bits[endWord] == 0) {
       trackWord(endWord);
-    } else if (bits[endWord] == -1L) {
-        untrackWord(endWord);
     }
-    bits[endWord] ^= endmask;
+    if ((bits[endWord] ^= endmask) == 0) {
+      untrackWord(startWord);
+    }
   }
 
   /** Sets a range of bits

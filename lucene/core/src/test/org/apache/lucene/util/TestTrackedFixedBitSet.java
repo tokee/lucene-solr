@@ -713,6 +713,41 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     }
   }
 
+  public void testBitMagic() {
+    for (long i = 1 ; i < 256 ; i++) {
+/*
+        final long t2Magic = t2Bitset & -t2Bitset;
+        t1Num = Long.bitCount(t2Magic - 1);
+        t2Bitset ^= t2Magic;
+
+ */
+
+      {
+        long tBitset = i;
+        final long t = tBitset & -tBitset;
+        final int index = Long.bitCount(t - 1);
+        long tBitsetPost = tBitset ^ t;
+        System.out.println(String.format("i=%s index=%d post=%s",
+            bin8(i), index, bin8(tBitsetPost)));
+      }
+      {
+        long tBitset = i;
+        final int index = Long.numberOfTrailingZeros(tBitset);
+        long tBitsetPost = tBitset & ~(1L << index);
+        System.out.println(String.format("i=%s index=%d post=%s\n",
+            bin8(i), index, bin8(tBitsetPost)));
+      }
+
+    }
+  }
+  private String bin8(long value) {
+    return bin(value, 8);
+  }
+  private String bin(long value, int bits) {
+    String s = String.format("%" + bits + "s", Long.toBinaryString(value)).replace(" ", "0");
+    return s.length() <= bits ? s : s.substring(s.length()-bits, s.length());
+  }
+
   // FIXME: Fails with -Dtests.seed=1CA43F6F68659338
   // large enough to flush obvious bugs, small enough to run in <.5 sec as part of a
   // larger testsuite.
