@@ -22,6 +22,7 @@ import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Random;
 
+import org.apache.lucene.search.DocIdSet;
 import org.apache.lucene.search.DocIdSetIterator;
 
 // Copy of TestFixedBitSet with extra tests specific for TrackedFixedBitSet
@@ -444,15 +445,39 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     return bitset;
   }
 
-
+  public void testTrackedNextSetBitMonkey() throws IOException {
+    final int RUNS = 10;
+    final int MAX_SIZE = 64*64*64*10;
+    final int MAX_UPDATES = 10000;
+    for (int r = 0 ; r < RUNS ; r++) {
+      testTrackedNextSetBit("run=" + r, getRandomTracked("SetBit monkey run=" + r, MAX_SIZE, MAX_UPDATES));
+    }
+  }
+  public void testTrackedNextSetBit() throws IOException {
+    TrackedFixedBitSet bitset = new TrackedFixedBitSet(1000);
+    bitset.set(7);
+    bitset.set(87);
+    bitset.set(640);
+    testTrackedNextSetBit("specific", bitset);
+  }
+  private void testTrackedNextSetBit(String message, TrackedFixedBitSet bitset) throws IOException {
+    DocIdSetIterator bits = bitset.iterator();
+    int iPos;
+    int nPos = 0;
+    while ((iPos = bits.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+      nPos = bitset.nextSetBit(nPos); // Might be the same
+      assertEquals(message + ". Bit from nextSetBit should match bit from iterator", iPos, nPos);
+      nPos++;
+    }
+  }
 
   public void testTrackedCardinalityMonkey() {
     final int RUNS = 50;
-    final int MAX_UPDATES = 10000;
     final int MAX_SIZE = 64*64*64*10;
+    final int MAX_UPDATES = 10000;
 
     for (int r = 0 ; r < RUNS ; r++) {
-      TrackedFixedBitSet tracked = getRandomTracked("Monkey run=1", MAX_SIZE, MAX_UPDATES);
+      TrackedFixedBitSet tracked = getRandomTracked("Monkey run=" + r, MAX_SIZE, MAX_UPDATES);
       int expected = (int) BitUtil.pop_array(tracked.bits, 0, tracked.bits.length);
       assertEquals("At run=" + r + ", tracked cardinality should be correct", expected, tracked.cardinality());
     }

@@ -25,12 +25,14 @@ import org.apache.lucene.search.DocIdSetIterator;
 
 /**
  * Low-overhead tracking of set bits, allowing for fast iteration and join-operations between two TrackedFixedBitSets.
- * Adapted from {@link FixedBitSet}.
+ * Adapted from {@link FixedBitSet} and intended as a direct replacement as all public methods, both static and not,
+ * are identical.
  * </p><p>
  * TrackedFixedBitSet uses 1 tracking bit for each underlying long (64 bits) and 1 tracking-tracking bit for each 64
  * tracking bits, which translates to a memory overhead of #bits/64/8 + #bits/64/64/8 bytes. The dual-layer tracking
- * ensures that worst-case iteration (1 single set bit at the last position in the bitmap) requires bits/64/64/64
- * lookups. For 100M bits that is 381 lookups.
+ * means that worst-case iteration (1 single set bit at the last position in the bitmap) requires only bits/64/64/64
+ * lookups. For 100M bits that is 381 sequential lookups in contiguous memory + 1 lookup in the other tracking
+ * structure + 1 lookup in the bits array..
  * </p><p>
  * TODO: Handle non-sparse better.
  * For dense bitsets, the overhead of iterating the trackers could be removed by iterating all words directly, as
@@ -295,12 +297,24 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     } else {
       int numWords = bits2words(numBits);
       long[] arr = bits.getBits();
+      long[] tracker1 = bits.tracker1;
+      long[] tracker2 = bits.tracker2;
       if (numWords >= arr.length) {
         arr = ArrayUtil.grow(arr, numWords + 1);
+        tracker1 = growFixed(tracker1, arr.length/64 + 1);
+        tracker2 = growFixed(tracker2, tracker1.length/64+1);
       }
-      // TODO: Copy existing tracking bits instead of recreating them
-      return new TrackedFixedBitSet(arr, arr.length << 6);
+      return new TrackedFixedBitSet(arr, arr.length << 6, tracker1, tracker2);
     }
+  }
+
+  private static long[] growFixed(long[] array, int newLength) {
+    if (array.length <= newLength) {
+      return array;
+    }
+    long[] newArray = new long[newLength];
+    System.arraycopy(array, 0, newArray, 0, array.length);
+    return newArray;
   }
 
   /** returns the number of 64 bit words it would take to hold numBits */
@@ -546,24 +560,54 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   /** Returns the index of the first set bit starting at the index specified.
    *  -1 is returned if there are no more set bits.
    */
-  public int nextSetBit(int index) {
+  public int nextSetBit(final int index) {
     // TODO: Use trackers
     assert index >= 0 && index < numBits : "index=" + index + ", numBits=" + numBits;
-    int i = index >> 6;
-    long word = bits[i] >> index;  // skip all the bits to the right of index
+    int wordNum = index >> 6;
 
+    // Fast check for entry word
+    long word = bits[wordNum] >> index;  // skip all the bits to the right of index
     if (word!=0) {
       return index + Long.numberOfTrailingZeros(word);
     }
 
-    while(++i < numWords) {
-      word = bits[i];
+    // Use the trackers to locate first non-0 word
+
+    // Advance to next word position
+    wordNum++;
+
+    for (int tti = wordNum/64/64 ; tti < tracker2.length ; tti++) {
+      long ttBitset = this.tracker2[tti];
+      while (ttBitset != 0) {
+        final long tt = ttBitset & -ttBitset;
+        final int ti = Long.bitCount(tt-1);
+        ttBitset ^= tt;
+        if (tti*64*64 + ti*64 + 64 < wordNum) { // Guaranteed before entry point so we fast forward
+          continue;
+        }
+        // Candidate in tracker1
+        long tBitset = this.tracker1[tti * 64 + ti];
+        while (tBitset != 0) {
+          final long t = tBitset & -tBitset;
+          final int i = Long.bitCount(t-1);
+          tBitset ^= t;
+          final int localWordNum = tti*64*64 + ti*64 + i;
+          if (localWordNum >= wordNum) {
+            return (localWordNum<<6) + Long.numberOfTrailingZeros(bits[localWordNum]);
+          }
+        }
+      }
+    }
+    return -1;
+/*
+    while(++wordNum < numWords) {
+      word = bits[wordNum];
       if (word != 0) {
-        return (i<<6) + Long.numberOfTrailingZeros(word);
+        return (wordNum<<6) + Long.numberOfTrailingZeros(word);
       }
     }
 
-    return -1;
+    return -1;*/
   }
 
   /** Returns the index of the last set bit before or on the index specified.
@@ -804,7 +848,6 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
   /** this = this AND NOT other */
   public void andNot(TrackedFixedBitSet other) {
-    // Mimics the probably false behaviour of andNot(long[], int)
     merge(this, other, true, (wordNum, word1, word2) -> {
       if (word1 == 0) {
         return 0;
@@ -819,7 +862,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   }
   
   private void andNot(final long[] otherArr, final int otherNumWords) {
-    final long[] thisArr = this.bits; // This behavious differs from and
+    final long[] thisArr = this.bits;
     int pos = Math.min(this.numWords, otherNumWords);
     while(--pos >= 0) {
       long original = thisArr[pos];
@@ -837,7 +880,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   // be)
 
   /**
-   * With tracking, isEmpty is low cost: It iterates a long[] of length #bits/64/64/64..
+   * With tracking, isEmpty is low cost: It only iterates a long[] of length #bits/64/64/64..
    * @return true is no bits are set, else false.
    */
   public boolean isEmpty() {
