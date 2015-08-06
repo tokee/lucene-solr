@@ -599,15 +599,6 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       }
     }
     return -1;
-/*
-    while(++wordNum < numWords) {
-      word = bits[wordNum];
-      if (word != 0) {
-        return (wordNum<<6) + Long.numberOfTrailingZeros(word);
-      }
-    }
-
-    return -1;*/
   }
 
   /** Returns the index of the last set bit before or on the index specified.
