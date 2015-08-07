@@ -126,7 +126,183 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   public WordIterator wordIterator() {
     return new WordIterator(this);
   }
-  public static final class WordIterator {
+
+  public static class MultiLevelBitsetIterator extends DocIdSetIterator {
+    public static final int NO_MORE_DOCS = DocIdSetIterator.NO_MORE_DOCS;
+
+    final TrackedFixedBitSet source;
+    final int numBits;
+    final int numWords;
+    final long[] bits;
+    final MultiLevelBitsetIterator parent;
+    final boolean isRoot;
+
+    int bitpos = -1;
+    long word = 0;
+    int wordNum = -1;
+
+    public MultiLevelBitsetIterator(TrackedFixedBitSet source) {
+      MultiLevelBitsetIterator parent = null;
+      for (int i = source.trackers.length-1 ; i >= 0 ; i--) {
+        long[] tracker = source.trackers[i];
+        parent = new MultiLevelBitsetIterator(source, tracker.length << 6, tracker, parent, false);
+      }
+      this.source = source;
+      this.numBits = source.numBits;
+      this.numWords = (numBits >> 6) + 1;
+      this.bits = source.bits;
+      this.parent = parent;
+      this.isRoot = true;
+    }
+
+    public MultiLevelBitsetIterator(
+        TrackedFixedBitSet source, int numBits, long[] bits, MultiLevelBitsetIterator parent, boolean isRoot) {
+      this.source = source;
+      this.numBits = numBits;
+      this.numWords = Math.min((numBits >> 6) + 1, bits.length); // Dubious logic here
+      this.bits = bits;
+      this.parent = parent;
+      this.isRoot = isRoot;
+    }
+
+    @Override
+    public int docID() {
+      return bitpos;
+    }
+    public long word() {
+      return bits[wordNum]; // Don't return word as that is changed by bit-iteration
+    }
+    public int wordNum() {
+      return wordNum;
+    }
+
+    @Override
+    public int nextDoc() {
+      if (bitpos == NO_MORE_DOCS) {
+        return NO_MORE_DOCS;
+      }
+      if (bitpos == -1) { // Only ever true for root
+        return bitpos = advance(0);
+      }
+
+      if (word == 0) { // Locate next non-0 word
+        if (nextWordNum() == NO_MORE_DOCS) {
+          return bitpos = NO_MORE_DOCS;
+        }
+      }
+      // Locate next set bit in word
+      int wordBitPos = Long.numberOfTrailingZeros(word);
+      word &= ~(1L << wordBitPos);
+      if ((bitpos = ((wordNum << 6) + wordBitPos)) >= numBits) {
+        bitpos = NO_MORE_DOCS;
+      }
+      return bitpos;
+    }
+
+    public int nextWordNum(){ // sets word and wordNum
+      if (wordNum == NO_MORE_DOCS) {
+        return NO_MORE_DOCS;
+      }
+      if (bitpos == -1) { // Only ever true for root
+        if (advance(0) == NO_MORE_DOCS) {
+          return wordNum = NO_MORE_DOCS;
+        }
+        return wordNum;
+      }
+      if (parent != null) {
+        wordNum = parent.nextDoc();
+        word = wordNum != NO_MORE_DOCS ? bits[wordNum] : 0;
+        return wordNum;
+      }
+      while (++wordNum < numWords) {
+        if (bits[wordNum] != 0) {
+          word = bits[wordNum];
+          return wordNum;
+        }
+      }
+      word = 0;
+      return wordNum = NO_MORE_DOCS;
+    }
+
+    @Override
+    public long cost() {
+      return numBits; // Bad cost as this iterator is fast for sparse sets
+    }
+
+    @Override
+    public int advance(int target) {
+      if (target >= numBits) {
+        return bitpos = NO_MORE_DOCS;
+      }
+      bitpos = source.nextSetBit(target);
+
+      if (bitpos >= numBits || bitpos == -1) {
+        return bitpos = NO_MORE_DOCS;
+      }
+      adjustWords(bitpos);
+      return bitpos;
+    }
+
+    public int advanceWord(int target) { // Does not update word
+      if (target >= numWords) {
+        return wordNum = NO_MORE_DOCS;
+      }
+      if (target == wordNum) {
+        return wordNum;
+      }
+
+
+      if (parent != null) {
+        wordNum = parent.advance(target);
+        word = wordNum != NO_MORE_DOCS ? bits[wordNum] : 0;
+        return wordNum;
+      }
+      wordNum = target;
+      while (++wordNum < numWords) {
+        if (bits[wordNum] != 0) {
+          word = bits[wordNum];
+          return wordNum;
+        }
+      }
+      word = 0;
+      return wordNum = NO_MORE_DOCS;
+
+/*
+      if (parent != null) {
+        if (advance(target << 6) == NO_MORE_DOCS) {
+          wordNum = NO_MORE_DOCS;
+        }
+        return wordNum;
+        //return wordNum = source.nextSetBit(target << 6) >> 6;
+      }
+      while (++wordNum < numWords) {
+        if (bits[wordNum] != 0) {
+          return wordNum;
+        }
+      }
+
+      return wordNum = NO_MORE_DOCS;*/
+    }
+
+    private void adjustWords(int bitpos) {
+      this.bitpos = bitpos;
+      wordNum = bitpos >> 6;
+      final int innerWordPos = bitpos - (wordNum << 6);
+      word = bits[wordNum] & (-1L << (innerWordPos+1)); // +1 to erase the current bit
+      if (parent != null) {
+        parent.adjustWords(wordNum);
+      }
+    }
+
+  }
+
+  public static class WordIterator extends MultiLevelBitsetIterator {
+    public WordIterator(TrackedFixedBitSet bits) {
+      super(bits);
+    }
+
+  }
+  public static final class WordIteratorOld {
     public static final int NO_MORE_DOCS = DocIdSetIterator.NO_MORE_DOCS;
 
     final int numBits, numWords;
@@ -140,12 +316,11 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
     long t1Bitset, t2Bitset;
 
-    public WordIterator(TrackedFixedBitSet bits) {
+    public WordIteratorOld(TrackedFixedBitSet bits) {
       this(bits.bits, bits.numBits, bits.tracker1, bits.tracker2, bits.numWords);
     }
 
-    /** Creates an iterator over the given array of bits. */
-    public WordIterator(long[] bits, int numBits, long[] tracker1, long[] tracker2, int wordLength) {
+    private WordIteratorOld(long[] bits, int numBits, long[] tracker1, long[] tracker2, int wordLength) {
       this.bits = bits;
       this.numBits = numBits;
       this.numWords = wordLength;
@@ -598,11 +773,11 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     }
     int wordNum = index >> 6;
 
-    // Optimistic check for entry word
+    // Check entry word
     long word = bits[wordNum] >> index;  // skip all the bits to the right of index
     if (word != 0) {
       int bit = index + Long.numberOfTrailingZeros(word);
-      return bit < numBits ? bit : -1; // Wish we count avoid this EOD check
+      return bit < numBits ? bit : -1; // Wish we could avoid this EOD check
     }
 
     if (trackerIndex >= trackers.length) { // No more trackers. We are forced to iterate

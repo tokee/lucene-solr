@@ -191,32 +191,43 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     { // Advance A
       TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
       assertEquals("A. Advance start", 0, words.nextWordNum());
-      assertEquals("A. Advance 1 (match)", 1, words.advance(1));
-      assertEquals("A. Advance 5 (not match)", 63, words.advance(5));
+      assertEquals("A. Advance 1 (match)", 1, words.advanceWord(1));
+      assertEquals("A. Advance 5 (not match)", 63, words.advanceWord(5));
       assertEquals("A. Advance plain next", 64, words.nextWordNum());
-      assertEquals("A. Advance 81 (skip over)", 128, words.advance(81));
+      assertEquals("A. Advance 81 (skip over)", 128, words.advanceWord(81));
     }
     { // Advance B
       TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
       assertEquals("B. Advance start", 0, words.nextWordNum());
-      assertEquals("B. Advance 81 (skip over)", 128, words.advance(81));
+      assertEquals("B. Advance 81 (skip over)", 128, words.advanceWord(81));
       assertEquals("B. Nor more docs", TrackedFixedBitSet.WordIterator.NO_MORE_DOCS, words.nextWordNum());
     }
     { // Advance B
       TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
       assertEquals("B. Advance start", 0, words.nextWordNum());
-      assertEquals("B. Advance 81 (skip over)", 128, words.advance(81));
-      assertEquals("B. Advance 128 (STAY)", 128, words.advance(128));
+      assertEquals("B. Advance 81 (skip over)", 128, words.advanceWord(81));
+      assertEquals("B. Advance 128 (STAY)", 128, words.advanceWord(128));
     }
     { // Advance C
       TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
       assertEquals("C. Advance start", 0, words.nextWordNum());
-      assertEquals("C. Advance 129 (skip over end)", TrackedFixedBitSet.WordIterator.NO_MORE_DOCS, words.advance(129));
+      assertEquals("C. Advance 129 (skip over end)",
+          TrackedFixedBitSet.WordIterator.NO_MORE_DOCS, words.advanceWord(129));
     }
   }
 
-  public void testTrackedWordIterator() {
-    TrackedFixedBitSet bitset = getRandomTracked("WordIterator", 10000, 1000);
+  public void testTrackedWordIteratorA() {
+    TrackedFixedBitSet bitset = new TrackedFixedBitSet(10000);
+    bitset.set(10);
+    testTrackedWordIterator(bitset);
+  }
+  public void testTrackedWordIteratorMonkey() {
+    int RUNS = 10;
+    for (int r = 0 ; r < RUNS ; r++) {
+      testTrackedWordIterator(getRandomTracked("WordIterator", 10000, 1000));
+    }
+  }
+  private void testTrackedWordIterator(TrackedFixedBitSet bitset) {
     int expectedDirtyCount = 0;
     for (long word: bitset.bits) {
       if (word != 0) {
@@ -288,6 +299,7 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
       testTrackedXor("run=" +r + ", seed=" + seed, random, 64*139, 64*123, 25, 25);
     }
   }
+
 
   public void testMerge() { // Triggered by missing word 120
     final long SEED = 1126478005588440681L;
@@ -464,6 +476,9 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
   public void testTrackedNextSetBitC() throws IOException {
     testTrackedNextSetBit(100000, 16384, 65537);
   }
+  public void testTrackedNextSetBitD() throws IOException {
+    testTrackedNextSetBit(100000, 1, 71);
+  }
 
   private void testTrackedNextSetBit(int size, int... bits) throws IOException {
     TrackedFixedBitSet bitset = new TrackedFixedBitSet(size);
@@ -480,6 +495,8 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     while ((iPos = bits.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
       nPos = bitset.nextSetBit(nPos); // Might be the same
       assertEquals(message + ". Bit from nextSetBit should match bit from iterator", iPos, nPos);
+      assertEquals(message + ". Calling nextSetBit on a set bit should not change anything",
+          nPos, bitset.nextSetBit(nPos));
       nPos++;
     }
   }
@@ -835,14 +852,14 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     for(int numBits=0;numBits<10;numBits++) {
       TrackedFixedBitSet b1 = new TrackedFixedBitSet(numBits);
       TrackedFixedBitSet b2 = new TrackedFixedBitSet(numBits);
-      assertTrue(b1.equals(b2));
-      assertEquals(b1.hashCode(), b2.hashCode());
+      assertTrue("numBits=" + numBits + " equals", b1.equals(b2));
+      assertEquals("numBits=" + numBits + " hashCode", b1.hashCode(), b2.hashCode());
       assertEquals(0, b1.cardinality());
       if (numBits > 0) {
         b1.set(0, numBits);
-        assertEquals(numBits, b1.cardinality());
+        assertEquals("numBits=" + numBits + " set-cardinality", numBits, b1.cardinality());
         b1.flip(0, numBits);
-        assertEquals(0, b1.cardinality());
+        assertEquals("numBits=" + numBits + " flip-cardinality", 0, b1.cardinality());
       }
     }
   }
