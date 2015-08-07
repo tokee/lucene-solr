@@ -24,7 +24,6 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.Random;
 
-import org.apache.lucene.search.DocIdSet;
 import org.apache.lucene.search.DocIdSetIterator;
 
 // Copy of TestFixedBitSet with extra tests specific for TrackedFixedBitSet

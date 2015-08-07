@@ -384,6 +384,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
   final long[] tracker2;
   final long[] tracker1;
+  final long[][] trackers; // FIXME: Makes testRamBytesUsed fail as it counts the arrays twice
   final long[] bits;
   final int numBits;
   final int numWords;
@@ -393,6 +394,9 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     bits = new long[bits2words(numBits)];
     tracker1 = new long[bits.length/64+1];
     tracker2 = new long[tracker1.length/64+1];
+    trackers = new long[2][];
+    trackers[0] = tracker1;
+    trackers[1] = tracker2;
     numWords = bits.length;
   }
 
@@ -405,6 +409,9 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     this.bits = storedBits;
     tracker1 = new long[bits.length/64+1];
     tracker2 = new long[tracker1.length/64+1];
+    trackers = new long[2][];
+    trackers[0] = tracker1;
+    trackers[1] = tracker2;
     fillTrackers();
   }
 
@@ -417,6 +424,9 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     this.bits = storedBits;
     this.tracker1 = tracker1;
     this.tracker2 = tracker2;
+    trackers = new long[2][];
+    trackers[0] = tracker1;
+    trackers[1] = tracker2;
   }
 
   /**
@@ -579,54 +589,57 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    *  -1 is returned if there are no more set bits.
    */
   public int nextSetBit(final int index) {
-    // TODO: Use trackers
     assert index >= 0 && index < numBits : "index=" + index + ", numBits=" + numBits;
+    return nextSetBit(index, bits, numBits, 0);
+  }
+  private int nextSetBit(final int index, final long[] bits, final int numBits, int trackerIndex) {
+    if (index >= numBits) {
+      return -1;
+    }
     int wordNum = index >> 6;
 
-    // Fast check for entry word
+    // Optimistic check for entry word
     long word = bits[wordNum] >> index;  // skip all the bits to the right of index
     if (word != 0) {
-      int bit = index + Long.numberOfTrailingZeros(word); // The bitset might end in the middle of a dirty word?
-      return bit < numBits ? bit : -1;
+      int bit = index + Long.numberOfTrailingZeros(word);
+      return bit < numBits ? bit : -1; // Wish we count avoid this EOD check
     }
 
-    // Use the trackers to locate first non-0 word
-    return nextSetBitFromWordNum(++wordNum);
-  }
-  private int nextSetBitFromWordNum(int wordNum) {
-    int t1Num = wordNum >>> 6;
-
-    long t1Bitset = tracker1[t1Num] >> wordNum;
-    if (t1Bitset != 0) {
-      wordNum = wordNum + Long.numberOfTrailingZeros(t1Bitset);
-      int bit = wordNum*64 + Long.numberOfTrailingZeros(bits[wordNum]);
-      return bit < numBits ? bit : -1;
-    }
-    return nextSetBitFromT1Num(++t1Num);
-  }
-  private int nextSetBitFromT1Num(int t1Num) {
-    int t2Num = t1Num >>> 6;
-    {
-      long t2Bitset = tracker2[t2Num] >> t1Num;
-      if (t2Bitset != 0) {
-        return nextSetBitFromWordNum(t1Num*64 + Long.numberOfTrailingZeros(t2Bitset));
-      }
-    }
-    { // Reached top level of tracking. Switch to iteration
-      long t2Bitset;
-      while (++t2Num < tracker2.length) {
-        if ((t2Bitset = tracker2[t2Num]) != 0) {
-          return nextSetBitFromT1Num(t2Num * 64 + Long.numberOfTrailingZeros(t2Bitset));
+    if (trackerIndex >= trackers.length) { // No more trackers. We are forced to iterate
+      long bitset;
+      while (++wordNum < bits.length) {
+        if ((bitset = bits[wordNum]) != 0) {
+          return nextSetBit(wordNum*64 + Long.numberOfTrailingZeros(bitset), bits, numBits, trackerIndex);
         }
       }
+      return -1;
     }
-    return -1;
+    // Ask upper tracker for next non-0 word
+    int upperNext = nextSetBit(++wordNum, trackers[trackerIndex], trackers[trackerIndex].length * 64, trackerIndex+1);
+    if (upperNext == -1) {
+      return -1;
+    }
+    return nextSetBit(upperNext*64, bits, numBits, trackerIndex); // We know there is something at that word
   }
 
   /** Returns the index of the last set bit before or on the index specified.
    *  -1 is returned if there are no more set bits.
    */
   public int prevSetBit(int index) {
+    // TODO: Use trackers
+    assert index >= 0 && index < numBits: "index=" + index + " numBits=" + numBits;
+/*    int wordNum = index >> 6;
+
+    // Optimistic check for entry word
+    final int subIndex = index & 0x3f;  // index within the word
+    long word = (bits[wordNum] << (63-subIndex));  // skip all the bits to the left of index
+    if (word != 0) {
+      return (wordNum << 6) + subIndex - Long.numberOfLeadingZeros(word);
+    }
+
+    // Use the trackers to locate first non-0 word
+    return prevSetBitFromWordNum(--wordNum);*/
+
     // TODO: Use trackers
     assert index >= 0 && index < numBits: "index=" + index + " numBits=" + numBits;
     int i = index >> 6;
@@ -643,6 +656,46 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       }
     }
 
+    return -1;
+  }
+  private int prevSetBitFromWordNum(int wordNum) {
+    if (wordNum < 0) {
+      return -1;
+    }
+    int t1Num = wordNum >> 6;
+    // Check for tracker1 entry
+    final int subIndex = wordNum & 0x3f;  // index within the tracker
+    long t1Bitset = (tracker1[t1Num] << (63-subIndex));  // skip all the bits to the left of index
+    if (t1Bitset != 0) {
+      wordNum = (t1Num << 6) + subIndex - Long.numberOfLeadingZeros(t1Bitset);
+      long word = bits[wordNum];
+      return (wordNum << 6) + 63 - Long.numberOfLeadingZeros(word);
+    }
+
+    return prevSetBitFromT1Num(--t1Num);
+  }
+  private int prevSetBitFromT1Num(int t1Num) {
+    if (t1Num < 0) {
+      return -1;
+    }
+    int t2Num = t1Num >>> 6;
+    { // Optimistic check for tracker2 entry
+      final int subIndex = t1Num & 0x3f;  // index within tracker2
+      long t2Bitset = (tracker2[t2Num] << (63-subIndex));  // skip all the bits to the left of index
+      if (t2Bitset != 0) {
+        t1Num = (t2Num << 6) + subIndex - Long.numberOfLeadingZeros(t2Bitset);
+        long wordNum = tracker1[t1Num];
+        return prevSetBitFromWordNum(t1Num << 6) + subIndex - Long.numberOfLeadingZeros(t2Bitset);
+      }
+    }
+    { // Reached top level of tracking. Switch to iteration
+      long t2Bitset;
+      while (--t2Num > -1) {
+        if ((t2Bitset = tracker2[t2Num]) != 0) {
+          return prevSetBitFromT1Num(t2Num * 64 + 63 - Long.numberOfLeadingZeros(t2Bitset));
+        }
+      }
+    }
     return -1;
   }
 
