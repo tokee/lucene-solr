@@ -582,40 +582,36 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
     // Fast check for entry word
     long word = bits[wordNum] >> index;  // skip all the bits to the right of index
-    if (word!=0) {
+    if (word != 0) {
       return index + Long.numberOfTrailingZeros(word);
     }
 
     // Use the trackers to locate first non-0 word
+    return nextSetBitFromWordNum(++wordNum);
+  }
+  private int nextSetBitFromWordNum(int wordNum) {
+    int t1Num = wordNum >>> 6;
 
-    // Advance to next word position
-    wordNum++;
-
-    for (int tti = wordNum/64/64 ; tti < tracker2.length ; tti++) {
-      long ttBitset = this.tracker2[tti];
-      while (ttBitset != 0) {
-        final int ti = Long.numberOfTrailingZeros(ttBitset);
-        ttBitset &= ~(1L << ti);
-//        final long tt = ttBitset & -ttBitset;
-//        final int ti = Long.bitCount(tt-1);
-//        ttBitset ^= tt;
-        if (tti*64*64 + ti*64 + 64 < wordNum) { // Guaranteed before entry point so we fast forward
-          continue; // TODO: Use a mask instead of this clumsy iteration
-        }
-        // Candidate in tracker1
-        long tBitset = this.tracker1[tti * 64 + ti];
-        while (tBitset != 0) {
-          // TODO: Use a mask instead of this clumsy iteration
-          final int i = Long.numberOfTrailingZeros(tBitset);
-          tBitset &= ~(1L << i);
-
-//          final long t = tBitset & -tBitset;
-//          final int i = Long.bitCount(t-1);
-//          tBitset ^= t;
-          final int localWordNum = tti*64*64 + ti*64 + i;
-          if (localWordNum >= wordNum) {
-            return (localWordNum<<6) + Long.numberOfTrailingZeros(bits[localWordNum]);
-          }
+    long t1Bitset = tracker1[t1Num] >> wordNum;
+    if (t1Bitset != 0) {
+      wordNum = wordNum + Long.numberOfTrailingZeros(t1Bitset);
+      return wordNum*64 + Long.numberOfTrailingZeros(bits[wordNum]);
+    }
+    return nextSetBitFromT1Num(++t1Num);
+  }
+  private int nextSetBitFromT1Num(int t1Num) {
+    int t2Num = t1Num >>> 6;
+    {
+      long t2Bitset = tracker2[t2Num] >> t1Num;
+      if (t2Bitset != 0) {
+        return nextSetBitFromWordNum(t1Num*64 + Long.numberOfTrailingZeros(t2Bitset));
+      }
+    }
+    { // Reached top level of tracking. Switch to iteration
+      long t2Bitset;
+      while (++t2Num < tracker2.length) {
+        if ((t2Bitset = tracker2[t2Num]) != 0) {
+          return nextSetBitFromT1Num(t2Num*64 + Long.numberOfTrailingZeros(t2Bitset));
         }
       }
     }

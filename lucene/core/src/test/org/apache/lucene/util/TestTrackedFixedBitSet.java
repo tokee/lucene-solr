@@ -456,10 +456,13 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     }
   }
   public void testTrackedNextSetBit() throws IOException {
-    TrackedFixedBitSet bitset = new TrackedFixedBitSet(1000);
-    bitset.set(7);
+    TrackedFixedBitSet bitset = new TrackedFixedBitSet(20000);
+/*    bitset.set(7);
     bitset.set(87);
     bitset.set(640);
+    bitset.set(12308);*/
+    bitset.set(640);
+    bitset.set(12308);
     testTrackedNextSetBit("NextSetBit specific", bitset);
   }
   private void testTrackedNextSetBit(String message, TrackedFixedBitSet bitset) throws IOException {
