@@ -345,6 +345,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    * Returns the popcount or cardinality of the intersection of the two sets.
    * Neither set is modified.
    */
+  // FIXME: Doesn't respect numBits (and neither does the equivalent in FixedBitSet)
   public static long intersectionCount(TrackedFixedBitSet a, TrackedFixedBitSet b) {
     return merge(a, b, true, (wordNum, word1, word2) -> Long.bitCount(word1 & word2));
 //    return BitUtil.pop_intersect(a.bits, b.bits, 0, Math.min(a.numWords, b.numWords));
@@ -354,6 +355,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    * Returns the popcount or cardinality of the union of the two sets. Neither
    * set is modified.
    */
+  // FIXME: Doesn't respect numBits (and neither does the equivalent in FixedBitSet)
   public static long unionCount(TrackedFixedBitSet a, TrackedFixedBitSet b) {
     return merge(a, b, false, (wordNum, word1, word2) -> Long.bitCount(word1 | word2));
 /*
@@ -370,6 +372,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    * Returns the popcount or cardinality of "a and not b" or
    * "intersection(a, not(b))". Neither set is modified.
    */
+  // FIXME: Doesn't respect numBits (and neither does the equivalent in FixedBitSet)
   public static long andNotCount(TrackedFixedBitSet a, TrackedFixedBitSet b) {
     return merge(a, b, false, (wordNum, word1, word2) -> Long.bitCount(word1 & ~word2));
 /*    long tot = BitUtil.pop_andnot(a.bits, b.bits, 0, Math.min(a.numWords, b.numWords));
@@ -583,7 +586,8 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     // Fast check for entry word
     long word = bits[wordNum] >> index;  // skip all the bits to the right of index
     if (word != 0) {
-      return index + Long.numberOfTrailingZeros(word);
+      int bit = index + Long.numberOfTrailingZeros(word); // The bitset might end in the middle of a dirty word?
+      return bit < numBits ? bit : -1;
     }
 
     // Use the trackers to locate first non-0 word
@@ -595,7 +599,8 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     long t1Bitset = tracker1[t1Num] >> wordNum;
     if (t1Bitset != 0) {
       wordNum = wordNum + Long.numberOfTrailingZeros(t1Bitset);
-      return wordNum*64 + Long.numberOfTrailingZeros(bits[wordNum]);
+      int bit = wordNum*64 + Long.numberOfTrailingZeros(bits[wordNum]);
+      return bit < numBits ? bit : -1;
     }
     return nextSetBitFromT1Num(++t1Num);
   }
@@ -611,7 +616,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       long t2Bitset;
       while (++t2Num < tracker2.length) {
         if ((t2Bitset = tracker2[t2Num]) != 0) {
-          return nextSetBitFromT1Num(t2Num*64 + Long.numberOfTrailingZeros(t2Bitset));
+          return nextSetBitFromT1Num(t2Num * 64 + Long.numberOfTrailingZeros(t2Bitset));
         }
       }
     }

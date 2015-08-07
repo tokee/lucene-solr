@@ -455,16 +455,22 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
       testTrackedNextSetBit("run=" + r, getRandomTracked("NextBit monkey run=" + r, MAX_SIZE, MAX_UPDATES));
     }
   }
-  public void testTrackedNextSetBit() throws IOException {
-    TrackedFixedBitSet bitset = new TrackedFixedBitSet(20000);
-/*    bitset.set(7);
-    bitset.set(87);
-    bitset.set(640);
-    bitset.set(12308);*/
-    bitset.set(640);
-    bitset.set(12308);
+  public void testTrackedNextSetBitA() throws IOException {
+    testTrackedNextSetBit(20000, 640, 12308);
+  }
+
+  public void testTrackedNextSetBitB() throws IOException {
+    testTrackedNextSetBit(431, 0, 4, 5, 6, 9, 11, 12, 13, 14, 16, 17, 18, 21, 23, 24, 26, 32, 33, 34, 35, 36, 37, 40, 42, 43, 44, 45, 47, 48, 49, 50, 51, 52, 54, 57, 58, 61, 62, 64, 67, 69, 70, 71, 73, 75, 78, 81, 86, 87, 88, 89, 90, 92, 94, 97, 100, 101, 104, 105, 108, 109, 110, 112, 113, 115, 118, 119, 120, 122, 123, 124, 125, 127, 128, 129, 130, 131, 133, 134, 135, 136, 137, 138, 139, 141, 143, 146, 149, 151, 152, 155, 156, 157, 158, 159, 160, 165, 169, 171, 173, 174, 175, 178, 179, 180, 181, 184, 186, 188, 189, 190, 191, 192, 193, 194, 196, 198, 199, 200, 202, 203, 204, 207, 208, 211, 212, 213, 215, 216, 217, 218, 219, 220, 221, 223, 224, 225, 227, 229, 234, 235, 236, 239, 241, 242, 244, 246, 248, 249, 251, 252, 253, 254, 255, 256, 257, 258, 260, 262, 265, 266, 267, 268, 271, 272, 273, 274, 275, 276, 277, 278, 279, 280, 281, 282, 283, 284, 285, 286, 290, 292, 293, 295, 296, 297, 298, 299, 300, 301, 302, 303, 304, 305, 308, 309, 310, 311, 313, 314, 317, 318, 319, 320, 322, 323, 327, 328, 329, 330, 333, 335, 336, 337, 338, 339, 340, 342, 345, 346, 349, 351, 352, 353, 355, 358, 359, 361, 362, 364, 365, 366, 367, 370, 371, 372, 373, 375, 376, 377, 378, 379, 380, 382, 383, 384, 386, 387, 388, 389, 392, 394, 395, 397, 398, 400, 401, 403, 405, 407, 411, 412, 413, 415, 416, 417, 419, 422, 423);
+  }
+
+  private void testTrackedNextSetBit(int size, int... bits) throws IOException {
+    TrackedFixedBitSet bitset = new TrackedFixedBitSet(size);
+    for (int bit: bits) {
+      bitset.set(bit);
+    }
     testTrackedNextSetBit("NextSetBit specific", bitset);
   }
+
   private void testTrackedNextSetBit(String message, TrackedFixedBitSet bitset) throws IOException {
     DocIdSetIterator bits = bitset.iterator();
     int iPos;
@@ -716,14 +722,14 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     }
   }
 
-  public void testBitMagic() {
+/*  public void testBitMagic() {
     for (long i = 1 ; i < 256 ; i++) {
-/*
-        final long t2Magic = t2Bitset & -t2Bitset;
-        t1Num = Long.bitCount(t2Magic - 1);
-        t2Bitset ^= t2Magic;
 
- */
+// Leading zeroes
+//        final long t2Magic = t2Bitset & -t2Bitset;
+//        t1Num = Long.bitCount(t2Magic - 1);
+//        t2Bitset ^= t2Magic;
+
 
       {
         long tBitset = i;
@@ -750,7 +756,7 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     String s = String.format("%" + bits + "s", Long.toBinaryString(value)).replace(" ", "0");
     return s.length() <= bits ? s : s.substring(s.length()-bits, s.length());
   }
-
+  */
   // FIXME: Fails with -Dtests.seed=1CA43F6F68659338
   // large enough to flush obvious bugs, small enough to run in <.5 sec as part of a
   // larger testsuite.
@@ -866,14 +872,13 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     checkPrevSetBitArray(new int[] {0,2}, 3);
   }
   
-  
   private void checkNextSetBitArray(int [] a, int numBits) {
     TrackedFixedBitSet obs = makeTrackedFixedBitSet(a, numBits);
     BitSet bs = makeBitSet(a);
     doNextSetBit(bs, obs);
   }
   
-  // Fails with -Dtests.seed=BE3D7DA8520711FB
+  // Fails with -Dtests.seed=4DB056D10922B99D
   public void testNextBitSet() {
     int[] setBits = new int[0+random().nextInt(1000)];
     for (int i = 0; i < setBits.length; i++) {
