@@ -191,28 +191,28 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     { // Advance A
       TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
       assertEquals("A. Advance start", 0, words.nextWordNum());
-      assertEquals("A. Advance 1 (match)", 1, words.advanceWord(1));
-      assertEquals("A. Advance 5 (not match)", 63, words.advanceWord(5));
+      assertEquals("A. Advance 1 (match)", 1, words.advance(1));
+      assertEquals("A. Advance 5 (not match)", 63, words.advance(5));
       assertEquals("A. Advance plain next", 64, words.nextWordNum());
-      assertEquals("A. Advance 81 (skip over)", 128, words.advanceWord(81));
+      assertEquals("A. Advance 81 (skip over)", 128, words.advance(81));
     }
     { // Advance B
       TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
       assertEquals("B. Advance start", 0, words.nextWordNum());
-      assertEquals("B. Advance 81 (skip over)", 128, words.advanceWord(81));
+      assertEquals("B. Advance 81 (skip over)", 128, words.advance(81));
       assertEquals("B. Nor more docs", TrackedFixedBitSet.WordIterator.NO_MORE_DOCS, words.nextWordNum());
     }
     { // Advance B
       TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
       assertEquals("B. Advance start", 0, words.nextWordNum());
-      assertEquals("B. Advance 81 (skip over)", 128, words.advanceWord(81));
-      assertEquals("B. Advance 128 (STAY)", 128, words.advanceWord(128));
+      assertEquals("B. Advance 81 (skip over)", 128, words.advance(81));
+      assertEquals("B. Advance 128 (STAY)", 128, words.advance(128));
     }
     { // Advance C
       TrackedFixedBitSet.WordIterator words = bitset.wordIterator();
       assertEquals("C. Advance start", 0, words.nextWordNum());
       assertEquals("C. Advance 129 (skip over end)",
-          TrackedFixedBitSet.WordIterator.NO_MORE_DOCS, words.advanceWord(129));
+          TrackedFixedBitSet.WordIterator.NO_MORE_DOCS, words.advance(129));
     }
   }
 
@@ -788,7 +788,7 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     return s.length() <= bits ? s : s.substring(s.length()-bits, s.length());
   }
   */
-  // FIXME: Fails with -Dtests.seed=1CA43F6F68659338
+  // FIXME: Fails with -Dtests.seed=2D7D9C92F594B1E
   // large enough to flush obvious bugs, small enough to run in <.5 sec as part of a
   // larger testsuite.
   public void testSmall() throws IOException {
