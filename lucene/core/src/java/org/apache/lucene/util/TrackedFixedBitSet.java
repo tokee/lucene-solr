@@ -300,13 +300,13 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
   }
 
-  public static class WordIteratorNew extends MultiLevelBitsetIterator {
-    public WordIteratorNew(TrackedFixedBitSet bits) {
+  public static class WordIterator extends MultiLevelBitsetIterator {
+    public WordIterator(TrackedFixedBitSet bits) {
       super(bits);
     }
 
   }
-  public static final class WordIterator {
+  public static final class WordIteratorOld {
     public static final int NO_MORE_DOCS = DocIdSetIterator.NO_MORE_DOCS;
 
     final int numBits, numWords;
@@ -320,11 +320,11 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
     long t1Bitset, t2Bitset;
 
-    public WordIterator(TrackedFixedBitSet bits) {
+    public WordIteratorOld(TrackedFixedBitSet bits) {
       this(bits.bits, bits.numBits, bits.tracker1, bits.tracker2, bits.numWords);
     }
 
-    private WordIterator(long[] bits, int numBits, long[] tracker1, long[] tracker2, int wordLength) {
+    private WordIteratorOld(long[] bits, int numBits, long[] tracker1, long[] tracker2, int wordLength) {
       this.bits = bits;
       this.numBits = numBits;
       this.numWords = wordLength;
