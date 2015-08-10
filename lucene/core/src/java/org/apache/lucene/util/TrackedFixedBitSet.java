@@ -306,11 +306,212 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     private void adjustWords(int bitpos) {
       this.bitpos = bitpos;
       wordNum = bitpos >> 6;
-      word = bits[wordNum] & (-1L<<((bitpos&63))<<1); // <<1 to erase the current bit
+      // We shift the extra bit to erase the current bit (part of the nextBit contract)
+      // This has to be done in two steps as x << 64 == x, not 0.
+      word = bits[wordNum] & (-1L<<((bitpos&63))<<1);
       //word = bits[wordNum] & (-1L << (innerWordPos+1)); // +1 to erase the current bit
       if (parent != null) {
         parent.adjustWords(wordNum);
       }
+    }
+
+  }
+
+  public abstract static class DualWordIterator {
+    public static final int NO_MORE_DOCS = DocIdSetIterator.NO_MORE_DOCS;
+    private static final long[] EMPTY = new long[0];
+
+    final TrackedFixedBitSet a;
+    final TrackedFixedBitSet b;
+    final int numBitsA;
+    final int numBitsB;
+    final int numWordsA;
+    final int numWordsB;
+    final long[] bitsA;
+    final long[] bitsB;
+    final DualWordIterator parent;
+    final boolean isRoot;
+
+    int bitpos = -1;
+    long word = 0;
+    int wordNum = -1;
+
+    public DualWordIterator(TrackedFixedBitSet a, TrackedFixedBitSet b) {
+      DualWordIterator parent = null;
+      for (int i = Math.max(a.trackers.length-1, b.trackers.length-1) ; i >= 0 ; i--) {
+        long[] trackerA = i < a.trackers.length ? a.trackers[i] : EMPTY;
+        long[] trackerB = i < b.trackers.length ? b.trackers[i] : EMPTY;
+
+        parent = createParent(
+            a, b, trackerA.length << 6, trackerB.length << 6, trackerA, trackerB, parent, false);
+      }
+      this.a = a;
+      this.b = b;
+      this.numBitsA = a.numBits;
+      this.numBitsB = b.numBits;
+      this.numWordsA = a.numWords;
+      this.numWordsB = b.numWords;
+      this.bitsA = a.bits;
+      this.bitsB = b.bits;
+      this.parent = parent;
+      this.isRoot = true;
+    }
+
+    private DualWordIterator(
+        TrackedFixedBitSet a, TrackedFixedBitSet b, int numBitsA, int numBitsB, long[] bitsA, long[] bitsB,
+        DualWordIterator parent, boolean isRoot) {
+      this.a = a;
+      this.b = b;
+      this.numBitsA = a.numBits;
+      this.numBitsB = b.numBits;
+      this.numWordsA = a.numWords;
+      this.numWordsB = b.numWords;
+      this.bitsA = a.bits;
+      this.bitsB = b.bits;
+      this.parent = parent;
+      this.isRoot = true;
+    }
+
+    //public long word() {
+//      return bitsA[wordNum]; // Don't return word as that is changed by bit-iteration
+//    }
+    protected abstract DualWordIterator createParent(
+        TrackedFixedBitSet a, TrackedFixedBitSet b, int numBitsA, int numBitsB, long[] bitsA, long[] bitsB,
+            DualWordIterator parent, boolean isRoot);
+
+    abstract long word();
+
+    public int wordNum() {
+      return wordNum;
+    }
+
+    public int nextDoc() { // Only used in parent
+      if (bitpos == NO_MORE_DOCS) {
+        return NO_MORE_DOCS;
+      }
+
+      if (word == 0) { // Locate next non-0 word
+        if (nextWordNum() == NO_MORE_DOCS) {
+          return bitpos = NO_MORE_DOCS;
+        }
+      }
+      // Locate next set bit in word
+      int wordBitPos = Long.numberOfTrailingZeros(word);
+      word &= ~(1L << wordBitPos);
+      return postProcessBitpos(bitpos = ((wordNum << 6) + wordBitPos));
+    }
+
+    /**
+     * @param bitpos suggested bitpos;
+     * @return potentially adjusted bitpos. Return NO_MORE_DOCS if the iteration should terminate.
+     */
+    protected abstract int postProcessBitpos(int bitpos);
+    // if (postProcessBitpos(bitpos = ((wordNum << 6) + wordBitPos)) >= numBits) {
+
+
+    public int nextWordNum(){ // sets word and wordNum
+      if (wordNum == NO_MORE_DOCS) {
+        return NO_MORE_DOCS;
+      }
+      if (bitpos == -1) { // Only ever true for root
+        if (advance(0) == NO_MORE_DOCS) {
+          return wordNum = NO_MORE_DOCS;
+        }
+        return wordNum;
+      }
+      if (parent != null) {
+        wordNum = parent.nextDoc();
+        word = wordNum == NO_MORE_DOCS ? 0 : generateWord(wordNum, bitsA, bitsB);
+        return wordNum;
+      }
+      return advanceWord(++wordNum);
+    }
+
+    protected abstract long generateWord(int wordNum, long[] bitsA, long[] bitsB);
+
+    public long cost() {
+      return numWordsA + numWordsB; // Bad cost as this iterator is fast for sparse sets
+    }
+
+    public int advance(int target) {
+//      if (target >= numBits) {
+//        return bitpos = NO_MORE_DOCS;
+//      }
+//      bitpos = source.nextSetBit(target);
+
+//      if (bitpos >= numBits || bitpos == -1) {
+//        return bitpos = NO_MORE_DOCS;
+//      }
+      adjustWords(bitpos);
+      /*      System.out.println("Advance finished: target=" + target + ", bitpos=" + bitpos +
+          ", bitpos-(wordNum<<6)=" + (bitpos - (wordNum << 6)) +
+          ", bitpos&63=" + (bitpos & 63) +
+          ", numWord=" + numWords + ", bitsets:\n" +
+          bin(bits[wordNum]) + " bits[wordNum]\n" +
+          bin(word) + " word\n" +
+          bin(-1L<<((bitpos&63)+1)) + " -1L<<((bitpos&63)+1)");*/
+      return bitpos;
+    }
+
+/*    private String bin(long value) {
+      return bin(value, 64);
+    }
+    private String bin(long value, int bits) {
+      String s = String.format("%" + bits + "s", Long.toBinaryString(value)).replace(" ", "0");
+      return s.length() <= bits ? s : s.substring(s.length()-bits, s.length());
+    }
+  */
+    public int advanceWord(int target) { // Does not update word
+//      if (target >= numWords) {
+//        return wordNum = NO_MORE_DOCS;
+//      }
+      if (target == wordNum) {
+        return wordNum;
+      }
+
+
+      if (parent != null) {
+        wordNum = parent.advance(target);
+//        word = wordNum != NO_MORE_DOCS ? bits[wordNum] : 0;
+        return wordNum;
+      }
+      wordNum = target;
+//      while (++wordNum < numWords) {
+//        if (bits[wordNum] != 0) {
+//          word = bits[wordNum];
+//          return wordNum;
+//        }
+//    }
+      word = 0;
+      return wordNum = NO_MORE_DOCS;
+
+/*
+      if (parent != null) {
+        if (advance(target << 6) == NO_MORE_DOCS) {
+          wordNum = NO_MORE_DOCS;
+        }
+        return wordNum;
+        //return wordNum = source.nextSetBit(target << 6) >> 6;
+      }
+      while (++wordNum < numWords) {
+        if (bits[wordNum] != 0) {
+          return wordNum;
+        }
+      }
+
+      return wordNum = NO_MORE_DOCS;*/
+    }
+
+    private void adjustWords(int bitpos) {
+/*      this.bitpos = bitpos;
+      wordNum = bitpos >> 6;
+      // We shift the extra bit to erase the current bit (part of the nextBit contract)
+      // This has to be done in two steps as x << 64 == x, not 0.
+      //word = bits[wordNum] & (-1L<<((bitpos&63))<<1);
+      //word = bits[wordNum] & (-1L << (innerWordPos+1)); // +1 to erase the current bit
+      if (parent != null) {
+        parent.adjustWords(wordNum);
+      }*/
     }
 
   }
@@ -718,12 +919,12 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    *  long in the backing bits array, and the result is not
    *  internally cached! */
   public int cardinality() {
-    long cardinality = 0;
+    int cardinality = 0;
     WordIterator words = wordIterator();
     while (words.nextWordNum() != WordIterator.NO_MORE_DOCS) {
       cardinality += Long.bitCount(words.word());
     }
-    return (int) cardinality;
+    return cardinality;
   }
 
   @Override

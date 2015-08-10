@@ -204,6 +204,7 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     }
   }
 
+  // Fails with -Dtests.seed=D624D3A25606C6B2
   public void testTrackedWordAdvance() {
     TrackedFixedBitSet bitset = new TrackedFixedBitSet(64*64*10);
     bitset.set(0);       // w0
@@ -821,7 +822,7 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     return s.length() <= bits ? s : s.substring(s.length()-bits, s.length());
   }
   */
-  // FIXME: Fails with -Dtests.seed=2D7D9C92F594B1E
+  // FIXME: Fails with -Dtests.seed=D624D3A25606C6B2
   // large enough to flush obvious bugs, small enough to run in <.5 sec as part of a
   // larger testsuite.
   public void testSmall() throws IOException {
