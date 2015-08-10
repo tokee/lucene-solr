@@ -244,9 +244,24 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
         return bitpos = NO_MORE_DOCS;
       }
       adjustWords(bitpos);
+      /*      System.out.println("Advance finished: target=" + target + ", bitpos=" + bitpos +
+          ", bitpos-(wordNum<<6)=" + (bitpos - (wordNum << 6)) +
+          ", bitpos&63=" + (bitpos & 63) +
+          ", numWord=" + numWords + ", bitsets:\n" +
+          bin(bits[wordNum]) + " bits[wordNum]\n" +
+          bin(word) + " word\n" +
+          bin(-1L<<((bitpos&63)+1)) + " -1L<<((bitpos&63)+1)");*/
       return bitpos;
     }
 
+/*    private String bin(long value) {
+      return bin(value, 64);
+    }
+    private String bin(long value, int bits) {
+      String s = String.format("%" + bits + "s", Long.toBinaryString(value)).replace(" ", "0");
+      return s.length() <= bits ? s : s.substring(s.length()-bits, s.length());
+    }
+  */
     public int advanceWord(int target) { // Does not update word
       if (target >= numWords) {
         return wordNum = NO_MORE_DOCS;
@@ -291,8 +306,8 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
     private void adjustWords(int bitpos) {
       this.bitpos = bitpos;
       wordNum = bitpos >> 6;
-      final int innerWordPos = bitpos - (wordNum << 6);
-      word = bits[wordNum] & (-1L << (innerWordPos+1)); // +1 to erase the current bit
+      word = bits[wordNum] & (-1L<<((bitpos&63))<<1); // <<1 to erase the current bit
+      //word = bits[wordNum] & (-1L << (innerWordPos+1)); // +1 to erase the current bit
       if (parent != null) {
         parent.adjustWords(wordNum);
       }
@@ -668,7 +683,8 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
   @Override
   public DocIdSetIterator iterator() {
-    return new TrackedFixedBitSetIterator(this);
+    return new MultiLevelBitsetIterator(this);
+    //return new TrackedFixedBitSetIterator(this);
   }
 
   @Override

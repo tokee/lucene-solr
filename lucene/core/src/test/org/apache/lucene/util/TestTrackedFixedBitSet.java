@@ -171,6 +171,39 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
 
   }
 
+  public void testTrackedBitAdvance() throws IOException {
+    final int[] BITS = new int[]{0, 64+7, 64*64-1, 64*64, 64*80, 64*128};
+    final int[] WORDNUMS = new int[]{0, 1, 63, 64, 80};
+
+    TrackedFixedBitSet bitset = new TrackedFixedBitSet(64*64*10);
+    for (int bit: BITS) {
+      bitset.set(bit);
+    }
+
+/*    { // Base check
+      DocIdSetIterator bits = bitset.iterator();
+      for (int bit: BITS) {
+        assertEquals("Base iteration of bits", bit, bits.nextDoc());
+
+      }
+    }
+    { // Advance A
+      DocIdSetIterator bits = bitset.iterator();
+      assertEquals("A. Advance start", 0, bits.nextDoc());
+      assertEquals("A. Advance first next", 71, bits.nextDoc());
+    }
+  */
+    { // Advance A
+      DocIdSetIterator bits = bitset.iterator();
+      assertEquals("B. Advance start", 0, bits.nextDoc());
+      assertEquals("B. Advance first next", 71, bits.nextDoc());
+      //      assertEquals("A. Advance 1 (match)", 71, bits.advance(71));
+      assertEquals("B. Advance 5 (not match)", 64*64-1, bits.advance(80));
+      assertEquals("B. Advance plain next", 64*64, bits.nextDoc());
+      assertEquals("B. Advance 81 (skip over)", 64*128, bits.advance(64*80+1));
+    }
+  }
+
   public void testTrackedWordAdvance() {
     TrackedFixedBitSet bitset = new TrackedFixedBitSet(64*64*10);
     bitset.set(0);       // w0
