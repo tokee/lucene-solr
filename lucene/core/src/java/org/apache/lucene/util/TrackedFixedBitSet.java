@@ -743,7 +743,13 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   // FIXME: Doesn't respect numBits (and neither does the equivalent in FixedBitSet)
   public static long intersectionCount(TrackedFixedBitSet a, TrackedFixedBitSet b) {
     // TODO: Optimize iteration - we only need to consider the case where both word 1 and word2 are non-0
-    return merge(a, b, true, (wordNum, word1, word2) -> Long.bitCount(word1 & word2));
+    return merge(a, b, true, new MergeCallback() {
+      @Override
+      public long merge(int wordNum, long word1, long word2) {
+        return Long.bitCount(word1 & word2);
+      }
+    });
+// Java 1.8:   return merge(a, b, true, (wordNum, word1, word2) -> Long.bitCount(word1 & word2));
 //    return BitUtil.pop_intersect(a.bits, b.bits, 0, Math.min(a.numWords, b.numWords));
   }
 
@@ -753,7 +759,13 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
    */
   // FIXME: Doesn't respect numBits (and neither does the equivalent in FixedBitSet)
   public static long unionCount(TrackedFixedBitSet a, TrackedFixedBitSet b) {
-    return merge(a, b, false, (wordNum, word1, word2) -> Long.bitCount(word1 | word2));
+    return merge(a, b, false, new MergeCallback() {
+          @Override
+          public long merge(int wordNum, long word1, long word2) {
+            return Long.bitCount(word1 | word2);
+          }
+        });
+    // Java 1.8: return merge(a, b, false, (wordNum, word1, word2) -> Long.bitCount(word1 | word2));
 /*
     long tot = BitUtil.pop_union(a.bits, b.bits, 0, Math.min(a.numWords, b.numWords));
     if (a.numWords < b.numWords) {
@@ -771,7 +783,13 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   // FIXME: Doesn't respect numBits (and neither does the equivalent in FixedBitSet)
   public static long andNotCount(TrackedFixedBitSet a, TrackedFixedBitSet b) {
     // TODO: Optimize iteration - we only need to consider the case where both word 1 and word2 are non-0
-    return merge(a, b, false, (wordNum, word1, word2) -> Long.bitCount(word1 & ~word2));
+    return merge(a, b, false, new MergeCallback() {
+          @Override
+          public long merge(int wordNum, long word1, long word2) {
+            return Long.bitCount(word1 & ~word2);
+          }
+        });
+    // Java 1.8: return merge(a, b, false, (wordNum, word1, word2) -> Long.bitCount(word1 & ~word2));
 /*    long tot = BitUtil.pop_andnot(a.bits, b.bits, 0, Math.min(a.numWords, b.numWords));
     if (a.numWords > b.numWords) {
       tot += BitUtil.pop_array(a.bits, b.numWords, a.numWords - b.numWords);
@@ -1078,6 +1096,20 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
 
   /** this = this OR other */
   public void or(TrackedFixedBitSet other) {
+    merge(this, other, false, new MergeCallback() {
+      @Override
+      public long merge(int wordNum, long word1, long word2) {
+        if (word2 != 0) {
+          long original = bits[wordNum];
+          bits[wordNum] = word1 | word2;
+          if (original == 0) {
+            trackWord(wordNum);
+          }
+        }
+        return 0;
+      }
+    });
+    /* Java 1.8:
     merge(this, other, false, (wordNum, word1, word2) -> {
       if (word2 != 0) {
         long original = bits[wordNum];
@@ -1087,7 +1119,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
         }
       }
       return 0;
-    });
+    });*/
 //    or(other.bits, other.numWords);
   }
   
@@ -1105,7 +1137,24 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   /** this = this XOR other */
   public void xor(TrackedFixedBitSet other) {
     assert other.numWords <= numWords : "numWords=" + numWords + ", other.numWords=" + other.numWords;
-    int limit = Math.min(numWords, other.numWords);
+    final int limit = Math.min(numWords, other.numWords);
+    merge(this, other, false, new MergeCallback() {
+          @Override
+          public long merge(int wordNum, long word1, long word2) {
+            if (wordNum >= limit) {
+              return 0; // Some break-out mechanism would be nice
+            }
+            long original = bits[wordNum];
+            bits[wordNum] = word1 ^ word2;
+            if (original == 0 && bits[wordNum] != 0) {
+              trackWord(wordNum);
+            } else if (original != 0 && bits[wordNum] == 0) {
+              untrackWord(wordNum);
+            }
+            return 0; // We only deal in side effects for this
+          }
+        });
+    /* Java 1.8:
     merge(this, other, false, (wordNum, word1, word2) -> {
       if (wordNum >= limit) {
         return 0; // Some break-out mechanism would be nice
@@ -1119,7 +1168,7 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       }
       return 0; // We only deal in side effects for this
     });
-
+*/
 /*
     final long[] thisBits = this.bits;
     final long[] otherBits = other.bits;
@@ -1277,7 +1326,20 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
   /** this = this AND NOT other */
   public void andNot(TrackedFixedBitSet other) {
     // TODO: Optimize iteration - we only need to consider the case where both word 1 and word2 are non-0
-    merge(this, other, true, (wordNum, word1, word2) -> {
+    merge(this, other, true, new MergeCallback() {
+      @Override
+      public long merge(int wordNum, long word1, long word2) {
+        if (word1 == 0) {
+          return 0;
+        }
+        final long original = bits[wordNum];
+        if (((bits[wordNum] = word1 & ~word2) == 0) && original != 0) {
+          untrackWord(wordNum);
+        }
+        return 0;
+      }});
+      /* Java 1.8:
+        merge(this, other, true, (wordNum, word1, word2) -> {
       if (word1 == 0) {
         return 0;
       }
@@ -1287,6 +1349,8 @@ public final class TrackedFixedBitSet extends DocIdSet implements Bits {
       }
       return 0;
     });
+
+     */
 //    andNot(other.bits, other.bits.length);
   }
   

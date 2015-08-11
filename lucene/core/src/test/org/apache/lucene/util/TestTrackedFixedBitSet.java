@@ -133,15 +133,33 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
   }
 
   public void testTrackedSetRangeMonkey() {
-    testTrackedUpdates("set range", TrackedFixedBitSet::set);
+    testTrackedUpdates("set range", new TrackedDualCallback() {
+      @Override
+      public void update(TrackedFixedBitSet bitset, Integer start, Integer end) {
+        bitset.set(start, end);
+      }
+    });
+    // Java 1.8 code: testTrackedUpdates("set range", TrackedFixedBitSet::set);
   }
 
   public void testTrackedClearRangeMonkey() {
-    testTrackedUpdates("clear range", TrackedFixedBitSet::clear);
+    testTrackedUpdates("clear range", new TrackedDualCallback() {
+          @Override
+          public void update(TrackedFixedBitSet bitset, Integer start, Integer end) {
+            bitset.clear(start, end);
+          }
+        });
+    // Java 1.8 code: testTrackedUpdates("clear range", TrackedFixedBitSet::clear);
   }
 
   public void testTrackedFlipRangeMonkey() {
-    testTrackedUpdates("flip range", TrackedFixedBitSet::flip);
+    testTrackedUpdates("flip range", new TrackedDualCallback() {
+          @Override
+          public void update(TrackedFixedBitSet bitset, Integer start, Integer end) {
+            bitset.flip(start, end);
+          }
+        });
+// Java 1.8 code: testTrackedUpdates("flip range", TrackedFixedBitSet::flip);
   }
 
   public void testIntersects() {
@@ -340,7 +358,14 @@ public class TestTrackedFixedBitSet extends BaseDocIdSetTestCase<TrackedFixedBit
     Random random = new Random(SEED);
     TrackedFixedBitSet bitset1 = getRandomTrackedFixed(random, 64*139, 25);
     TrackedFixedBitSet bitset2 = getRandomTrackedFixed(random, 64*123, 25);
-    long nonZeroTracked = TrackedFixedBitSet.merge(bitset1, bitset2, false, (wordNum, word1, word2) -> 1L);
+    long nonZeroTracked = TrackedFixedBitSet.merge(bitset1, bitset2, false,
+         new TrackedFixedBitSet.MergeCallback() {
+           @Override
+           public long merge(int wordNum, long word1, long word2) {
+             return 1L;
+           }
+         });
+        // Replace the MergeCallback with (wordNum, word1, word2) -> 1L when switching to 1.8
     long nonZeroExpected = 0;
     for (int i = 0 ; i < bitset2.numWords ; i++) {
       if (bitset1.bits[i] != 0 || bitset2.bits[i] != 0) {
