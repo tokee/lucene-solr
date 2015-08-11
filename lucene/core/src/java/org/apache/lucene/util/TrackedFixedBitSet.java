@@ -27,13 +27,13 @@ import org.apache.lucene.search.DocIdSetIterator;
  * Low-overhead tracking of set bits, allowing for fast iteration and join-operations between two TrackedFixedBitSets.
  * Adapted from {@link FixedBitSet} and intended as a direct replacement as all public methods, both static and not,
  * are identical.
- * </p><p>
+ * <br/>
  * TrackedFixedBitSet uses 1 tracking bit for each underlying long (64 bits) and 1 tracking-tracking bit for each 64
  * tracking bits, which translates to a memory overhead of #bits/64/8 + #bits/64/64/8 bytes. The dual-layer tracking
  * means that worst-case iteration (1 single set bit at the last position in the bitmap) requires only bits/64/64/64
  * lookups. For 100M bits that is 381 sequential lookups in contiguous memory + 1 lookup in the other tracking
  * structure + 1 lookup in the bits array..
- * </p><p>
+ * <br/>
  * TODO: Handle non-sparse better.
  * TODO: Describe how dense + sparse is fast for most operations
  * TODO: Check if cost can be used to determine order when dense + sparse speed depends on it
@@ -585,7 +585,7 @@ public final class TrackedFixedBitSet extends BitSet implements MutableBits, Acc
     /**
      * Skips the cursor to the next not-0 word at or after the given target. This method utilizes trackers.
      * @param target the first word to iterate from.
-     * @return the wordNum for the first non-0 word >= target or {@link #NO_MORE_DOCS}.
+     * @return the wordNum for the first non-0 word greater than or equal to target or {@link #NO_MORE_DOCS}.
      */
     public int advance(final int target) {
       if (target >= numBits) {
