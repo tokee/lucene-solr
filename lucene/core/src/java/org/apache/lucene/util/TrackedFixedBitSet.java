@@ -932,6 +932,7 @@ public final class TrackedFixedBitSet extends BitSet implements MutableBits, Acc
   /** Returns number of set bits.  NOTE: this visits every not-0
    *  long in the backing bits array, and the result is not
    *  internally cached! */
+  @Override
   public int cardinality() {
     int cardinality = 0;
     WordIterator words = wordIterator();
@@ -939,6 +940,19 @@ public final class TrackedFixedBitSet extends BitSet implements MutableBits, Acc
       cardinality += Long.bitCount(words.word());
     }
     return cardinality;
+  }
+
+  @Override
+  public int approximateCardinality() {
+    if (trackers.length == 0 || numBits < 64*64) {
+      return cardinality();
+    }
+    final int multiplier = (int) Math.pow(64, trackers.length);
+    int cardinality = 0;
+    for (long trackWord: trackers[trackers.length]) {
+      cardinality += Long.bitCount(trackWord);
+    }
+    return cardinality*multiplier;
   }
 
   @Override
@@ -951,6 +965,7 @@ public final class TrackedFixedBitSet extends BitSet implements MutableBits, Acc
     return (bits[i] & bitmask) != 0;
   }
 
+  @Override
   public void set(int index) {
     assert index >= 0 && index < numBits: "index=" + index + ", numBits=" + numBits;
     int wordNum = index >> 6;      // div 64
@@ -1070,6 +1085,7 @@ public final class TrackedFixedBitSet extends BitSet implements MutableBits, Acc
 
   /** Does in-place OR of the bits provided by the
    *  iterator. */
+  @Override
   public void or(DocIdSetIterator iter) throws IOException {
     if (iter instanceof TrackedFixedBitSetIterator && iter.docID() == -1) {
       final TrackedFixedBitSetIterator fbs = (TrackedFixedBitSetIterator) iter;
