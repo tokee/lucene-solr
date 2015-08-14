@@ -46,6 +46,21 @@ import org.apache.lucene.search.DocIdSetIterator;
 public final class FixedBitSet extends BitSet implements MutableBits, Accountable {
 
   private static final long BASE_RAM_BYTES_USED = RamUsageEstimator.shallowSizeOfInstance(FixedBitSet.class);
+  public static final boolean DEBUG = true;
+
+  private static void debug(String message, FixedBitSet... bitsets) {
+    if (!DEBUG) {
+      return;
+    }
+    StringBuilder sb = new StringBuilder(200);
+    sb.append("*** ").append(message);
+    int bitsetCounter = 0;
+    for (FixedBitSet bitset: bitsets) {
+      sb.append(" bitset(#").append(++bitsetCounter).append(", bits=");
+      sb.append(bitset.cardinality()).append("/").append(bitset.length()).append(")");
+    }
+    System.out.println(sb.toString());
+  }
 
   /**
    * A {@link org.apache.lucene.search.DocIdSetIterator} which iterates over set bits in a
@@ -145,6 +160,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
     int wordNum = -1;
 
     public MultiLevelBitsetIterator(FixedBitSet source) {
+      //debug("iterator", source);  // Endless recursion if we do this
       MultiLevelBitsetIterator parent = null;
       for (int i = source.trackers.length-1 ; i >= 0 ; i--) {
         long[] tracker = source.trackers[i];
@@ -657,6 +673,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
    */
   static long merge(FixedBitSet tracked1, FixedBitSet tracked2,
                      boolean stopAtFirstDepletion, MergeCallback callback) {
+    debug("merge", tracked1, tracked2);
     long total = 0;
     WordIterator words1 = tracked1.wordIterator();
     WordIterator words2 = tracked2.wordIterator();
@@ -855,6 +872,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
         tracker2[i >>> 6] |= 1L << (i & 63);
       }
     }
+    debug("filled trackers", this);
   }
 
   /**
@@ -952,6 +970,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
     for (long trackWord: trackers[trackers.length-1]) {
       cardinality += Long.bitCount(trackWord);
     }
+    debug("approximate cardinality " + cardinality*multiplier, this);
     return cardinality*multiplier;
   }
 
@@ -1089,6 +1108,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
   public void or(DocIdSetIterator iter) throws IOException {
     if (iter instanceof FixedBitSetIterator && iter.docID() == -1) {
       final FixedBitSetIterator fbs = (FixedBitSetIterator) iter;
+      debug("or from iterator", this, fbs.source);
       or(fbs.source);
 //      or(fbs.bits, fbs.numWords);
       // advance after last doc that would be accepted if standard
@@ -1108,6 +1128,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
 
   /** this = this OR other */
   public void or(FixedBitSet other) {
+    debug("or from other fixed", this, other);
     merge(this, other, false, new MergeCallback() {
       @Override
       public long merge(int wordNum, long word1, long word2) {
@@ -1137,6 +1158,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
   
   private void or(final long[] otherArr, final int otherNumWords) {
     assert otherNumWords <= numWords : "numWords=" + numWords + ", otherNumWords=" + otherNumWords;
+    debug("or from array of bits " + otherArr.length*64, this);
     final long[] thisArr = this.bits;
     int pos = Math.min(numWords, otherNumWords);
     while (--pos >= 0) {
@@ -1149,6 +1171,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
   /** this = this XOR other */
   public void xor(FixedBitSet other) {
     assert other.numWords <= numWords : "numWords=" + numWords + ", other.numWords=" + other.numWords;
+    debug("xor from other", this, other);
     final int limit = Math.min(numWords, other.numWords);
     merge(this, other, false, new MergeCallback() {
           @Override
@@ -1200,6 +1223,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
   public void xor(DocIdSetIterator iter) throws IOException {
     if (iter instanceof FixedBitSetIterator && iter.docID() == -1) {
       FixedBitSetIterator fbs = (FixedBitSetIterator) iter;
+      debug("xor from iterator", this, fbs.source);
       xor(fbs.source);
       fbs.advance(numBits);
       return;
@@ -1216,6 +1240,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
   public void and(DocIdSetIterator iter) throws IOException {
     if (iter instanceof FixedBitSetIterator && iter.docID() == -1) {
       final FixedBitSetIterator fbs = (FixedBitSetIterator) iter;
+      debug("and from iterator", this, fbs.source);
       and(fbs.source);
       //and(fbs.bits, fbs.numWords);
       // advance after last doc that would be accepted if standard
@@ -1244,6 +1269,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
    * @return true if the sets have any elements in common.
    **/
   public boolean intersects(FixedBitSet other) {
+    debug("intersects from fixed", this, other);
     final int tracker2length = Math.min(this.tracker2.length, other.tracker2.length);
     for (int tti = 0 ; tti < tracker2length ; tti++) {
       long ttBitset = this.tracker2[tti] & other.tracker2[tti];
@@ -1279,6 +1305,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
 
   /** this = this AND other */
   public void and(FixedBitSet other) {
+    debug("and from fixed (not optimized)", this, other);
     and(other.bits, other.numWords);
     // Further improvement: If we know that word2 is 0 (other-iterator skipped past this-iterator), word1 must be
     // set to 0
@@ -1286,6 +1313,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
   }
   
   private void and(final long[] otherArr, final int otherNumWords) {
+    debug("and from array", this);
     WordIterator words = wordIterator();
     final int end = Math.min(numWords, otherNumWords);
     int wordNum;
@@ -1312,6 +1340,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
   public void andNot(DocIdSetIterator iter) throws IOException {
     if (iter instanceof FixedBitSetIterator && iter.docID() == -1) {
       final FixedBitSetIterator fbs = (FixedBitSetIterator) iter;
+      debug("andNot from fixed iterator", this, fbs.source);
       andNot(fbs.source);
 //      andNot(fbs.bits, fbs.numWords);
       // advance after last doc that would be accepted if standard
@@ -1333,6 +1362,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
 
   /** this = this AND NOT other */
   public void andNot(FixedBitSet other) {
+    debug("andNot from fixed", this, other);
     // TODO: Optimize iteration - we only need to consider the case where both word 1 and word2 are non-0
     merge(this, other, true, new MergeCallback() {
       @Override
@@ -1363,6 +1393,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
   }
   
   private void andNot(final long[] otherArr, final int otherNumWords) {
+    debug("andNot from array of bits " + otherArr.length*64, this);
     // TODO: Optimize iteration - we only need to consider the case where word 1 is non-0
     final long[] thisArr = this.bits;
     int pos = Math.min(this.numWords, otherNumWords);
