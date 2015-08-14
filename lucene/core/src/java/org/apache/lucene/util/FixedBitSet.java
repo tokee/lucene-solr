@@ -59,7 +59,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
       sb.append(" bitset(#").append(++bitsetCounter).append(", bits=");
       sb.append(bitset.cardinality()).append("/").append(bitset.length()).append(")");
     }
-    System.out.println(sb.toString());
+    System.err.println(sb.toString());
   }
 
   /**
