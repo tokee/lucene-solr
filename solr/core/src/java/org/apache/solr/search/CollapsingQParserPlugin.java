@@ -548,7 +548,7 @@ public class CollapsingQParserPlugin extends QParserPlugin {
       leafDelegate = delegate.getLeafCollector(contexts[currentContext]);
       DummyScorer dummy = new DummyScorer();
       leafDelegate.setScorer(dummy);
-      DocIdSetIterator it = new BitSetIterator(collapsedSet, 0L); // cost is not useful here
+      DocIdSetIterator it = BitSetIterator.getIterator(collapsedSet, 0L); // cost is not useful here
       int docId = -1;
       int index = -1;
       while((docId = it.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
@@ -744,7 +744,7 @@ public class CollapsingQParserPlugin extends QParserPlugin {
       leafDelegate = delegate.getLeafCollector(contexts[currentContext]);
       DummyScorer dummy = new DummyScorer();
       leafDelegate.setScorer(dummy);
-      DocIdSetIterator it = new BitSetIterator(collapsedSet, 0L); // cost is not useful here
+      DocIdSetIterator it = BitSetIterator.getIterator(collapsedSet, 0L); // cost is not useful here
       int globalDoc = -1;
       int nullScoreIndex = 0;
       while((globalDoc = it.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
@@ -890,7 +890,7 @@ public class CollapsingQParserPlugin extends QParserPlugin {
       leafDelegate = delegate.getLeafCollector(contexts[currentContext]);
       DummyScorer dummy = new DummyScorer();
       leafDelegate.setScorer(dummy);
-      DocIdSetIterator it = new BitSetIterator(collapseStrategy.getCollapsedSet(), 0); // cost is not useful here
+      DocIdSetIterator it = BitSetIterator.getIterator(collapseStrategy.getCollapsedSet(), 0); // cost is not useful here
       int globalDoc = -1;
       int nullScoreIndex = 0;
       float[] scores = collapseStrategy.getScores();
@@ -1032,7 +1032,7 @@ public class CollapsingQParserPlugin extends QParserPlugin {
       leafDelegate = delegate.getLeafCollector(contexts[currentContext]);
       DummyScorer dummy = new DummyScorer();
       leafDelegate.setScorer(dummy);
-      DocIdSetIterator it = new BitSetIterator(collapseStrategy.getCollapsedSet(), 0); // cost is not useful here
+      DocIdSetIterator it = BitSetIterator.getIterator(collapseStrategy.getCollapsedSet(), 0); // cost is not useful here
       int globalDoc = -1;
       int nullScoreIndex = 0;
       IntIntOpenHashMap cmap = collapseStrategy.getCollapseMap();

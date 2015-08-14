@@ -50,7 +50,7 @@ public class BitDocIdSet extends DocIdSet {
 
   @Override
   public DocIdSetIterator iterator() {
-    return new BitSetIterator(set, cost);
+    return BitSetIterator.getIterator(set, cost);
   }
 
   @Override

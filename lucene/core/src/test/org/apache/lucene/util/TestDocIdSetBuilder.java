@@ -98,7 +98,7 @@ public class TestDocIdSetBuilder extends LuceneTestCase {
       }
 
       final int[] array = new int[numDocs + random().nextInt(100)];
-      DocIdSetIterator it = new BitSetIterator(docs, 0L);
+      DocIdSetIterator it = BitSetIterator.getIterator(docs, 0L);
       int j = 0;
       for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
         array[j++] = doc;
@@ -149,7 +149,7 @@ public class TestDocIdSetBuilder extends LuceneTestCase {
       }
       expected.or(docs);
       // We provide a cost of 0 here to make sure the builder can deal with wrong costs
-      builder.add(new BitSetIterator(docs, 0L));
+      builder.add(BitSetIterator.getIterator(docs, 0L));
     }
 
     assertEquals(new BitDocIdSet(expected), builder.build());

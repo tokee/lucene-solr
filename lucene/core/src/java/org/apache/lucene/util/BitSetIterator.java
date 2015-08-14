@@ -47,13 +47,20 @@ public class BitSetIterator extends DocIdSetIterator {
     return getBitSet(iterator, SparseFixedBitSet.class);
   }
 
+  public static DocIdSetIterator getIterator(BitSet bits, long cost) {
+    if (bits instanceof FixedBitSet) {
+      return ((FixedBitSet)bits).iterator();
+    }
+    return new BitSetIterator(bits, cost);
+  }
+
   private final BitSet bits;
   private final int length;
   private final long cost;
   private int doc = -1;
 
   /** Sole constructor. */
-  public BitSetIterator(BitSet bits, long cost) {
+  private BitSetIterator(BitSet bits, long cost) {
     this.bits = bits;
     this.length = bits.length();
     this.cost = cost;

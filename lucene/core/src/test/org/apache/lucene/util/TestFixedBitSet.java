@@ -89,7 +89,7 @@ public class TestFixedBitSet extends BaseBitSetTestCase<FixedBitSet> {
   void doIterate1(java.util.BitSet a, FixedBitSet b) throws IOException {
     assertEquals(a.cardinality(), b.cardinality());
     int aa=-1,bb=-1;
-    DocIdSetIterator iterator = new BitSetIterator(b, 0);
+    DocIdSetIterator iterator = BitSetIterator.getIterator(b, 0);
     do {
       aa = a.nextSetBit(aa+1);
       bb = (bb < b.length() && random().nextBoolean()) ? iterator.nextDoc() : iterator.advance(bb + 1);
@@ -100,7 +100,7 @@ public class TestFixedBitSet extends BaseBitSetTestCase<FixedBitSet> {
   void doIterate2(java.util.BitSet a, FixedBitSet b) throws IOException {
     assertEquals(a.cardinality(), b.cardinality());
     int aa=-1,bb=-1;
-    DocIdSetIterator iterator = new BitSetIterator(b, 0);
+    DocIdSetIterator iterator = BitSetIterator.getIterator(b, 0);
     do {
       aa = a.nextSetBit(aa+1);
       bb = random().nextBoolean() ? iterator.nextDoc() : iterator.advance(bb + 1);

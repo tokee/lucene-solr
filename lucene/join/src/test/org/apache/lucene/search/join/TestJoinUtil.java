@@ -877,12 +877,12 @@ public class TestJoinUtil extends LuceneTestCase {
   private void assertBitSet(BitSet expectedResult, BitSet actualResult, IndexSearcher indexSearcher) throws IOException {
     if (VERBOSE) {
       System.out.println("expected cardinality:" + expectedResult.cardinality());
-      DocIdSetIterator iterator = new BitSetIterator(expectedResult, expectedResult.cardinality());
+      DocIdSetIterator iterator = BitSetIterator.getIterator(expectedResult, expectedResult.cardinality());
       for (int doc = iterator.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = iterator.nextDoc()) {
         System.out.println(String.format(Locale.ROOT, "Expected doc[%d] with id value %s", doc, indexSearcher.doc(doc).get("id")));
       }
       System.out.println("actual cardinality:" + actualResult.cardinality());
-      iterator = new BitSetIterator(actualResult, actualResult.cardinality());
+      iterator = BitSetIterator.getIterator(actualResult, actualResult.cardinality());
       for (int doc = iterator.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = iterator.nextDoc()) {
         System.out.println(String.format(Locale.ROOT, "Actual doc[%d] with id value %s", doc, indexSearcher.doc(doc).get("id")));
       }

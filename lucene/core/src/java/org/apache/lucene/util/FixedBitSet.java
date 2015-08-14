@@ -68,7 +68,10 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
   public static final boolean DEBUG = true;
 
   private static void debug(String message, FixedBitSet... bitsets) {
+    debug(message, true, bitsets);
+  }
 
+  private static void debug(String message, boolean recursion, FixedBitSet... bitsets) {
     if (!DEBUG) {
       return;
     }
@@ -77,7 +80,12 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
     int bitsetCounter = 0;
     for (FixedBitSet bitset: bitsets) {
       sb.append(" bitset(#").append(++bitsetCounter).append(", bits=");
-      sb.append(bitset.cardinality()).append("/").append(bitset.length()).append(")");
+      if (recursion) {
+        sb.append(bitset.cardinality()).append("/").append(bitset.length());
+      } else {
+        sb.append(bitset.length());
+      }
+      sb.append(")");
     }
     sb.append("\n");
     try {
@@ -188,7 +196,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
     int wordNum = -1;
 
     public MultiLevelBitsetIterator(FixedBitSet source) {
-      //debug("iterator", source);  // Endless recursion if we do this
+      debug("iterator", false, source);
       MultiLevelBitsetIterator parent = null;
       for (int i = source.trackers.length-1 ; i >= 0 ; i--) {
         long[] tracker = source.trackers[i];

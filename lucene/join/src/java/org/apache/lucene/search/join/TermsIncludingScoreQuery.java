@@ -188,7 +188,7 @@ class TermsIncludingScoreQuery extends Query {
       FixedBitSet matchingDocs = new FixedBitSet(maxDoc);
       this.scores = new float[maxDoc];
       fillDocsAndScores(matchingDocs, termsEnum);
-      this.matchingDocsIterator = new BitSetIterator(matchingDocs, cost);
+      this.matchingDocsIterator = BitSetIterator.getIterator(matchingDocs, cost);
       this.cost = cost;
     }
 

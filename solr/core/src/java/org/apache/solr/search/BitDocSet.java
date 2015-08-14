@@ -17,6 +17,7 @@
 
 package org.apache.solr.search;
 
+import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 
@@ -101,8 +102,15 @@ public class BitDocSet extends DocSetBase {
   @Override
   public DocIterator iterator() {
     return new DocIterator() {
-      private final BitSetIterator iter = new BitSetIterator(bits, 0L); // cost is not useful here
-      private int pos = iter.nextDoc();
+      private final DocIdSetIterator iter = BitSetIterator.getIterator(bits, 0L); // cost is not useful here
+      private int pos;
+      {
+        try {
+          pos = iter.nextDoc();
+        } catch (IOException e) {
+          throw new RuntimeException("Unexpected error accessing iterator", e);
+        }
+      }
       @Override
       public boolean hasNext() {
         return pos != DocIdSetIterator.NO_MORE_DOCS;
@@ -121,7 +129,11 @@ public class BitDocSet extends DocSetBase {
       @Override
       public int nextDoc() {
         int old=pos;
-        pos=iter.nextDoc();
+        try {
+          pos=iter.nextDoc();
+        } catch (IOException e) {
+          throw new RuntimeException("Unexpected error accessing iterator", e);
+        }
         return old;
       }
 

@@ -66,9 +66,9 @@ public class TestDocSet extends LuceneTestCase {
     return bs;
   }
 
-  public DocSet getHashDocSet(FixedBitSet bs) {
+  public DocSet getHashDocSet(FixedBitSet bs) throws IOException {
     int[] docs = new int[bs.cardinality()];
-    BitSetIterator iter = new BitSetIterator(bs, 0);
+    DocIdSetIterator iter = BitSetIterator.getIterator(bs, 0);
     for (int i=0; i<docs.length; i++) {
       docs[i] = iter.nextDoc();
     }
@@ -77,9 +77,13 @@ public class TestDocSet extends LuceneTestCase {
 
   public DocSet getIntDocSet(FixedBitSet bs) {
     int[] docs = new int[bs.cardinality()];
-    BitSetIterator iter = new BitSetIterator(bs, 0);
-    for (int i=0; i<docs.length; i++) {
-      docs[i] = iter.nextDoc();
+    DocIdSetIterator iter = BitSetIterator.getIterator(bs, 0);
+    try {
+      for (int i=0; i<docs.length; i++) {
+        docs[i] = iter.nextDoc();
+      }
+    } catch(Exception e) {
+      throw new RuntimeException("Unexpected exception iterating FixedBitSet", e);
     }
     return new SortedIntDocSet(docs);
   }
@@ -88,14 +92,14 @@ public class TestDocSet extends LuceneTestCase {
     return new BitDocSet(bs);
   }
 
-  public DocSet getDocSlice(FixedBitSet bs) {
+  public DocSet getDocSlice(FixedBitSet bs) throws IOException {
     int len = bs.cardinality();
     int[] arr = new int[len+5];
     arr[0]=10; arr[1]=20; arr[2]=30; arr[arr.length-1]=1; arr[arr.length-2]=2;
     int offset = 3;
     int end = offset + len;
 
-    BitSetIterator iter = new BitSetIterator(bs, 0);
+    DocIdSetIterator iter = BitSetIterator.getIterator(bs, 0);
     // put in opposite order... DocLists are not ordered.
     for (int i=end-1; i>=offset; i--) {
       arr[i] = iter.nextDoc();
@@ -105,7 +109,7 @@ public class TestDocSet extends LuceneTestCase {
   }
 
 
-  public DocSet getDocSet(FixedBitSet bs) {
+  public DocSet getDocSet(FixedBitSet bs) throws IOException {
     switch(rand.nextInt(10)) {
       case 0: return getHashDocSet(bs);
 
@@ -149,7 +153,7 @@ public class TestDocSet extends LuceneTestCase {
     }
   }
 
-  protected void doSingle(int maxSize) {
+  protected void doSingle(int maxSize) throws IOException {
     int sz = rand.nextInt(maxSize+1);
     int sz2 = rand.nextInt(maxSize);
     FixedBitSet bs1 = getRandomSet(sz, rand.nextInt(sz+1));
@@ -180,13 +184,13 @@ public class TestDocSet extends LuceneTestCase {
     assertEquals(a_andn.cardinality(), b1.andNotSize(b2));
   }
 
-  public void doMany(int maxSz, int iter) {
+  public void doMany(int maxSz, int iter) throws IOException {
     for (int i=0; i<iter; i++) {
       doSingle(maxSz);
     }
   }
 
-  public void testRandomDocSets() {
+  public void testRandomDocSets() throws IOException {
     // Make the size big enough to go over certain limits (such as one set
     // being 8 times the size of another in the int set, or going over 2 times
     // 64 bits for the bit doc set.  Smaller sets can hit more boundary conditions though.

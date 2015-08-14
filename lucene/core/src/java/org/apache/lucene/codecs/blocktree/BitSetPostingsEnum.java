@@ -54,7 +54,7 @@ class BitSetPostingsEnum extends PostingsEnum {
   @Override
   public int nextDoc() throws IOException {
     if (in == null) {
-      in = new BitSetIterator(bits, 0);
+      in = BitSetIterator.getIterator(bits, 0);
     }
     return in.nextDoc();
   }

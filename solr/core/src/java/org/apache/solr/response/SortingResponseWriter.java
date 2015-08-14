@@ -153,7 +153,7 @@ public class SortingResponseWriter implements QueryResponseWriter {
       SortDoc top = queue.top();
       for(int i=0; i<leaves.size(); i++) {
         sortDoc.setNextReader(leaves.get(i));
-        DocIdSetIterator it = new BitSetIterator(sets[i], 0); // cost is not useful here
+        DocIdSetIterator it = BitSetIterator.getIterator(sets[i], 0); // cost is not useful here
         int docId = -1;
         while((docId = it.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
           sortDoc.setValues(docId);

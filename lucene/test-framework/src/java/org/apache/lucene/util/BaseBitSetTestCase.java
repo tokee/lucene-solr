@@ -160,11 +160,11 @@ public abstract class BaseBitSetTestCase<T extends BitSet> extends LuceneTestCas
         return builder.build();
       case 3:
         FixedBitSet fbs = new FixedBitSet(numBits);
-        fbs.or(new BitSetIterator(set, 0));
+        fbs.or(BitSetIterator.getIterator(set, 0));
         return new BitDocIdSet(fbs);
       case 4:
         SparseFixedBitSet sfbs = new SparseFixedBitSet(numBits);
-        sfbs.or(new BitSetIterator(set, 0));
+        sfbs.or(BitSetIterator.getIterator(set, 0));
         return new BitDocIdSet(sfbs);
       default:
         fail();

@@ -507,7 +507,7 @@ public class ExpandComponent extends SearchComponent implements PluginInfoInitia
     public GroupExpandCollector(SortedDocValues docValues, FixedBitSet groupBits, IntOpenHashSet collapsedSet, int limit, Sort sort) throws IOException {
       int numGroups = collapsedSet.size();
       groups = new LongObjectOpenHashMap<>(numGroups * 2);
-      DocIdSetIterator iterator = new BitSetIterator(groupBits, 0); // cost is not useful here
+      DocIdSetIterator iterator = BitSetIterator.getIterator(groupBits, 0); // cost is not useful here
       int group;
       while ((group = iterator.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
         Collector collector = (sort == null) ? TopScoreDocCollector.create(limit) : TopFieldCollector.create(sort, limit, false, false, false);

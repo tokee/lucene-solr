@@ -145,7 +145,7 @@ public class PKIndexSplitter {
       if (in.hasDeletions()) {
         final Bits oldLiveDocs = in.getLiveDocs();
         assert oldLiveDocs != null;
-        final DocIdSetIterator it = new BitSetIterator(bits, 0L); // the cost is not useful here
+        final DocIdSetIterator it = BitSetIterator.getIterator(bits, 0L); // the cost is not useful here
         for (int i = it.nextDoc(); i != DocIdSetIterator.NO_MORE_DOCS; i = it.nextDoc()) {
           if (!oldLiveDocs.get(i)) {
             // we can safely modify the current bit, as the iterator already stepped over it:

@@ -173,9 +173,13 @@ public class BitSetPerf {
         for (int i=0; i<numSets; i++) {
           if (impl=="open") {
             final FixedBitSet set = osets[i];
-            final BitSetIterator iterator = new BitSetIterator(set, 0);
+            final DocIdSetIterator iterator = BitSetIterator.getIterator(set, 0);
+            try {
             for(int next=iterator.nextDoc(); next>=0; next=iterator.nextDoc()) {
               ret += next;
+            }
+            } catch (Exception e) {
+              throw new RuntimeException("Unexpected exception iterating FixedBitSet", e);
             }
           } else {
             final BitSet set = sets[i];

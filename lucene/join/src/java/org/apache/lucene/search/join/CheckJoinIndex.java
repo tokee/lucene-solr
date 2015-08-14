@@ -50,7 +50,7 @@ public class CheckJoinIndex {
       final Bits liveDocs = context.reader().getLiveDocs();
       if (liveDocs != null) {
         int prevParentDoc = -1;
-        DocIdSetIterator it = new BitSetIterator(parents, 0L);
+        DocIdSetIterator it = BitSetIterator.getIterator(parents, 0L);
         for (int parentDoc = it.nextDoc(); parentDoc != DocIdSetIterator.NO_MORE_DOCS; parentDoc = it.nextDoc()) {
           final boolean parentIsLive = liveDocs.get(parentDoc);
           for (int child = prevParentDoc + 1; child != parentDoc; child++) {
