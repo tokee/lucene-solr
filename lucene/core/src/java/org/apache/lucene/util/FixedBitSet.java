@@ -17,7 +17,13 @@ package org.apache.lucene.util;
  * limitations under the License.
  */
 
+import java.io.BufferedOutputStream;
+import java.io.BufferedWriter;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.StringWriter;
 import java.util.Arrays;
 
 import org.apache.lucene.search.DocIdSet;
@@ -44,12 +50,26 @@ import org.apache.lucene.search.DocIdSetIterator;
  */
 // TODO: Replace tracker1 and tracker2 with a variable number of trackers, including 0 trackers
 public final class FixedBitSet extends BitSet implements MutableBits, Accountable {
+
+  private static final FileOutputStream out;
+  static {
+    FileOutputStream tout = null;
+    try {
+      tout = new FileOutputStream("/home/te/tmp/fixed.log", true);
+    } catch (FileNotFoundException e) {
+      System.err.println("Unable to open output stream to /home/te/tmp/fixed.log");
+    }
+    out = tout;
+  }
+  private static final BufferedWriter wout = new BufferedWriter(new OutputStreamWriter(out));
+
   private static final InfoStream infoStream = InfoStream.getDefault();
   private static final long BASE_RAM_BYTES_USED = RamUsageEstimator.shallowSizeOfInstance(FixedBitSet.class);
   public static final boolean DEBUG = true;
 
   private static void debug(String message, FixedBitSet... bitsets) {
-    if (!DEBUG || !infoStream.isEnabled("FixedBitSet")) {
+
+    if (!DEBUG) {
       return;
     }
     StringBuilder sb = new StringBuilder(200);
@@ -59,7 +79,15 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
       sb.append(" bitset(#").append(++bitsetCounter).append(", bits=");
       sb.append(bitset.cardinality()).append("/").append(bitset.length()).append(")");
     }
-    infoStream.message("FixedBitSet", sb.toString());
+    sb.append("\n");
+    try {
+      wout.write(sb.toString());
+      wout.flush();
+      out.flush();
+    } catch (IOException e) {
+      // Do nothing ad this is one big ugly hack to debug performance
+    }
+
   }
 
   /**
