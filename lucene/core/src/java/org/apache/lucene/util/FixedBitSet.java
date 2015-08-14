@@ -27,13 +27,13 @@ import org.apache.lucene.search.DocIdSetIterator;
  * Low-overhead tracking of set bits, allowing for fast iteration and join-operations between two FixedBitSets.
  * Adapted from {@link FixedBitSet} and intended as a direct replacement as all public methods, both static and not,
  * are identical.
- * <br/>
+ *
  * FixedBitSet uses 1 tracking bit for each underlying long (64 bits) and 1 tracking-tracking bit for each 64
  * tracking bits, which translates to a memory overhead of #bits/64/8 + #bits/64/64/8 bytes. The dual-layer tracking
  * means that worst-case iteration (1 single set bit at the last position in the bitmap) requires only bits/64/64/64
  * lookups. For 100M bits that is 381 sequential lookups in contiguous memory + 1 lookup in the other tracking
  * structure + 1 lookup in the bits array..
- * <br/>
+ *
  * TODO: Handle non-sparse better.
  * TODO: Describe how dense + sparse is fast for most operations
  * TODO: Check if cost can be used to determine order when dense + sparse speed depends on it
