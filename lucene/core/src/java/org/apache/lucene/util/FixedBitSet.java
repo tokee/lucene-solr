@@ -44,12 +44,12 @@ import org.apache.lucene.search.DocIdSetIterator;
  */
 // TODO: Replace tracker1 and tracker2 with a variable number of trackers, including 0 trackers
 public final class FixedBitSet extends BitSet implements MutableBits, Accountable {
-
+  private static final InfoStream infoStream = InfoStream.getDefault();
   private static final long BASE_RAM_BYTES_USED = RamUsageEstimator.shallowSizeOfInstance(FixedBitSet.class);
   public static final boolean DEBUG = true;
 
   private static void debug(String message, FixedBitSet... bitsets) {
-    if (!DEBUG) {
+    if (!DEBUG || !infoStream.isEnabled("FixedBitSet")) {
       return;
     }
     StringBuilder sb = new StringBuilder(200);
@@ -59,7 +59,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
       sb.append(" bitset(#").append(++bitsetCounter).append(", bits=");
       sb.append(bitset.cardinality()).append("/").append(bitset.length()).append(")");
     }
-    System.err.println(sb.toString());
+    infoStream.message("FixedBitSet", sb.toString());
   }
 
   /**
