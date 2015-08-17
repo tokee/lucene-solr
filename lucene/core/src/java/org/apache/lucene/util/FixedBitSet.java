@@ -65,7 +65,7 @@ public final class FixedBitSet extends BitSet implements MutableBits, Accountabl
 
   private static final InfoStream infoStream = InfoStream.getDefault();
   private static final long BASE_RAM_BYTES_USED = RamUsageEstimator.shallowSizeOfInstance(FixedBitSet.class);
-  public static final boolean DEBUG = true;
+  public static final boolean DEBUG = false;
 
   private static void debug(String message, FixedBitSet... bitsets) {
     debug(message, true, bitsets);
