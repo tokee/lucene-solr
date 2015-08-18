@@ -107,41 +107,56 @@ public class BitSetPerf {
         } while (true);
       }
       for (List<org.apache.lucene.util.BitSet> luceneSets: this.luceneSets.values()) {
-        copy(luceneSets.get(s), javaSet);
+        copy(javaSet, luceneSets.get(s));
       }
     }
   }
 
-  private void copy(org.apache.lucene.util.BitSet bitSet, BitSet javaSet) {
-    for (int i = 0 ; i < bitSet.length() ; i++) {
-      if (bitSet.get(i)) {
-        javaSet.set(i);
+  private void copy(BitSet javaSet, org.apache.lucene.util.BitSet bitSet) {
+    for (int i = 0 ; i < javaSet.length() ; i++) {
+      if (javaSet.get(i)) {
+        bitSet.set(i);
       }
     }
   }
 
   public static void main(String[] args) throws IOException {
-    if (args.length<5) {
-      System.out.println("BitSetTest <bitSetSize> <numSets> <numBitsSet> <testName> <iter> <impl>");
-      System.out.println("  impl => open=OldFixedBitSet, tracked=FixedBitSet, java=BitSet");
-      System.out.println("  tests => " + TESTS);
+    if (args.length < 5) {
+      usage();
       return;
     }
     int bitSetSize = Integer.parseInt(args[0]);
     int numSets = Integer.parseInt(args[1]);
     int numBitsSet = Integer.parseInt(args[2]);
-    String test = args[3];
+    String test = "all".equals(args[3]) ? TESTS : args[3];
     int iter = Integer.parseInt(args[4]);
-    String impl = args.length>5 ? args[5].intern() : "java,open,tracked";
+    String impl = args.length > 5 && !"all".equals(args[5]) ? args[5].intern() : "java,open,tracked";
 
-    BitSetPerf bitSetPerf = new BitSetPerf(
-        bitSetSize, numSets, numBitsSet, Arrays.asList(test.split(" *, *")), iter, Arrays.asList(impl.split(" *, *")));
-    bitSetPerf.runTests();
+    try {
+      BitSetPerf bitSetPerf = new BitSetPerf(
+          bitSetSize, numSets, numBitsSet,
+          Arrays.asList(test.split(" *, *")), iter, Arrays.asList(impl.split(" *, *")));
+      bitSetPerf.runTests();
+    } catch (Exception e) {
+      usage();
+      throw e;
+    }
+  }
+
+  private static void usage() {
+    System.out.println("BitSetTest <bitSetSize> <numSets> <numBitsSet> <testName> <iter> <impl>");
+    System.out.println("  impl => open=OldFixedBitSet, tracked=FixedBitSet, java=BitSet");
+    System.out.println("  tests => " + TESTS);
+    return;
   }
 
   public void runTests() throws IOException {
+    System.out.println(String.format(
+        "sets=%d, size=%d, set bits=%d, iterations=%d",
+        numSets, bitSetSize, numBitsSet, iter));
+    System.out.println("test\timpl\tms\tcheck");
+
     for (String test: tests) {
-      System.out.println(String.format("--- sets=%d, iterations=%d, test=%s ---", numSets, iter, test));
       for (String impl: implementations) {
         runTest(test, impl);
       }
@@ -161,7 +176,7 @@ public class BitSetPerf {
     }
   }
 
-  public int union(String impl) throws IOException {
+  public long union(String impl) throws IOException {
     List<org.apache.lucene.util.BitSet> luceneSet = luceneSets.get(impl);
     final RTimer timer;
     if (luceneSet != null) {
@@ -181,8 +196,7 @@ public class BitSetPerf {
         }
       }
     }
-    System.out.println(String.format("time/iteration=%5fms, check=%d, impl=%s", timer.getTime()/iter, 0, impl));
-    return 0;
+    return write("union", impl, timer.getTime(), 0);
   }
 
   public long cardinality(String impl) throws IOException {
@@ -199,8 +213,7 @@ public class BitSetPerf {
         }
       }
     }
-    System.out.println(String.format("time/iteration=%5fms, check=%d, impl=%s", timer.getTime()/iter, ret, impl));
-    return ret;
+    return write("cardinality", impl, timer.getTime(), ret);
   }
 
   public long get(String impl) throws IOException {
@@ -218,8 +231,7 @@ public class BitSetPerf {
         }
       }
     }
-    System.out.println(String.format("time/iteration=%5fms, check=%d, impl=%s", timer.getTime()/iter, ret, impl));
-    return ret;
+    return write("get", impl, timer.getTime(), ret);
   }
 
   public long icount(String impl) throws IOException {
@@ -254,8 +266,7 @@ public class BitSetPerf {
         }
       }
     }
-    System.out.println(String.format("time/iteration=%5fms, check=%d, impl=%s", timer.getTime()/iter, ret, impl));
-    return ret;
+    return write("icount", impl, timer.getTime(), ret);
   }
 
   public long nextSetBit(String impl) throws IOException {
@@ -277,8 +288,7 @@ public class BitSetPerf {
         }
       }
     }
-    System.out.println(String.format("time/iteration=%5fms, check=%d, impl=%s", timer.getTime()/iter, ret, impl));
-    return ret;
+    return write("nextSetBit", impl, timer.getTime(), ret);
   }
 
   public long iterator(String impl) throws IOException {
@@ -305,8 +315,7 @@ public class BitSetPerf {
         }
       }
     }
-    System.out.println(String.format("time/iteration=%5fms, check=%d, impl=%s", timer.getTime()/iter, ret, impl));
-    return ret;
+    return write("iterator", impl, timer.getTime(), ret);
   }
 
   public long clone(String impl) throws IOException {
@@ -322,8 +331,7 @@ public class BitSetPerf {
         }
       }
     }
-    System.out.println(String.format("time/iteration=%5fms, check=%d, impl=%s", timer.getTime()/iter, ret, impl));
-    return ret;
+    return write("clone", impl, timer.getTime(), ret);
   }
 
   private List<org.apache.lucene.util.BitSet> offsetClone(List<org.apache.lucene.util.BitSet> luceneSets) {
@@ -353,4 +361,11 @@ public class BitSetPerf {
     offsets.add((BitSet)javaSets.get(0).clone());
     return offsets;
   }
+
+  private long write(String test, String impl, double time, long check) {
+    System.out.println(String.format("%s\t%s\t%.2f\t%d", test, impl, time/numSets/iter, check));
+    return check;
+  }
+
+
 }
