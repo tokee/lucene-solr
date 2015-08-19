@@ -33,11 +33,5 @@ ant jar-core
 ant compile-test
 
 3) Run a test
-Tracked FixedBitSet:
-java -cp ./build/solr-core/solr-core-6.0.0-SNAPSHOT.jar:build/solr-core/classes/test/:../lucene/build/core/lucene-core-6.0.0-SNAPSHOT.jar org.apache.solr.util.BitSetPerf 10000000 10 10000 cardinality 10 tracked
 
-Untracked FixedBitSet:
-java -cp ./build/solr-core/solr-core-6.0.0-SNAPSHOT.jar:build/solr-core/classes/test/:../lucene/build/core/lucene-core-6.0.0-SNAPSHOT.jar org.apache.solr.util.BitSetPerf 10000000 10 10000 cardinality 10 open
-
-Plain BitSet:
-java -cp ./build/solr-core/solr-core-6.0.0-SNAPSHOT.jar:build/solr-core/classes/test/:../lucene/build/core/lucene-core-6.0.0-SNAPSHOT.jar org.apache.solr.util.BitSetPerf 10000000 10 10000 cardinality 10 plain
+java -cp ./build/solr-core/solr-core-6.0.0-SNAPSHOT.jar:build/solr-core/classes/test/:../lucene/build/core/lucene-core-6.0.0-SNAPSHOT.jar org.apache.solr.util.BitSetPerf 20000000 10 20000 "union, cardinality, icount, nextSetBit, iterator" 100 all
