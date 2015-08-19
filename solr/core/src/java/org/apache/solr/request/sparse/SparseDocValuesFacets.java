@@ -116,6 +116,10 @@ public class SparseDocValuesFacets {
 
     state.heuristic = sparseKeys.useOverallHeuristic(state.hitCount, searcher.maxDoc());
     if (state.heuristic && state.termList != null) { // No reliable counters, switch to slow term counting
+      log.info(String.format(Locale.ENGLISH,
+          "Phase 2 sparse faceting of field=%s, #terms=%d, hits=%d, maxDoc=%d, boundary=%s skipped as it activates " +
+          "heuristics",
+          fieldName, state.termList.split(",").length, state.hitCount, state.maxDoc, state.keys.boundary));
       return SimpleFacets.fallbackGetListedTermCounts(state.searcher, null, state.field, state.termList, state.docs);
     }
 
