@@ -148,7 +148,6 @@ public class SparseFacetTest extends SolrTestCaseJ4 {
     }
   }
 
-
   // Seems to fail with -Dtests.seed=98FABA64875F6ADA
   public void testMultiTextValueFaceting() throws Exception {
     for (int mod: MODULOS) {

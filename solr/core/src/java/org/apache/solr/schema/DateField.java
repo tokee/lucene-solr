@@ -369,7 +369,7 @@ public class DateField extends PrimitiveFieldType implements DateValueFieldType 
     = new ThreadLocalDateFormat(new ISO8601CanonicalDateFormat());
   
   private static class ISO8601CanonicalDateFormat extends SimpleDateFormat {
-    
+
     protected NumberFormat millisParser
       = NumberFormat.getIntegerInstance(CANONICAL_LOCALE);
 

@@ -17,6 +17,8 @@
 
 package org.apache.solr.schema;
 
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
@@ -174,6 +176,35 @@ public class DateFieldTest extends LuceneTestCase {
     assertRoundTrip("0001-01-01T01:01:01Z");
     assertRoundTrip("12021-12-01T03:03:03Z");
   }
+
+  public void testInvalid() throws Exception {
+    assertRoundTrip("1995-12-123T23:59:59.987Z");
+  }
+
+  public void testLenient() throws Exception {
+    final String OVERFLOW = "2015-09-0124T00:00:00Z";
+    SimpleDateFormat simple = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.ROOT);
+
+    {
+      simple.setLenient(true);
+      try {
+        simple.parse(OVERFLOW);
+      } catch (ParseException e) {
+        fail("Parsing overflowing date with lenient=true should succeed");
+      }
+    }
+
+    {
+      simple.setLenient(false);
+      try {
+        simple.parse(OVERFLOW);
+        fail("Parsing overflowing date with lenient=false should not succeed");
+      } catch (ParseException e) {
+        // Expected
+      }
+    }
+  }
+
 
   @Ignore("SOLR-2773: Non-Positive years don't work")
   public void testRoundTripNonPositiveYear() throws Exception {
