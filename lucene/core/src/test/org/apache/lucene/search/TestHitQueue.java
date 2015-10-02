@@ -32,28 +32,24 @@ import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.PriorityQueue;
 
 public class TestHitQueue extends LuceneTestCase {
+  private static final int K = 1000;
+  private static final int M = K*K;
 
-  public void testPQPerformanceDiverse() throws ExecutionException, InterruptedException {
-    final int RUNS = 100;
-    final int SKIPS= 10;
-
-    System.out.println("Threads     pqSize   inserts  prepPop  initMS inserts/ms   emptyMS");
-    for (int threads: Arrays.asList(1, 2, 4, 8, 16, 32, 64)) {
-      for (int pqSize: Arrays.asList(10, 100, 1000, 10000)) {
-        for (int inserts: Arrays.asList(10, 100, 1000, 10000)) {
-          for (Boolean prePopulate: Arrays.asList(true, false)) {
-            Result total = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, prePopulate, true);
-            System.out.println(String.format("%7d %10d %9d %8b %7d %10d %9d ",
-                threads, pqSize, inserts, prePopulate,
-                total.init/total.runs/1000000,
-                1L*inserts*total.runs*1000000/total.fill,
-                total.empty/total.runs/1000000
+  public void testPQArray() throws ExecutionException, InterruptedException {
+    final int RUNS = 20;
+    final int SKIPS= 5;
+    final int threads = 4;
+    System.out.println("Threads     pqSize   inserts  arrayMS");
+    for (int pqSize: Arrays.asList(K, 10*K, 100*K, M, 10*M, 100*M)) {
+      for (int inserts : Arrays.asList(100*K, M, 10*M)) {
+        Result tArray = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, false, false);
+        System.out.println(String.format("%7d %10d %9d %8d",
+            threads, pqSize, inserts,
+            tArray.total()/tArray.runs/1000000
             ));
-          }
-        }
       }
     }
-    System.out.println("Finished testing");
+
   }
 
   public void testPQPerformanceSpecific() throws ExecutionException, InterruptedException {
@@ -62,8 +58,8 @@ public class TestHitQueue extends LuceneTestCase {
     final int threads = 4;
 
     System.out.println("Threads     pqSize   inserts  trueMS  falseMS  arrayMS   falseFrac  arrayFrac  arrayFracF");
-    for (int pqSize: Arrays.asList(10, 1000, 100000, 1000000)) {
-      for (int inserts: Arrays.asList(10, 1000, 100000, 1000000, 10000000)) {
+    for (int pqSize: Arrays.asList(10, 1000, 10000, 100000, 1000000)) {
+      for (int inserts: Arrays.asList(10, 1000, 10000, 100000, 1000000, 10000000)) {
         Result tFalse = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, false, true);
         // Try to avoid that heap garbage spills over to next test
         System.gc();
@@ -197,7 +193,7 @@ public class TestHitQueue extends LuceneTestCase {
           }
           scoreDoc.doc = random.nextInt();
           scoreDoc.score = random.nextFloat();
-          pq.insert(scoreDoc);
+          scoreDoc = pq.insert(scoreDoc);
         }
         result.fill += System.nanoTime();
 
