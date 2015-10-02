@@ -27,10 +27,7 @@ import java.util.Arrays;
  * queues (the value of "large" has yet to be determined) this means faster processing and substantially less
  * garbage collections.
  * </p><p>
- * It is technically possible to pack a tuple into a single long: The float value takes 32 bits and maxDocID is < 2^31
- * for the full index. The problem with this is that the docID _and_ the segmentIndex must be preserved and from the
- * perspective of the HitQueueArray there is no correspondence between docID and segmentIndex. If this is to be done,
- * the use of HitQueueArray would require a function {@code f(segmentIndex, segmentDocID) → globalDocID} and vice versa.
+ * Note: This implementation ignores the shardIndex from ScoreDoc.   
  * </p><p>
  * Warning: This class is used primarily for experimentations with performance.
  * Correctness of the implementation has not been properly unit tested!
@@ -38,8 +35,8 @@ import java.util.Arrays;
 public class HitQueueArray {
   private final int maxSize;
 
-  private final float[] scores;     // document score
-  private final long[] docSegments; // segmentIndex << 32 | docID
+  private final float[] scores;
+  private final int[] docIDs;
   private int size = 0;
   private boolean dirty = false;
 
@@ -50,7 +47,7 @@ public class HitQueueArray {
   public HitQueueArray(int size) {
     maxSize = size+1;
     scores = new float[size+1];
-    docSegments = new long[size+1];
+    docIDs = new int[size+1];
     clear(); // Init with negative infinity
   }
 
@@ -109,7 +106,7 @@ public class HitQueueArray {
     size = 0;
     dirty = false;
 //    Arrays.fill(scores, Float.NEGATIVE_INFINITY); // Do we even need to do this when size == =?
-    // No need for clearing docSegments as negative infinity in scores handles it all
+    // No need for clearing docIDs as negative infinity in scores handles it all
   }
 
   public int size() {
@@ -140,7 +137,7 @@ public class HitQueueArray {
     assign(1, reuse);         // save first value
     assign(size, 1);          // move last to first
 //    scores[size] = Float.NEGATIVE_INFINITY; // should not be needed?
-//    docSegments[size] = 0;                  // should not be needed?
+//    docIDs[size] = 0;                  // should not be needed?
     size--;
     downHeap();               // adjust heap
     return reuse;
@@ -201,26 +198,25 @@ public class HitQueueArray {
 
   private void assign(int fromIndex, int toIndex) {
     scores[toIndex] = scores[fromIndex];
-    docSegments[toIndex] = docSegments[fromIndex];
+    docIDs[toIndex] = docIDs[fromIndex];
   }
   private void swap(int indexA, int indexB) {
     float tScore = scores[indexA];
     scores[indexA] = scores[indexB];
     scores[indexB] = tScore;
 
-    long tDC = docSegments[indexA];
-    docSegments[indexA] = docSegments[indexB];
-    docSegments[indexB] = tDC;
+    int tDC = docIDs[indexA];
+    docIDs[indexA] = docIDs[indexB];
+    docIDs[indexB] = tDC;
   }
   private ScoreDoc assign(int fromIndex, ScoreDoc toScoreDoc) {
     toScoreDoc.score = scores[fromIndex];
-    toScoreDoc.doc = (int)(docSegments[fromIndex] >>> 32);
-    toScoreDoc.shardIndex = (int)docSegments[fromIndex]; // Casting removed upper bits
+    toScoreDoc.doc = docIDs[fromIndex];
     return toScoreDoc;
   }
   private void assign(ScoreDoc fromScoreDoc, int toIndex) {
     scores[toIndex] = fromScoreDoc.score;
-    docSegments[toIndex] = ((long)fromScoreDoc.doc) << 32 | ((long)fromScoreDoc.shardIndex);
+    docIDs[toIndex] = fromScoreDoc.doc;
   }
   private ScoreDoc assign(ScoreDoc fromScoreDoc, ScoreDoc toScoreDoc) {
     toScoreDoc.score = fromScoreDoc.score;
@@ -236,16 +232,16 @@ public class HitQueueArray {
 
   @SuppressWarnings("FloatingPointEquality")
   protected final boolean lessThan(int index, ScoreDoc hitA) {
-   return scores[index] == hitA.score ? (int)(docSegments[index] >>> 32) > hitA.doc : scores[index] < hitA.score;
+   return scores[index] == hitA.score ? docIDs[index] > hitA.doc : scores[index] < hitA.score;
   }
   @SuppressWarnings("FloatingPointEquality")
   protected final boolean lessThan(ScoreDoc hitA, int index) {
-   return hitA.score == scores[index] ? hitA.doc > (int)(docSegments[index] >>> 32) : hitA.score < scores[index];
+   return hitA.score == scores[index] ? hitA.doc > docIDs[index] : hitA.score < scores[index];
   }
   @SuppressWarnings("FloatingPointEquality")
   protected final boolean lessThan(int indexA, int indexB) {
    return scores[indexA] == scores[indexB] ?
-       docSegments[indexA] > docSegments[indexB] :
+       docIDs[indexA] > docIDs[indexB] :
        scores[indexA] < scores[indexB];
   }
 }
