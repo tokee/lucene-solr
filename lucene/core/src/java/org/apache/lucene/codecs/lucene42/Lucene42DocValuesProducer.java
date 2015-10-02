@@ -66,7 +66,7 @@ class Lucene42DocValuesProducer extends DocValuesProducer {
   private final Map<Integer,NumericEntry> numerics;
   private final Map<Integer,BinaryEntry> binaries;
   private final Map<Integer,FSTEntry> fsts;
-  private final IndexInput data;
+  private IndexInput data = null;
   private final int version;
   
   // ram instances we have already loaded
@@ -128,6 +128,7 @@ class Lucene42DocValuesProducer extends DocValuesProducer {
     }
 
     success = false;
+    data = null;
     try {
       String dataName = IndexFileNames.segmentFileName(state.segmentInfo.name, state.segmentSuffix, dataExtension);
       data = state.directory.openInput(dataName, state.context);
@@ -140,7 +141,7 @@ class Lucene42DocValuesProducer extends DocValuesProducer {
 
       success = true;
     } finally {
-      if (!success) {
+      if (!success && data != null) {
         IOUtils.closeWhileHandlingException(this.data);
       }
     }

@@ -52,7 +52,7 @@ class DirectDocValuesProducer extends DocValuesProducer {
   private final Map<Integer,BinaryEntry> binaries = new HashMap<>();
   private final Map<Integer,SortedEntry> sorteds = new HashMap<>();
   private final Map<Integer,SortedSetEntry> sortedSets = new HashMap<>();
-  private final IndexInput data;
+  private IndexInput data = null;
   
   // ram instances we have already loaded
   private final Map<Integer,NumericDocValues> numericInstances = 
@@ -106,6 +106,7 @@ class DirectDocValuesProducer extends DocValuesProducer {
     }
 
     success = false;
+    data = null;
     try {
       String dataName = IndexFileNames.segmentFileName(state.segmentInfo.name, state.segmentSuffix, dataExtension);
       data = state.directory.openInput(dataName, state.context);
@@ -118,7 +119,7 @@ class DirectDocValuesProducer extends DocValuesProducer {
 
       success = true;
     } finally {
-      if (!success) {
+      if (!success && data != null) {
         IOUtils.closeWhileHandlingException(this.data);
       }
     }

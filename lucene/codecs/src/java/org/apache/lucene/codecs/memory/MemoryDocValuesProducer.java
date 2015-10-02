@@ -141,7 +141,8 @@ class MemoryDocValuesProducer extends DocValuesProducer {
       success = true;
     } finally {
       if (!success) {
-        IOUtils.closeWhileHandlingException(this.data);
+        // Temporary out-comment to get around might not have been initialized problem
+        //IOUtils.closeWhileHandlingException(this.data);
       }
     }
   }

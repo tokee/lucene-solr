@@ -70,7 +70,7 @@ public class Lucene45DocValuesProducer extends DocValuesProducer implements Clos
   private final Map<Integer,NumericEntry> ords;
   private final Map<Integer,NumericEntry> ordIndexes;
   private final AtomicLong ramBytesUsed;
-  private final IndexInput data;
+  private IndexInput data = null; // To fix "variable might not have been initialized"
   private final int maxDoc;
   private final int version;
 
@@ -124,7 +124,7 @@ public class Lucene45DocValuesProducer extends DocValuesProducer implements Clos
 
       success = true;
     } finally {
-      if (!success) {
+      if (!success && data != null) {
         IOUtils.closeWhileHandlingException(this.data);
       }
     }
