@@ -58,8 +58,8 @@ public class TestHitQueue extends LuceneTestCase {
     final int threads = 4;
 
     System.out.println("Threads     pqSize   inserts  trueMS  falseMS  arrayMS   falseFrac  arrayFrac  arrayFracF");
-    for (int pqSize: Arrays.asList(10, 1000, 10000, 100000, 1000000)) {
-      for (int inserts: Arrays.asList(10, 1000, 10000, 100000, 1000000, 10000000)) {
+    for (int pqSize: Arrays.asList(10, K, 10*K, 100*K, M)) {
+      for (int inserts: Arrays.asList(10, K, 10*K, 100*K, M)) {
         Result tFalse = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, false, true);
         // Try to avoid that heap garbage spills over to next test
         System.gc();

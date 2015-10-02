@@ -33,7 +33,9 @@ import org.apache.lucene.util.PriorityQueue;
  * for the full index. The problem with this is that the docID _and_ the segmentIndex must be preserved and from the
  * perspective of the HitQueueArray there is no correspondence between docID and segmentIndex. If this is to be done,
  * the use of HitQueueArray would require a function {@code f(segmentIndex, segmentDocID) → globalDocID} and vice versa.
- * </p>
+ * </p><p>
+ * Warning: This class is used primarily for experimentations with performance.
+ * Correctness of the implementation has not been properly unit tested!
  **/
 public class HitQueueArray {
   private final int maxSize;
@@ -41,6 +43,7 @@ public class HitQueueArray {
   private final float[] scores;     // document score
   private final long[] docSegments; // segmentIndex << 32 | docID
   private int size = 0;
+  private boolean dirty = false;
 
   /**
    * Creates a queue for ScoreDocs.
@@ -57,10 +60,11 @@ public class HitQueueArray {
   public ScoreDoc insertWithOverflow(ScoreDoc element) {
     if (size < maxSize-1) {
       assign(element, ++size);
-      upHeap();
-      element.score = Float.NEGATIVE_INFINITY; // Unnecessary reset?
+      dirty = true;
+//      upHeap();
       return element;
     } else if (size > 0 && !lessThan(element, assign(1, insertScoreDocOld))) {
+      heapify();
       assign(element, 1);
       downHeap();
       return assign(insertScoreDocOld, element);
@@ -105,6 +109,7 @@ public class HitQueueArray {
 
   public final void clear() {
     size = 0;
+    dirty = false;
     Arrays.fill(scores, Float.NEGATIVE_INFINITY); // Do we even need to do this when size == =?
     // No need for clearing docSegments as negative infinity in scores handles it all
   }
@@ -120,6 +125,7 @@ public class HitQueueArray {
     if (reuse == null) {
       reuse = new ScoreDoc(0, 0f);
     }
+    heapify(); // TODO: Check if top is called often with changing heap
     assign(1, reuse);
     return reuse;
   }
@@ -132,6 +138,7 @@ public class HitQueueArray {
     if (reuse == null) {
       reuse = new ScoreDoc(0, 0f);
     }
+    heapify();
     assign(1, reuse);         // save first value
     assign(size, 1);          // move last to first
     scores[size] = Float.NEGATIVE_INFINITY; // should not be needed?
@@ -141,9 +148,71 @@ public class HitQueueArray {
     return reuse;
   }
 
+  private void heapify() {
+    if (!dirty) {
+      return;
+    }
+    heapSort(1, size-1);
+    dirty = false;
+  }
+
+  private void heapSort(int from, int to) {
+    if (to - from <= 1) {
+      return;
+    }
+    heapify(from, to);
+    for (int end = to - 1; end > from; --end) {
+      swap(from, end);
+      siftDown(from, from, end);
+    }
+  }
+
+  private void heapify(int from, int to) {
+    for (int i = heapParent(from, to - 1); i >= from; --i) {
+      siftDown(i, from, to);
+    }
+  }
+
+  private void siftDown(int i, int from, int to) {
+    for (int leftChild = heapChild(from, i); leftChild < to; leftChild = heapChild(from, i)) {
+      final int rightChild = leftChild + 1;
+      if (lessThan(i, leftChild)) {
+        if (rightChild < to && lessThan(leftChild, rightChild)) {
+          swap(i, rightChild);
+          i = rightChild;
+        } else {
+          swap(i, leftChild);
+          i = leftChild;
+        }
+      } else if (rightChild < to && lessThan(i, rightChild)) {
+        swap(i, rightChild);
+        i = rightChild;
+      } else {
+        break;
+      }
+    }
+  }
+
+  private int heapParent(int from, int i) {
+    return ((i - 1 - from) >>> 1) + from;
+  }
+
+  private int heapChild(int from, int i) {
+    return ((i - from) << 1) + 1 + from;
+  }
+
   private void assign(int fromIndex, int toIndex) {
     scores[toIndex] = scores[fromIndex];
     docSegments[toIndex] = docSegments[fromIndex];
+  }
+  private void swap(int indexA, int indexB) {
+    float tScore = scores[indexA];
+    scores[indexA] = scores[indexB];
+    scores[indexB] = tScore;
+
+    long tDC = docSegments[indexA];
+    docSegments[indexA] = docSegments[indexB];
+    docSegments[indexB] = tDC;
   }
   private ScoreDoc assign(int fromIndex, ScoreDoc toScoreDoc) {
     toScoreDoc.score = scores[fromIndex];
