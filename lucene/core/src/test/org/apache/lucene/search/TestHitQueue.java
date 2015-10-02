@@ -42,7 +42,7 @@ public class TestHitQueue extends LuceneTestCase {
       for (int pqSize: Arrays.asList(10, 100, 1000, 10000)) {
         for (int inserts: Arrays.asList(10, 100, 1000, 10000)) {
           for (Boolean prePopulate: Arrays.asList(true, false)) {
-            Result total = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, prePopulate);
+            Result total = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, prePopulate, true);
             System.out.println(String.format("%7d %10d %9d %8b %7d %10d %9d ",
                 threads, pqSize, inserts, prePopulate,
                 total.init/total.runs/1000000,
@@ -57,30 +57,39 @@ public class TestHitQueue extends LuceneTestCase {
   }
 
   public void testPQPerformanceSpecific() throws ExecutionException, InterruptedException {
-    final int RUNS = 100;
-    final int SKIPS= 10;
+    final int RUNS = 20;
+    final int SKIPS= 5;
     final int threads = 4;
 
-    System.out.println("Threads     pqSize   inserts  trueMS  falseMS  falseTime");
+    System.out.println("Threads     pqSize   inserts  trueMS  falseMS  arrayMS   falseFrac  arrayFrac  arrayFracF");
     for (int pqSize: Arrays.asList(10, 1000, 100000, 1000000)) {
-      for (int inserts: Arrays.asList(10, 1000, 100000, 1000000)) {
-        Result tFalse = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, false);
+      for (int inserts: Arrays.asList(10, 1000, 100000, 1000000, 10000000)) {
+        Result tFalse = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, false, true);
         // Try to avoid that heap garbage spills over to next test
         System.gc();
         Thread.sleep(100);
 
-        Result tTrue = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, true);
+        Result tTrue = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, true, true);
+        System.gc();
+        Thread.sleep(100);
+
+        Result tArray = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, false, false);
         System.gc();
         Thread.sleep(100);
 
         double falseGain = 1D*tFalse.total()/tTrue.total();
-                System.out.println(String.format("%7d %10d %9d "
-                    + "%7d %8d %9.2f%%",
-                    threads, pqSize, inserts,
-                    tTrue.total()/tTrue.runs/1000000,
-                    tFalse.total()/tFalse.runs/1000000,
-                    falseGain*100
-                ));
+        double arrayGain = 1D*tArray.total()/tTrue.total();
+        double arrayGainF = 1D*tArray.total()/tFalse.total();
+        System.out.println(String.format("%7d %10d %9d "
+            + "%7d %8d %8d  %9.2f%% %9.2f%%  %9.2f%%",
+            threads, pqSize, inserts,
+            tTrue.total()/tTrue.runs/1000000,
+            tFalse.total()/tFalse.runs/1000000,
+            tArray.total()/tArray.runs/1000000,
+            falseGain*100,
+            arrayGain*100,
+            arrayGainF*100
+            ));
         // Try to avoid that heap garbage spills over to next test
         System.gc();
         Thread.sleep(50);
@@ -88,13 +97,14 @@ public class TestHitQueue extends LuceneTestCase {
     }
   }
 
-  private Result testPerformance(int runs, int skips, int threads, int pqSize, int inserts, boolean prePopulate)
+  private Result testPerformance(
+      int runs, int skips, int threads, int pqSize, int inserts, boolean prePopulate, boolean vanilla)
       throws ExecutionException, InterruptedException {
     ExecutorService executor = Executors.newFixedThreadPool(threads);
 
     List<Future<Updater>> futures = new ArrayList<>(threads);
     for (int thread = 0 ; thread < threads ; thread++) {
-      Updater updater = new Updater(pqSize, inserts, runs, skips, prePopulate);
+      Updater updater = new Updater(pqSize, inserts, runs, skips, prePopulate, vanilla);
       futures.add(executor.submit(updater));
     }
     executor.shutdown();
@@ -150,15 +160,17 @@ public class TestHitQueue extends LuceneTestCase {
     private final Random random;
     private final int pqSize;
     private final boolean prePopulate;
+    private final boolean vanilla;
 
     public volatile int sync;
 
-    public Updater(int pqSize, int inserts, int runs, int skips, boolean prePopulate) {
+    public Updater(int pqSize, int inserts, int runs, int skips, boolean prePopulate, boolean vanilla) {
       this.pqSize = pqSize;
       this.inserts = inserts;
       this.runs = runs;
       this.skips = skips;
       this.prePopulate = prePopulate;
+      this.vanilla = vanilla;
       random = new Random(random().nextLong()); // Local Randoms seeded up-front ensures reproducible runs
     }
 
@@ -174,29 +186,25 @@ public class TestHitQueue extends LuceneTestCase {
         }
 
         result.init -= System.nanoTime();
-        final PriorityQueue<ScoreDoc> pq = new HitQueue(pqSize, prePopulate);
+        final PQMutant pq = new PQMutant(pqSize, prePopulate, vanilla);
         result.init += System.nanoTime();
 
         result.fill -= System.nanoTime();
-        ScoreDoc scoreDoc = prePopulate ? pq.top() : null;
+        ScoreDoc scoreDoc = pq.getInitial();
         for (int i = 0 ; i < inserts ; i++) {
           if (scoreDoc == null) {
             scoreDoc = new ScoreDoc(0, 0.0f);
           }
           scoreDoc.doc = random.nextInt();
           scoreDoc.score = random.nextFloat();
-          if (prePopulate) {
-            pq.updateTop();
-          } else {
-            scoreDoc = pq.insertWithOverflow(scoreDoc);
-          }
+          pq.insert(scoreDoc);
         }
         result.fill += System.nanoTime();
 
         result.empty -= System.nanoTime();
         int popCount = 0;
         while (pq.size() > 0 && popCount++ < inserts) {
-          if (pq.pop() == null) {
+          if (pq.pop(scoreDoc) == null) {
             break;
           }
         }
@@ -205,6 +213,48 @@ public class TestHitQueue extends LuceneTestCase {
         result.runs++;
       }
       return this;
+    }
+  }
+
+  private class PQMutant {
+    private final int size;
+    private final boolean prePopulate;
+    private final boolean vanilla;
+
+    private final HitQueue hqVanilla;
+    private final HitQueueArray hqArray;
+
+    private PQMutant(int size, boolean prePopulate, boolean vanilla) {
+      this.size = size;
+      this.prePopulate = prePopulate;
+      this.vanilla = vanilla;
+
+      hqVanilla = vanilla ? new HitQueue(size, prePopulate) : null;
+      hqArray = vanilla ? null : new HitQueueArray(size);
+    }
+
+    public ScoreDoc getInitial() {
+      return vanilla && prePopulate ? hqVanilla.top() : new ScoreDoc(0, 0f);
+    }
+
+    public ScoreDoc insert(ScoreDoc scoreDoc) {
+      if (vanilla) {
+        if (prePopulate) {
+          hqVanilla.updateTop();
+          return hqVanilla.top();
+        } else {
+          return hqVanilla.insertWithOverflow(scoreDoc);
+        }
+      }
+      return hqArray.insertWithOverflow(scoreDoc);
+    }
+
+    public int size() {
+      return vanilla ? hqVanilla.size() : hqArray.size();
+    }
+
+    public ScoreDoc pop(ScoreDoc reuse) {
+      return vanilla ? hqVanilla.pop() : hqArray.pop(reuse);
     }
   }
 
