@@ -38,15 +38,21 @@ public class TestHitQueue extends LuceneTestCase {
     final int RUNS = 20;
     final int SKIPS= 5;
     final int threads = 4;
-    System.out.println("Threads     pqSize   inserts  arrayMS  inserts/MS");
+    System.out.println("Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS");
     for (int pqSize: Arrays.asList(K, 10*K, 100*K, M, 10*M, 100*M)) {
-      for (int inserts : Arrays.asList(100*K, M, 10*M)) {
+      for (int inserts : Arrays.asList(100*K)) {//, M, 10*M)) {
         Result tArray = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, false, false);
-        System.out.println(String.format("%7d %10d %9d %8d %11d",
+        System.out.println(String.format("%7d %10d %9d %8d %11d %7d %8d",
             threads, pqSize, inserts,
             tArray.total()/tArray.runs/M,
-            1L*inserts*tArray.runs*M/tArray.total()
+            1L*inserts*tArray.runs*M/tArray.total(),
+            tArray.init/tArray.runs/M,
+            tArray.empty/tArray.runs/M
             ));
+
+        // Try to avoid that heap garbage spills over to next test
+        System.gc();
+        Thread.sleep(100);
       }
     }
 

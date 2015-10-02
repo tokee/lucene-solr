@@ -108,7 +108,7 @@ public class HitQueueArray {
   public final void clear() {
     size = 0;
     dirty = false;
-    Arrays.fill(scores, Float.NEGATIVE_INFINITY); // Do we even need to do this when size == =?
+//    Arrays.fill(scores, Float.NEGATIVE_INFINITY); // Do we even need to do this when size == =?
     // No need for clearing docSegments as negative infinity in scores handles it all
   }
 
@@ -139,8 +139,8 @@ public class HitQueueArray {
     heapify();
     assign(1, reuse);         // save first value
     assign(size, 1);          // move last to first
-    scores[size] = Float.NEGATIVE_INFINITY; // should not be needed?
-    docSegments[size] = 0;                  // should not be needed?
+//    scores[size] = Float.NEGATIVE_INFINITY; // should not be needed?
+//    docSegments[size] = 0;                  // should not be needed?
     size--;
     downHeap();               // adjust heap
     return reuse;
