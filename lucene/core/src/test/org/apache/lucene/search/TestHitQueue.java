@@ -35,13 +35,13 @@ public class TestHitQueue extends LuceneTestCase {
   private static final int M = K*K;
 
   public void testPQArray() throws ExecutionException, InterruptedException {
-    final int RUNS = 20;
-    final int SKIPS= 5;
-    final int THREADS = 4;
+    final int RUNS = 10;
+    final int SKIPS= 3;
+    final int THREADS = 1;
 
     System.out.println("Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS");
     for (int pqSize: Arrays.asList(K, 10*K, 100*K, M, 10*M, 100*M)) {
-      for (int inserts : Arrays.asList(100*K)) {//, M, 10*M)) {
+      for (int inserts : Arrays.asList(100*K, 100*M)) {//, M, 10*M)) {
         Result tArray = testPerformance(RUNS, SKIPS, THREADS, pqSize, inserts, false, false);
         System.out.println(String.format("%7d %10d %9d %8d %11d %7d %8d",
             THREADS, pqSize, inserts,
@@ -56,6 +56,25 @@ public class TestHitQueue extends LuceneTestCase {
         Thread.sleep(100);
       }
     }
+
+    /*
+Trial run on an i7 laptop:
+
+Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
+      1       1000    100000        4       20493       0        0
+      1       1000 100000000     2528       39554       0        0
+      1      10000    100000        8       11847       0        1
+      1      10000 100000000     2645       37805       0        1
+      1     100000    100000       30        3226       0       28
+      1     100000 100000000     2725       36691       0       17
+      1    1000000    100000       33        3002       1       29
+      1    1000000 100000000     4366       22900       1      263
+      1   10000000    100000      780         128     749       28
+      1   10000000 100000000    18645        5363       9     3944
+      1  100000000    100000     2212          45    2183       26
+      1  100000000 100000000    91104        1097    1915    86691
+
+     */
 
   }
 
@@ -256,6 +275,24 @@ public class TestHitQueue extends LuceneTestCase {
 
     public ScoreDoc pop(ScoreDoc reuse) {
       return vanilla ? hqVanilla.pop() : hqArray.pop(reuse);
+    }
+  }
+
+  public void testFloatBits() {
+    final int RUNS = 100000;
+    for (int i = 0 ; i < RUNS ; i++) {
+      float f1 = random().nextFloat();
+      float f2 = random().nextFloat();
+      int fb1 = Float.floatToRawIntBits(f1);
+      int fb2 = Float.floatToRawIntBits(f2);
+      if (f1 > f2) {
+        assertTrue("Float " + f1 + " > " + f2 + ", so binary values should also match: " + fb1 + " > " + fb2,
+            fb1 > fb2);
+      } else if (f1 < f2) {
+        assertTrue("Float " + f1 + " < " + f2 + ", so binary values should also match: " + fb1 + " < " + fb2,
+            fb1 < fb2);
+      } // We ignore equals as we do not use NaN and other special floats
+
     }
   }
 
