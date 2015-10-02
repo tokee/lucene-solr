@@ -217,7 +217,6 @@ public class TestHitQueue extends LuceneTestCase {
   }
 
   private class PQMutant {
-    private final int size;
     private final boolean prePopulate;
     private final boolean vanilla;
 
@@ -225,7 +224,6 @@ public class TestHitQueue extends LuceneTestCase {
     private final HitQueueArray hqArray;
 
     private PQMutant(int size, boolean prePopulate, boolean vanilla) {
-      this.size = size;
       this.prePopulate = prePopulate;
       this.vanilla = vanilla;
 
