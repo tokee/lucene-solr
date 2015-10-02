@@ -19,8 +19,6 @@ package org.apache.lucene.search;
 
 import java.util.Arrays;
 
-import org.apache.lucene.util.PriorityQueue;
-
 /**
  * Special purpose class for collecting tuples of score (float), docID (int) and shardIndex (int), acting as direct
  * replacement for {@link org.apache.lucene.search.HitQueue}.

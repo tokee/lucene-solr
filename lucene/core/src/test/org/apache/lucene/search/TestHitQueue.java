@@ -29,7 +29,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.lucene.util.LuceneTestCase;
-import org.apache.lucene.util.PriorityQueue;
 
 public class TestHitQueue extends LuceneTestCase {
   private static final int K = 1000;
@@ -39,13 +38,14 @@ public class TestHitQueue extends LuceneTestCase {
     final int RUNS = 20;
     final int SKIPS= 5;
     final int threads = 4;
-    System.out.println("Threads     pqSize   inserts  arrayMS");
+    System.out.println("Threads     pqSize   inserts  arrayMS  inserts/MS");
     for (int pqSize: Arrays.asList(K, 10*K, 100*K, M, 10*M, 100*M)) {
       for (int inserts : Arrays.asList(100*K, M, 10*M)) {
         Result tArray = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, false, false);
-        System.out.println(String.format("%7d %10d %9d %8d",
+        System.out.println(String.format("%7d %10d %9d %8d %11d",
             threads, pqSize, inserts,
-            tArray.total()/tArray.runs/1000000
+            tArray.total()/tArray.runs/M,
+            1L*inserts*tArray.runs*M/tArray.total()
             ));
       }
     }
@@ -53,13 +53,13 @@ public class TestHitQueue extends LuceneTestCase {
   }
 
   public void testPQPerformanceSpecific() throws ExecutionException, InterruptedException {
-    final int RUNS = 20;
-    final int SKIPS= 5;
+    final int RUNS = 10;
+    final int SKIPS= 3;
     final int threads = 4;
 
     System.out.println("Threads     pqSize   inserts  trueMS  falseMS  arrayMS   falseFrac  arrayFrac  arrayFracF");
     for (int pqSize: Arrays.asList(10, K, 10*K, 100*K, M)) {
-      for (int inserts: Arrays.asList(10, K, 10*K, 100*K, M)) {
+      for (int inserts: Arrays.asList(10*K, 100*K, M)) {
         Result tFalse = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, false, true);
         // Try to avoid that heap garbage spills over to next test
         System.gc();
@@ -79,9 +79,9 @@ public class TestHitQueue extends LuceneTestCase {
         System.out.println(String.format("%7d %10d %9d "
             + "%7d %8d %8d  %9.2f%% %9.2f%%  %9.2f%%",
             threads, pqSize, inserts,
-            tTrue.total()/tTrue.runs/1000000,
-            tFalse.total()/tFalse.runs/1000000,
-            tArray.total()/tArray.runs/1000000,
+            tTrue.total()/tTrue.runs/M,
+            tFalse.total()/tFalse.runs/M,
+            tArray.total()/tArray.runs/M,
             falseGain*100,
             arrayGain*100,
             arrayGainF*100
@@ -113,9 +113,9 @@ public class TestHitQueue extends LuceneTestCase {
     }
 /*    System.out.println(String.format("%7d %10d %9d %8b %7d %10d %9d ",
         threads, pqSize, inserts, prePopulate,
-        total.init/total.runs/1000000,
-        1L*inserts*total.runs*1000000/total.fill,
-        total.empty/total.runs/1000000
+        total.init/total.runs/M,
+        1L*inserts*total.runs*M/total.fill,
+        total.empty/total.runs/M
     ));*/
     return total;
   }
