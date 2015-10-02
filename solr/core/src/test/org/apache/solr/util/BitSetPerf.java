@@ -147,14 +147,13 @@ public class BitSetPerf {
     System.out.println("BitSetTest <bitSetSize> <numSets> <numBitsSet> <testName> <iter> <impl>");
     System.out.println("  impl => open=OldFixedBitSet, tracked=FixedBitSet, java=BitSet");
     System.out.println("  tests => " + TESTS);
-    return;
   }
 
   public void runTests() throws IOException {
     System.out.println(String.format(
         "sets=%d, size=%d, set bits=%d, iterations=%d",
         numSets, bitSetSize, numBitsSet, iter));
-    System.out.println("test\timpl\tms\tcheck");
+    System.out.println(HEADER);
 
     for (String test: tests) {
       for (String impl: implementations) {
@@ -362,8 +361,11 @@ public class BitSetPerf {
     return offsets;
   }
 
+  private static final String HEADER = "test\timpl\tms\tfraction\tcheck";
   private long write(String test, String impl, double time, long check) {
-    System.out.println(String.format("%s\t%s\t%.2f\t%d", test, impl, time/numSets/iter, check));
+    System.out.println(String.format(
+        "%s\t%s\t%.2f\t%.4f\t%d",
+        test, impl, time/numSets/iter, 1.0*numBitsSet/bitSetSize, check));
     return check;
   }
 
