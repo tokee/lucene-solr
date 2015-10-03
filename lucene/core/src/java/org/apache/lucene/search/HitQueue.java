@@ -17,9 +17,19 @@ package org.apache.lucene.search;
  * limitations under the License.
  */
 
+import java.util.Iterator;
+
 import org.apache.lucene.util.PriorityQueue;
 
-final class HitQueue extends PriorityQueue<ScoreDoc> {
+/*
+Important: For testing purposes this HitQueue has been extended with the HitQueueArray interface.
+           This does not affect the previous behaviour of the class - it only adds new and non-conflicting features.
+
+ */
+final class HitQueue extends PriorityQueue<ScoreDoc> implements HitQueueInterface {
+
+  private final int maxSize;
+  private final boolean prePopulate;
 
   /**
    * Creates a new instance with <code>size</code> elements. If
@@ -62,6 +72,8 @@ final class HitQueue extends PriorityQueue<ScoreDoc> {
    */
   HitQueue(int size, boolean prePopulate) {
     super(size, prePopulate);
+    this.maxSize = size;
+    this.prePopulate = prePopulate;
   }
 
   @Override
@@ -78,5 +90,62 @@ final class HitQueue extends PriorityQueue<ScoreDoc> {
       return hitA.doc > hitB.doc; 
     else
       return hitA.score < hitB.score;
+  }
+
+  /* HitQueueInterface below */
+
+  @Override
+  public int capacity() {
+    return maxSize;
+  }
+
+  @Override
+  public void insert(int docID, float score) {
+    if (prePopulate) {
+      top().doc = docID;
+      top().score = score;
+      updateTop();
+    } else {
+      ScoreDoc scoreDoc = new ScoreDoc(docID, score);
+      insertWithOverflow(scoreDoc);
+    }
+  }
+
+  @Override
+  public ScoreDoc insert(ScoreDoc element) {
+    if (prePopulate) {
+      top().doc = element.doc;
+      top().score = element.score;
+      updateTop();
+      return top(); // TODO: This seems wrong...
+    } else {
+      return insertWithOverflow(element);
+    }
+  }
+
+  @Override
+  public boolean isEmpty() {
+    return size() == 0;
+  }
+
+  @Override
+  public Iterator<ScoreDoc> getFlushingIterator(boolean unordered, boolean reuseScoreDoc) {
+    return new HQIterator();
+  }
+
+  // Assumes the heap is ordered
+  private class HQIterator implements Iterator<ScoreDoc> {
+    public HQIterator() {
+    }
+
+    @Override
+    public boolean hasNext() {
+      return !isEmpty();
+    }
+
+    @Override
+    public ScoreDoc next() {
+      return pop();
+    }
   }
 }

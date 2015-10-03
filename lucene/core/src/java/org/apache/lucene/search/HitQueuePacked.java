@@ -17,26 +17,26 @@ package org.apache.lucene.search;
  * limitations under the License.
  */
 
+import java.util.Arrays;
 import java.util.Iterator;
 
 /**
  * Special purpose class for collecting tuples of score (float), docID (int) and shardIndex (int), acting as direct
- * replacement for {@link org.apache.lucene.search.HitQueue}.
+ * replacement for {@link HitQueue}.
  * </p><p>
  * The design principle for the HitQueueArray is the use of atomic arrays instead of Object arrays. For larger
  * queues (the value of "large" has yet to be determined) this means faster processing and substantially less
  * garbage collections.
  * </p><p>
- * Note: This implementation ignores the shardIndex from ScoreDoc.   
+ * Note: This implementation ignores the shardIndex from ScoreDoc.
  * </p><p>
  * Warning: This class is used primarily for experimentations with performance.
  * Correctness of the implementation has not been properly unit tested!
  **/
-public class HitQueueArray implements HitQueueInterface {
+public class HitQueuePacked implements HitQueueInterface {
   private final int maxSize;
 
-  private final float[] scores;
-  private final int[] docIDs;
+  private final long[] elements;
   private int size = 0;
   private boolean dirty = false;
 
@@ -44,32 +44,29 @@ public class HitQueueArray implements HitQueueInterface {
    * Creates a queue for ScoreDocs.
    * @param size maximum size of the queue.
    */
-  public HitQueueArray(int size) {
+  public HitQueuePacked(int size){
     maxSize = size+1;
-    scores = new float[size+1];
-    docIDs = new int[size+1];
+    elements = new long[size+1];
     clear(); // Init with negative infinity
   }
 
   private final ScoreDoc insertScoreDocOld = new ScoreDoc(0, 0f);
-
   @Override
-  public ScoreDoc insert(ScoreDoc element) {
+  public ScoreDoc insert(ScoreDoc newScoreDoc) {
     if (size < maxSize-1) {
-      assign(element, ++size);
+      assign(newScoreDoc, ++size);
       dirty = true;
 //      upHeap();
-      return element;
-    } else if (size > 0 && !lessThan(element, assign(1, insertScoreDocOld))) {
+      return newScoreDoc;
+    } else if (size > 0 && !lessThan(newScoreDoc, assign(1, insertScoreDocOld))) {
       orderHeap();
-      assign(element, 1);
+      assign(newScoreDoc, 1);
       downHeap();
-      return assign(insertScoreDocOld, element);
+      return assign(insertScoreDocOld, newScoreDoc);
     } else {
-      return element;
+      return newScoreDoc;
     }
   }
-
   @Override
   public void insert(int docID, float score) {
     if (size < maxSize-1) {
@@ -82,10 +79,7 @@ public class HitQueueArray implements HitQueueInterface {
     }
   }
 
-  private void assign(int docID, float score, int index) {
-    scores[index] = score;
-    docIDs[index] = docID;
-  }
+
 
   private final ScoreDoc upHeapOld = new ScoreDoc(0, 0f);
   private void upHeap() {
@@ -100,10 +94,11 @@ public class HitQueueArray implements HitQueueInterface {
     assign(upHeapOld, i);
   }
 
-  private final ScoreDoc downHeapOld = new ScoreDoc(0, 0f);
+  //private final ScoreDoc downHeapOld = new ScoreDoc(0, 0f);
   private void downHeap() {
     int i = 1;
-    assign(i, downHeapOld);    // save top node
+    final long downHeapOld = elements[i];
+//    assign(i, downHeapOld);    // save top node
     int j = i << 1;            // find smaller child
     int k = j + 1;
     if (k <= size && lessThan(k, j)) {
@@ -118,7 +113,8 @@ public class HitQueueArray implements HitQueueInterface {
         j = k;
       }
     }
-    assign(downHeapOld, i);            // install saved node
+    elements[i] = downHeapOld;
+//    assign(downHeapOld, i);            // install saved node
   }
 
   @Override
@@ -136,7 +132,7 @@ public class HitQueueArray implements HitQueueInterface {
 
   @Override
   public int capacity() {
-    return scores.length-1;
+    return elements.length-1;
   }
 
   @Override
@@ -146,10 +142,12 @@ public class HitQueueArray implements HitQueueInterface {
 
   @Override
   public Iterator<ScoreDoc> getFlushingIterator(boolean unordered, boolean reuseScoreDoc) {
-    if (!unordered) { // Order needed
-      orderHeap();
+    boolean directIteration = unordered;
+    if (!unordered && dirty) { // Order needed, but no previous order so we merge sort (faster than heap create + empty)
+      Arrays.sort(elements, 1, size-1);
+      directIteration = true;
     }
-    return new HQIterator(reuseScoreDoc);
+    return directIteration ? new HQIteratorDirect(reuseScoreDoc) : new HQIterator(reuseScoreDoc);
   }
 
   public final ScoreDoc top(ScoreDoc reuse) {
@@ -236,32 +234,41 @@ public class HitQueueArray implements HitQueueInterface {
   }
 
   private void assign(int fromIndex, int toIndex) {
-    scores[toIndex] = scores[fromIndex];
-    docIDs[toIndex] = docIDs[fromIndex];
+    elements[toIndex] = elements[fromIndex];
   }
   private void swap(int indexA, int indexB) {
-    float tScore = scores[indexA];
-    scores[indexA] = scores[indexB];
-    scores[indexB] = tScore;
-
-    int tDC = docIDs[indexA];
-    docIDs[indexA] = docIDs[indexB];
-    docIDs[indexB] = tDC;
+    long temp = elements[indexA];
+    elements[indexA] = elements[indexB];
+    elements[indexB] = temp;
   }
   private ScoreDoc assign(int fromIndex, ScoreDoc toScoreDoc) {
-    toScoreDoc.score = scores[fromIndex];
-    toScoreDoc.doc = docIDs[fromIndex];
+    elementToScoreDoc(elements[fromIndex], toScoreDoc);
     return toScoreDoc;
   }
   private void assign(ScoreDoc fromScoreDoc, int toIndex) {
-    scores[toIndex] = fromScoreDoc.score;
-    docIDs[toIndex] = fromScoreDoc.doc;
+    elements[toIndex] = scoreDocToElement(fromScoreDoc);
   }
+  private void assign(int docID, float score, int index) {
+    elements[index] = valuesToElement(docID, score);
+  }
+
+  private long valuesToElement(int docID, float score) {
+    return (((long)Float.floatToRawIntBits(score)) << 32) | docID;
+  }
+
   private ScoreDoc assign(ScoreDoc fromScoreDoc, ScoreDoc toScoreDoc) {
     toScoreDoc.score = fromScoreDoc.score;
     toScoreDoc.doc = fromScoreDoc.doc;
     toScoreDoc.shardIndex = fromScoreDoc.shardIndex;
     return toScoreDoc;
+  }
+  private long scoreDocToElement(ScoreDoc scoreDoc) {
+    return (((long)Float.floatToRawIntBits(scoreDoc.score)) << 32) | scoreDoc.doc;
+  }
+  private void elementToScoreDoc(long element, ScoreDoc scoreDoc) {
+    scoreDoc.score = Float.intBitsToFloat((int) (element >>> 32));
+    // TODO: Maybe this should be Integer.MAX_VALUE-doc to make lessThan correct with regard to doc?
+    scoreDoc.doc = (int) element;
   }
 
   @SuppressWarnings("FloatingPointEquality")
@@ -269,25 +276,28 @@ public class HitQueueArray implements HitQueueInterface {
    return hitA.score == hitB.score ? hitA.doc > hitB.doc : hitA.score < hitB.score;
   }
 
+
+  private boolean lessThan(int docID, float score, int index) {
+    return valuesToElement(docID, score) < elements[index];
+  }
+  protected final boolean lessThan(int index, long element) {
+    return elements[index] < element;
+  }
   @SuppressWarnings("FloatingPointEquality")
   protected final boolean lessThan(int index, ScoreDoc hitA) {
-   return scores[index] == hitA.score ? docIDs[index] > hitA.doc : scores[index] < hitA.score;
+    float firstScore = Float.intBitsToFloat((int) (elements[index] >>> 32));
+    return Float.intBitsToFloat((int) (elements[index] >>> 32)) == hitA.score ?
+        ((int)elements[index]) > hitA.doc :
+        firstScore < hitA.score;
   }
   @SuppressWarnings("FloatingPointEquality")
   protected final boolean lessThan(ScoreDoc hitA, int index) {
-   return hitA.score == scores[index] ? hitA.doc > docIDs[index] : hitA.score < scores[index];
+    float secondScore = Float.intBitsToFloat((int) (elements[index] >>> 32));
+   return hitA.score == secondScore ? hitA.doc > ((int)elements[index]) : hitA.score < secondScore;
   }
-  @SuppressWarnings("FloatingPointEquality")
-  private boolean lessThan(int docID, float score, int index) {
-    return score == scores[index] ? docID > docIDs[index] : score < scores[index];
-  }
-
-
   @SuppressWarnings("FloatingPointEquality")
   protected final boolean lessThan(int indexA, int indexB) {
-   return scores[indexA] == scores[indexB] ?
-       docIDs[indexA] > docIDs[indexB] :
-       scores[indexA] < scores[indexB];
+    return elements[indexA] < elements[indexB];
   }
 
   // Assumes the heap is ordered
@@ -308,4 +318,31 @@ public class HitQueueArray implements HitQueueInterface {
       return pop(reuse ? scoreDoc : null);
     }
   }
+
+  // Delivers the values in the array order
+  private class HQIteratorDirect implements Iterator<ScoreDoc> {
+    private final ScoreDoc scoreDoc = new ScoreDoc(0, 0f);
+    private final boolean reuse;
+    private int index = 1;
+    public HQIteratorDirect(boolean reuseScoreDoc) {
+      reuse = reuseScoreDoc;
+    }
+
+    @Override
+    public boolean hasNext() {
+      return index <= size;
+    }
+
+    @Override
+    public ScoreDoc next() {
+      if (reuse) {
+        assign(index++, scoreDoc);
+        return scoreDoc;
+      }
+      ScoreDoc fresh = new ScoreDoc(0, 0f);
+      assign(index++, fresh);
+      return fresh;
+    }
+  }
+
 }

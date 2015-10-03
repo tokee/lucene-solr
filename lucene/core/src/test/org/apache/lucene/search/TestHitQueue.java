@@ -19,6 +19,7 @@ package org.apache.lucene.search;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Callable;
@@ -34,6 +35,8 @@ public class TestHitQueue extends LuceneTestCase {
   private static final int K = 1000;
   private static final int M = K*K;
 
+  private enum PQTYPE {Sent, NoSent, Array, Packed}
+
   public void testPQArray() throws ExecutionException, InterruptedException {
     final int RUNS = 10;
     final int SKIPS= 3;
@@ -42,7 +45,7 @@ public class TestHitQueue extends LuceneTestCase {
     System.out.println("Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS");
     for (int pqSize: Arrays.asList(K, 10*K, 100*K, M, 10*M, 100*M)) {
       for (int inserts : Arrays.asList(100*K, 100*M)) {//, M, 10*M)) {
-        Result tArray = testPerformance(RUNS, SKIPS, THREADS, pqSize, inserts, false, false);
+        Result tArray = testPerformance(RUNS, SKIPS, THREADS, pqSize, inserts, PQTYPE.Array, random().nextLong());
         System.out.println(String.format("%7d %10d %9d %8d %11d %7d %8d",
             THREADS, pqSize, inserts,
             tArray.total()/tArray.runs/M,
@@ -79,54 +82,67 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
   }
 
   public void testPQPerformanceSpecific() throws ExecutionException, InterruptedException {
-    final int RUNS = 10;
-    final int SKIPS= 3;
+    final int RUNS = 20;
+    final int SKIPS= 5;
     final int threads = 4;
+    final List<PQTYPE> pqTypes = Arrays.asList(
+        PQTYPE.Sent, // First in list is used as base
+        PQTYPE.NoSent,
+        PQTYPE.Sent,
+        PQTYPE.Array,
+        PQTYPE.Packed,
+        PQTYPE.Sent  // Sanity check. Ideally this should be the same as the first Sent
+    );
 
-    System.out.println("Threads     pqSize   inserts  trueMS  falseMS  arrayMS   falseFrac  arrayFrac  arrayFracF");
+    System.out.print("Threads     pqSize   inserts");
+    for (PQTYPE pqType: pqTypes) {
+      System.out.print(String.format("%8sMS", pqType));
+    }
+    for (PQTYPE pqType: pqTypes) {
+      System.out.print(String.format("%8s%%", pqType));
+    }
+    System.out.println("");
+
     for (int pqSize: Arrays.asList(10, K, 10*K, 100*K, M)) {
       for (int inserts: Arrays.asList(10*K, 100*K, M)) {
-        Result tFalse = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, false, true);
-        // Try to avoid that heap garbage spills over to next test
-        System.gc();
-        Thread.sleep(100);
+        List<Result> results = new ArrayList<>();
+        long seed = random().nextLong();
+        for (PQTYPE pqType: pqTypes) {
+          results.add(testPerformance(RUNS, SKIPS, threads, pqSize, inserts, pqType, seed));
+          System.gc();
+          Thread.sleep(100);
+        }
 
-        Result tTrue = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, true, true);
-        System.gc();
-        Thread.sleep(100);
-
-        Result tArray = testPerformance(RUNS, SKIPS, threads, pqSize, inserts, false, false);
-        System.gc();
-        Thread.sleep(100);
-
-        double falseGain = 1D*tFalse.total()/tTrue.total();
-        double arrayGain = 1D*tArray.total()/tTrue.total();
-        double arrayGainF = 1D*tArray.total()/tFalse.total();
-        System.out.println(String.format("%7d %10d %9d "
-            + "%7d %8d %8d  %9.2f%% %9.2f%%  %9.2f%%",
-            threads, pqSize, inserts,
-            tTrue.total()/tTrue.runs/M,
-            tFalse.total()/tFalse.runs/M,
-            tArray.total()/tArray.runs/M,
-            falseGain*100,
-            arrayGain*100,
-            arrayGainF*100
-            ));
-        // Try to avoid that heap garbage spills over to next test
-        System.gc();
-        Thread.sleep(50);
+        System.out.print(String.format("%7d %10d %9d", threads, pqSize, inserts));
+        for (Result result: results) {
+          System.out.print(String.format("%10d", result.total()/result.runs/M));
+        }
+        for (Result result: results) {
+          double frac = 1D*result.total()/results.get(0).total();
+          System.out.print(String.format("%8.1f%1s", frac*100, markFastest(results, result)));
+        }
+        System.out.println();
       }
     }
   }
 
-  private Result testPerformance(
-      int runs, int skips, int threads, int pqSize, int inserts, boolean prePopulate, boolean vanilla)
+  private String markFastest(List<Result> results, Result result) {
+    for (Result candidate: results) {
+      if (candidate.total() < result.total()) {
+        return " ";
+      }
+    }
+    return "■";
+  }
+
+  private Result testPerformance(int runs, int skips, int threads, int pqSize, int inserts, PQTYPE pqType, long seed)
       throws ExecutionException, InterruptedException {
     ExecutorService executor = Executors.newFixedThreadPool(threads);
+    Random random = new Random(seed);
 
     List<Future<Updater>> futures = new ArrayList<>(threads);
     for (int thread = 0 ; thread < threads ; thread++) {
-      Updater updater = new Updater(pqSize, inserts, runs, skips, prePopulate, vanilla);
+      Updater updater = new Updater(pqSize, inserts, runs, skips, pqType, random.nextLong());
       futures.add(executor.submit(updater));
     }
     executor.shutdown();
@@ -153,6 +169,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
 
     public int sources = 1;
     public int runs = 0;
+    public PQTYPE pqType;
 
     public void add(Result other) {
       init += other.init;
@@ -181,19 +198,16 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     private final int skips;
     private final Random random;
     private final int pqSize;
-    private final boolean prePopulate;
-    private final boolean vanilla;
+    private final PQTYPE pqType;
 
-    public volatile int sync;
-
-    public Updater(int pqSize, int inserts, int runs, int skips, boolean prePopulate, boolean vanilla) {
+    public Updater(int pqSize, int inserts, int runs, int skips, PQTYPE pqType, long seed) {
       this.pqSize = pqSize;
       this.inserts = inserts;
       this.runs = runs;
       this.skips = skips;
-      this.prePopulate = prePopulate;
-      this.vanilla = vanilla;
-      random = new Random(random().nextLong()); // Local Randoms seeded up-front ensures reproducible runs
+      this.pqType = pqType;
+      result.pqType = pqType;
+      random = new Random(seed); // Local Randoms seeded up-front ensures reproducible runs
     }
 
     @Override
@@ -208,7 +222,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         }
 
         result.init -= System.nanoTime();
-        final PQMutant pq = new PQMutant(pqSize, prePopulate, vanilla);
+        final PQMutant pq = new PQMutant(pqSize, pqType);
         result.init += System.nanoTime();
 
         result.fill -= System.nanoTime();
@@ -225,8 +239,9 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
 
         result.empty -= System.nanoTime();
         int popCount = 0;
-        while (pq.size() > 0 && popCount++ < inserts) {
-          if (pq.pop(scoreDoc) == null) {
+        Iterator<ScoreDoc> it = pq.getFlushingIterator(false, true);
+        while (it.hasNext() && popCount++ < inserts) {
+          if (it.next() == null) {
             break;
           }
         }
@@ -238,43 +253,67 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     }
   }
 
-  private class PQMutant {
-    private final boolean prePopulate;
-    private final boolean vanilla;
+  private class PQMutant implements HitQueueInterface {
+    private final PQTYPE pqType;
+    private final HitQueueInterface hq;
 
-    private final HitQueue hqVanilla;
-    private final HitQueueArray hqArray;
-
-    private PQMutant(int size, boolean prePopulate, boolean vanilla) {
-      this.prePopulate = prePopulate;
-      this.vanilla = vanilla;
-
-      hqVanilla = vanilla ? new HitQueue(size, prePopulate) : null;
-      hqArray = vanilla ? null : new HitQueueArray(size);
+    private PQMutant(int size, PQTYPE pqType) {
+      this.pqType = pqType;
+      switch (pqType) {
+        case Sent:
+          hq = new HitQueue(size, true);
+          break;
+        case NoSent:
+          hq = new HitQueue(size, false);
+          break;
+        case Array:
+          hq = new HitQueueArray(size);
+          break;
+        case Packed:
+          hq = new HitQueuePacked(size);
+          break;
+        default:
+          throw new IllegalStateException("Unknown PQTYPE: " + pqType);
+      }
     }
 
     public ScoreDoc getInitial() {
-      return vanilla && prePopulate ? hqVanilla.top() : new ScoreDoc(0, 0f);
+      return pqType == PQTYPE.Sent ? ((HitQueue)hq).top() : new ScoreDoc(0, 0f);
     }
 
-    public ScoreDoc insert(ScoreDoc scoreDoc) {
-      if (vanilla) {
-        if (prePopulate) {
-          hqVanilla.updateTop();
-          return hqVanilla.top();
-        } else {
-          return hqVanilla.insertWithOverflow(scoreDoc);
-        }
-      }
-      return hqArray.insertWithOverflow(scoreDoc);
-    }
-
+    @Override
     public int size() {
-      return vanilla ? hqVanilla.size() : hqArray.size();
+      return hq.size();
     }
 
-    public ScoreDoc pop(ScoreDoc reuse) {
-      return vanilla ? hqVanilla.pop() : hqArray.pop(reuse);
+    @Override
+    public int capacity() {
+      return hq.capacity();
+    }
+
+    @Override
+    public ScoreDoc insert(ScoreDoc element) {
+      return hq.insert(element);
+    }
+
+    @Override
+    public void insert(int docID, float score) {
+      hq.insert(docID, score);
+    }
+
+    @Override
+    public void clear() {
+      hq.clear();
+    }
+
+    @Override
+    public boolean isEmpty() {
+      return hq.isEmpty();
+    }
+
+    @Override
+    public Iterator<ScoreDoc> getFlushingIterator(boolean unordered, boolean reuseScoreDoc) {
+      return hq.getFlushingIterator(unordered, reuseScoreDoc);
     }
   }
 
@@ -295,5 +334,4 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
 
     }
   }
-
 }
