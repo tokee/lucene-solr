@@ -31,6 +31,24 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.lucene.util.LuceneTestCase;
 
+/**
+ * This test is an explorative performance test.
+ *
+ * The goal is to determine if there are any gains in switching from the Object-heavy HitQueue in Solr to an
+ * array-based equivalent. Candidates so far are {@link org.apache.lucene.search.HitQueueArray} and
+ * {@link org.apache.lucene.search.HitQueuePacked}. Note that the focus for now is performance. As such, the new
+ * classes has only loosely (through debugging runs) been inspected for correctness and probably contains errors.
+ *
+ * The test does not emulate a full search. It only allocates, randomly fills and empties the queues.
+ *
+ * When running the tests, there are 4 different designations:
+ * - Sent:   The default Solr HitQueue with sentinel objects, used for standard Solr top-X searches.
+ * - NoSent: Same as Sent, but without sentinel objects.
+ * - Array:  Instead of storing the heap as an array of Objects, two atomic arrays (one for scores, one for docIDs)
+ *           are used.
+ * - Packed: Instead of storing the heap as an array of Objects, a single atomic array of longs is used, where score
+ *           and docID is packed together.
+ */
 public class TestHitQueue extends LuceneTestCase {
   private static final int K = 1000;
   private static final int M = K*K;
@@ -88,7 +106,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sent, // First in list is used as base
         PQTYPE.NoSent,
-        PQTYPE.Sent,
+        PQTYPE.Sent, // Sanity check. Ideally this should be the same as the first Sent
         PQTYPE.Array,
         PQTYPE.Packed,
         PQTYPE.Sent  // Sanity check. Ideally this should be the same as the first Sent
@@ -106,7 +124,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sent, // First in list is used as base
         PQTYPE.NoSent,
-        PQTYPE.Sent,
+        PQTYPE.Sent, // Sanity check. Ideally this should be the same as the first Sent
         PQTYPE.Array,
         PQTYPE.Packed,
         PQTYPE.Sent  // Sanity check. Ideally this should be the same as the first Sent
@@ -121,10 +139,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
                                  List<Integer> insertss) throws ExecutionException, InterruptedException {
     System.out.print("Threads     pqSize   inserts");
     for (PQTYPE pqType: pqTypes) {
-      System.out.print(String.format("%8sMS", pqType));
-    }
-    for (PQTYPE pqType: pqTypes) {
-      System.out.print(String.format("%8s%%", pqType));
+      System.out.print(String.format("%7s_ms/%% ", pqType));
     }
     System.out.println("");
 
@@ -140,11 +155,9 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
 
         System.out.print(String.format("%7d %10d %9d", threads, pqSize, inserts));
         for (Result result: results) {
-          System.out.print(String.format("%10d", result.total()/result.runs/M));
-        }
-        for (Result result: results) {
           double frac = 1D*result.total()/results.get(0).total();
-          System.out.print(String.format("%8.1f%1s", frac*100, markFastest(results, result)));
+          System.out.print(String.format("%6d %5.1f%1s",
+              result.total()/result.runs/M, frac*100, markFastest(results, result)));
         }
         System.out.println();
       }
