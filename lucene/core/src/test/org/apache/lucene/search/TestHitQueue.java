@@ -99,10 +99,43 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
 
   }
 
+  /**
+   * In theory the impact of random memory access with vanilla HitQueue should worsen when there are more threads
+   * as that lowers the chance of CPU L2/3 cache hits. The array based implementations should fare better dure to
+   * their high locality of data.
+   * @throws ExecutionException
+   * @throws InterruptedException
+   */
+  public void testPQManyThreads() throws ExecutionException, InterruptedException {
+    final int RUNS = 20;
+    final int SKIPS= 5;
+    final List<Integer> threads = Arrays.asList(2, 4, 8, 16, 32, 64);
+    final List<PQTYPE> pqTypes = Arrays.asList(
+        PQTYPE.Sent, // First in list is used as base
+        PQTYPE.NoSent,
+        PQTYPE.Array,
+        PQTYPE.Packed,
+        PQTYPE.Sent,  // Sanity check. Ideally this should be the same as the first Sent
+        PQTYPE.NoSent,
+        PQTYPE.Array,
+        PQTYPE.Packed
+    );
+    final List<Integer> PQSIZES = Arrays.asList(10, 10*K);
+    final List<Integer> INSERTS = Arrays.asList(M);
+
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
+  }
+
+
+  /**
+   * Test to see if the atomic array based queues are any good for top-X, where X is small (10).
+   * @throws ExecutionException
+   * @throws InterruptedException
+   */
   public void testPQPerformanceTinyTop() throws ExecutionException, InterruptedException {
     final int RUNS = 20;
     final int SKIPS= 5;
-    final int threads = 2;
+    final List<Integer> threads = Arrays.asList(2);
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sent, // First in list is used as base
         PQTYPE.NoSent,
@@ -117,17 +150,24 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
   }
 
+  /**
+   * Explorative test thar runs a number of combinations.
+   * @throws ExecutionException
+   * @throws InterruptedException
+   */
   public void testPQPerformance4Threads() throws ExecutionException, InterruptedException {
     final int RUNS = 20;
     final int SKIPS= 5;
-    final int threads = 4;
+    final List<Integer> threads = Arrays.asList(4);
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sent, // First in list is used as base
         PQTYPE.NoSent,
-        PQTYPE.Sent, // Sanity check. Ideally this should be the same as the first Sent
         PQTYPE.Array,
         PQTYPE.Packed,
-        PQTYPE.Sent  // Sanity check. Ideally this should be the same as the first Sent
+        PQTYPE.Sent,  // Sanity check. Ideally this should be the same as the first Sent
+        PQTYPE.NoSent,
+        PQTYPE.Array,
+        PQTYPE.Packed
     );
     final List<Integer> PQSIZES = Arrays.asList(10, K, 10 * K, 100 * K, M);
     final List<Integer> INSERTS = Arrays.asList(10 * K, 100 * K, M);
@@ -135,7 +175,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
   }
 
-  private void doPerformanceTest(int runs, int skips, int threads, List<PQTYPE> pqTypes, List<Integer> pqSizes,
+  private void doPerformanceTest(int runs, int skips, List<Integer> threadss, List<PQTYPE> pqTypes, List<Integer> pqSizes,
                                  List<Integer> insertss) throws ExecutionException, InterruptedException {
     System.out.print("Threads     pqSize   inserts");
     for (PQTYPE pqType: pqTypes) {
@@ -143,23 +183,25 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     }
     System.out.println("");
 
-    for (int pqSize: pqSizes) {
-      for (int inserts: insertss) {
-        List<Result> results = new ArrayList<>();
-        long seed = random().nextLong();
-        for (PQTYPE pqType: pqTypes) {
-          results.add(testPerformance(runs, skips, threads, pqSize, inserts, pqType, seed));
-          System.gc();
-          Thread.sleep(100);
-        }
+    for (int threads: threadss) {
+      for (int pqSize : pqSizes) {
+        for (int inserts : insertss) {
+          List<Result> results = new ArrayList<>();
+          long seed = random().nextLong();
+          for (PQTYPE pqType : pqTypes) {
+            results.add(testPerformance(runs, skips, threads, pqSize, inserts, pqType, seed));
+            System.gc();
+            Thread.sleep(100);
+          }
 
-        System.out.print(String.format("%7d %10d %9d", threads, pqSize, inserts));
-        for (Result result: results) {
-          double frac = 1D*result.total()/results.get(0).total();
-          System.out.print(String.format("%6d %5.1f%1s",
-              result.total()/result.runs/M, frac*100, markFastest(results, result)));
+          System.out.print(String.format("%7d %10d %9d", threads, pqSize, inserts));
+          for (Result result : results) {
+            double frac = 1D * result.total() / results.get(0).total();
+            System.out.print(String.format("%6d %5.1f%1s",
+                result.total() / result.runs / M, frac * 100, markFastest(results, result)));
+          }
+          System.out.println();
         }
-        System.out.println();
       }
     }
   }
