@@ -81,7 +81,25 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
 
   }
 
-  public void testPQPerformanceSpecific() throws ExecutionException, InterruptedException {
+  public void testPQPerformanceTinyTop() throws ExecutionException, InterruptedException {
+    final int RUNS = 20;
+    final int SKIPS= 5;
+    final int threads = 2;
+    final List<PQTYPE> pqTypes = Arrays.asList(
+        PQTYPE.Sent, // First in list is used as base
+        PQTYPE.NoSent,
+        PQTYPE.Sent,
+        PQTYPE.Array,
+        PQTYPE.Packed,
+        PQTYPE.Sent  // Sanity check. Ideally this should be the same as the first Sent
+    );
+    final List<Integer> PQSIZES = Arrays.asList(10, 100);
+    final List<Integer> INSERTS = Arrays.asList(10, 100, K, 10 * K, 100 * K, M, 10*M);
+
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
+  }
+
+  public void testPQPerformance4Threads() throws ExecutionException, InterruptedException {
     final int RUNS = 20;
     final int SKIPS= 5;
     final int threads = 4;
@@ -93,7 +111,14 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         PQTYPE.Packed,
         PQTYPE.Sent  // Sanity check. Ideally this should be the same as the first Sent
     );
+    final List<Integer> PQSIZES = Arrays.asList(10, K, 10 * K, 100 * K, M);
+    final List<Integer> INSERTS = Arrays.asList(10 * K, 100 * K, M);
 
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
+  }
+
+  private void doPerformanceTest(int runs, int skips, int threads, List<PQTYPE> pqTypes, List<Integer> pqSizes,
+                                 List<Integer> insertss) throws ExecutionException, InterruptedException {
     System.out.print("Threads     pqSize   inserts");
     for (PQTYPE pqType: pqTypes) {
       System.out.print(String.format("%8sMS", pqType));
@@ -103,12 +128,12 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     }
     System.out.println("");
 
-    for (int pqSize: Arrays.asList(10, K, 10*K, 100*K, M)) {
-      for (int inserts: Arrays.asList(10*K, 100*K, M)) {
+    for (int pqSize: pqSizes) {
+      for (int inserts: insertss) {
         List<Result> results = new ArrayList<>();
         long seed = random().nextLong();
         for (PQTYPE pqType: pqTypes) {
-          results.add(testPerformance(RUNS, SKIPS, threads, pqSize, inserts, pqType, seed));
+          results.add(testPerformance(runs, skips, threads, pqSize, inserts, pqType, seed));
           System.gc();
           Thread.sleep(100);
         }
