@@ -36,6 +36,7 @@ import java.util.Iterator;
 public class HitQueuePacked implements HitQueueInterface {
   private final int maxSize;
 
+  // TODO: Switch to a gradually growing (up to max) scheme as extending is fairly cheap with System.arrayCopy
   private final long[] elements;
   private int size = 0;
   private boolean dirty = false;
@@ -132,7 +133,7 @@ public class HitQueuePacked implements HitQueueInterface {
 
   @Override
   public int capacity() {
-    return elements.length-1;
+    return maxSize;
   }
 
   @Override
