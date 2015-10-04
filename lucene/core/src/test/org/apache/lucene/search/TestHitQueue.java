@@ -126,6 +126,27 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
   }
 
+  /**
+   * See the performance behaviour of array vs. vanilla sentinel as the queue size grows.
+   * @throws ExecutionException
+   * @throws InterruptedException
+   */
+  public void testPQArrayScale() throws ExecutionException, InterruptedException {
+    final int RUNS = 20;
+    final int SKIPS= 5;
+    final List<Integer> threads = Arrays.asList(2);
+    final List<PQTYPE> pqTypes = Arrays.asList(
+        PQTYPE.Sent, // First in list is used as base
+        PQTYPE.Packed,
+        PQTYPE.Sent,  // Sanity check. Ideally this should be the same as the first Sent
+        PQTYPE.Packed
+    );
+    final List<Integer> PQSIZES = Arrays.asList(10, 100, K, 10*K, 100*K, M, 2*M);
+    final List<Integer> INSERTS = Arrays.asList(100*K, M, 3*M);
+
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
+  }
+
 
   /**
    * Test to see if the atomic array based queues are any good for top-X, where X is small (10).
@@ -151,14 +172,35 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
   }
 
   /**
+   * Focus on packed vs. vanilla.
+   * @throws ExecutionException
+   * @throws InterruptedException
+   */
+  public void testPQPerformancePacked() throws ExecutionException, InterruptedException {
+    final int RUNS = 20;
+    final int SKIPS= 5;
+    final List<Integer> threads = Arrays.asList(4);
+    final List<PQTYPE> pqTypes = Arrays.asList(
+        PQTYPE.Sent, // First in list is used as base
+        PQTYPE.Packed,
+        PQTYPE.Sent,  // Sanity check. Ideally this should be the same as the first Sent
+        PQTYPE.Packed
+    );
+    final List<Integer> PQSIZES = Arrays.asList(K, 10, K, 10 * K, 100 * K, M);
+    final List<Integer> INSERTS = Arrays.asList(10 * K, 100 * K, M);
+
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
+  }
+
+  /**
    * Explorative test thar runs a number of combinations.
    * @throws ExecutionException
    * @throws InterruptedException
    */
-  public void testPQPerformance4Threads() throws ExecutionException, InterruptedException {
-    final int RUNS = 20;
+  public void testPQPerformanceMulti() throws ExecutionException, InterruptedException {
+    final int RUNS = 50;
     final int SKIPS= 5;
-    final List<Integer> threads = Arrays.asList(4);
+    final List<Integer> threads = Arrays.asList(1, 4, 16);
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sent, // First in list is used as base
         PQTYPE.NoSent,
@@ -170,7 +212,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         PQTYPE.Packed
     );
     final List<Integer> PQSIZES = Arrays.asList(10, K, 10 * K, 100 * K, M);
-    final List<Integer> INSERTS = Arrays.asList(10 * K, 100 * K, M);
+    final List<Integer> INSERTS = Arrays.asList(100, 10 * K, 100 * K, M);
 
     doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
   }
