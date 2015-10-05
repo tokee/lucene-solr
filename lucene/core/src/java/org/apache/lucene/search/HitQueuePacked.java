@@ -318,6 +318,11 @@ public class HitQueuePacked implements HitQueueInterface {
     public ScoreDoc next() {
       return pop(reuse ? scoreDoc : null);
     }
+
+    @Override
+    public void remove() {
+      throw new UnsupportedOperationException("Remove not possible as calling next() already removes");
+    }
   }
 
   // Delivers the values in the array order
@@ -343,6 +348,11 @@ public class HitQueuePacked implements HitQueueInterface {
       ScoreDoc fresh = new ScoreDoc(0, 0f);
       assign(index++, fresh);
       return fresh;
+    }
+
+    @Override
+    public void remove() {
+      throw new UnsupportedOperationException("Remove not possible as calling next() already removes");
     }
   }
 

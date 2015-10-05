@@ -307,5 +307,10 @@ public class HitQueueArray implements HitQueueInterface {
     public ScoreDoc next() {
       return pop(reuse ? scoreDoc : null);
     }
+
+    @Override
+    public void remove() {
+      throw new UnsupportedOperationException("Remove not possible as calling next() already removes");
+    }
   }
 }

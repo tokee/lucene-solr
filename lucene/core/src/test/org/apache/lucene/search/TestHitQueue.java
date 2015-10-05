@@ -20,6 +20,7 @@ package org.apache.lucene.search;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Callable;
@@ -123,7 +124,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<Integer> PQSIZES = Arrays.asList(10, 10*K);
     final List<Integer> INSERTS = Arrays.asList(M);
 
-    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }
 
   /**
@@ -144,7 +145,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<Integer> PQSIZES = Arrays.asList(10, 100, K, 10*K, 100*K, M, 2*M);
     final List<Integer> INSERTS = Arrays.asList(100*K, M, 3*M);
 
-    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }
 
 
@@ -168,7 +169,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<Integer> PQSIZES = Arrays.asList(10, 100);
     final List<Integer> INSERTS = Arrays.asList(10, 100, K, 10 * K, 100 * K, M, 10*M);
 
-    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }
 
   /**
@@ -189,7 +190,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<Integer> PQSIZES = Arrays.asList(K, 10, K, 10 * K, 100 * K, M);
     final List<Integer> INSERTS = Arrays.asList(10 * K, 100 * K, M);
 
-    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }
 
   /**
@@ -214,13 +215,15 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<Integer> PQSIZES = Arrays.asList(10, K, 10 * K, 100 * K, M);
     final List<Integer> INSERTS = Arrays.asList(100, 10 * K, 100 * K, M);
 
-    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS);
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }
 
-  private void doPerformanceTest(int runs, int skips, List<Integer> threadss, List<PQTYPE> pqTypes, List<Integer> pqSizes,
-                                 List<Integer> insertss) throws ExecutionException, InterruptedException {
+  private enum COLLAPSE {none, fastest, slowest}
+  private void doPerformanceTest(int runs, int skips, List<Integer> threadss, List<PQTYPE> pqTypes,
+                                 List<Integer> pqSizes, List<Integer> insertss, COLLAPSE collapse)
+      throws ExecutionException, InterruptedException {
     System.out.print("Threads     pqSize   inserts");
-    for (PQTYPE pqType: pqTypes) {
+    for (PQTYPE pqType: collapse(pqTypes, collapse)) {
       System.out.print(String.format("%7s_ms/%% ", pqType));
     }
     System.out.println("");
@@ -236,6 +239,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
             Thread.sleep(100);
           }
 
+          results = collapseResults(results, collapse);
           System.out.print(String.format("%7d %10d %9d", threads, pqSize, inserts));
           for (Result result : results) {
             double frac = 1D * result.total() / results.get(0).total();
@@ -246,6 +250,43 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         }
       }
     }
+  }
+
+  private List<PQTYPE> collapse(List<PQTYPE> pqTypes, COLLAPSE collapse) {
+    return collapse == COLLAPSE.none ? pqTypes : new ArrayList<>(new LinkedHashSet<>(pqTypes)); // Order is important
+  }
+  private List<Result> collapseResults(List<Result> results, COLLAPSE collapse) {
+    if (collapse == COLLAPSE.none) {
+      return results;
+    }
+    List<Result> collapsed = new ArrayList<>();
+    outer:
+    for (Result result: results) {
+      for (int i = 0 ; i < collapsed.size() ; i++) {
+        Result old = collapsed.get(i);
+        if (old.pqType == result.pqType) {
+          switch (collapse) {
+            case fastest:
+              if (old.total() > result.total()) {
+                collapsed.set(i, result);
+              }
+              break;
+            case slowest:
+              if (old.total() < result.total()) {
+                collapsed.set(i, result);
+              }
+              break;
+            case none: throw new IllegalStateException("Looped inner collapse should never hit case 'none'");
+
+            default: throw new IllegalStateException(
+                "Looped collapsing with method '" + collapse + "' is not supported");
+          }
+          continue outer;
+        }
+      }
+      collapsed.add(result);
+    }
+    return collapsed;
   }
 
   private String markFastest(List<Result> results, Result result) {
@@ -271,7 +312,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     executor.awaitTermination(1000, TimeUnit.SECONDS);
     assertTrue("The executor should exit with all Futures processed", executor.awaitTermination(100, TimeUnit.SECONDS));
 
-    Result total = Result.zeroSources();
+    Result total = Result.zeroSources(pqType);
     for (Future<Updater> future: futures) {
       total.add(future.get().result);
     }
@@ -291,7 +332,11 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
 
     public int sources = 1;
     public int runs = 0;
-    public PQTYPE pqType;
+    public final PQTYPE pqType;
+
+    private Result(PQTYPE pqType) {
+      this.pqType = pqType;
+    }
 
     public void add(Result other) {
       init += other.init;
@@ -306,15 +351,15 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
       return init + fill + empty;
     }
 
-    public static Result zeroSources() {
-      Result result = new Result();
+    public static Result zeroSources(PQTYPE pqType) {
+      Result result = new Result(pqType);
       result.sources = 0;
       return result;
     }
   }
 
   private class Updater implements Callable<Updater> {
-    public final Result result = new Result();
+    public final Result result;
     private final int inserts;
     private final int runs;
     private final int skips;
@@ -328,7 +373,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
       this.runs = runs;
       this.skips = skips;
       this.pqType = pqType;
-      result.pqType = pqType;
+      result = new Result(pqType);
       random = new Random(seed); // Local Randoms seeded up-front ensures reproducible runs
     }
 

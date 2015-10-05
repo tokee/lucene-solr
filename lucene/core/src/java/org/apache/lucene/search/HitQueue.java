@@ -147,5 +147,11 @@ final class HitQueue extends PriorityQueue<ScoreDoc> implements HitQueueInterfac
     public ScoreDoc next() {
       return pop();
     }
+
+    @Override
+    public void remove() {
+      throw new UnsupportedOperationException("Remove not possible as calling next() already removes");
+    }
+
   }
 }
