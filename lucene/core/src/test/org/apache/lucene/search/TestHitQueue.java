@@ -254,7 +254,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
   private void doPerformanceTest(int runs, int skips, List<Integer> threadss, List<PQTYPE> pqTypes,
                                  List<Integer> pqSizes, List<Integer> insertss, COLLAPSE collapse)
       throws ExecutionException, InterruptedException {
-    System.out.print("Threads       Top-X   Inserts");
+    System.out.print("Threads       Top-X      Hits");
     for (PQTYPE pqType: collapse(pqTypes, collapse)) {
       System.out.print(String.format(Locale.ENGLISH, "  %12s ", pqType));
     }
