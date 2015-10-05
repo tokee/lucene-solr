@@ -271,8 +271,8 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
   }
 
   public void testPQPerformanceReport10() throws ExecutionException, InterruptedException {
-    final int RUNS = 20;
-    final int SKIPS= 5;
+    final int RUNS = 50;
+    final int SKIPS= 10;
     final List<Integer> threads = Arrays.asList(1, 4, 16);
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sentinel, // First in list is used as base
