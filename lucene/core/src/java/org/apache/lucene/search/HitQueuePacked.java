@@ -32,6 +32,10 @@ import java.util.Iterator;
  * </p><p>
  * Warning: This class is used primarily for experimentations with performance.
  * Correctness of the implementation has not been properly unit tested!
+ * </p><p>
+ * Observations:<br/>
+ * HitQueuePacked outperforms HitQueueArray in most cases and has the added bonus of requiring 1/3 less heap.
+ *
  **/
 public class HitQueuePacked implements HitQueueInterface {
   private final int maxSize;
@@ -47,7 +51,7 @@ public class HitQueuePacked implements HitQueueInterface {
    */
   public HitQueuePacked(int size){
     maxSize = size+1;
-    elements = new long[size+1];
+    elements = new long[maxSize];
     clear(); // Init with negative infinity
   }
 
@@ -145,7 +149,9 @@ public class HitQueuePacked implements HitQueueInterface {
   public Iterator<ScoreDoc> getFlushingIterator(boolean unordered, boolean reuseScoreDoc) {
     boolean directIteration = unordered;
     if (!unordered && dirty) { // Order needed, but no previous order so we merge sort (faster than heap create + empty)
-      Arrays.sort(elements, 1, size-1);
+      if (size() > 1) {
+        Arrays.sort(elements, 1, size+1);
+      }
       directIteration = true;
     }
     return directIteration ? new HQIteratorDirect(reuseScoreDoc) : new HQIterator(reuseScoreDoc);
@@ -185,7 +191,7 @@ public class HitQueuePacked implements HitQueueInterface {
     if (!dirty) {
       return;
     }
-    heapSort(1, size-1);
+    heapSort(1, size);
     dirty = false;
   }
 
@@ -253,9 +259,6 @@ public class HitQueuePacked implements HitQueueInterface {
     elements[index] = valuesToElement(docID, score);
   }
 
-  private long valuesToElement(int docID, float score) {
-    return (((long)Float.floatToRawIntBits(score)) << 32) | docID;
-  }
 
   private ScoreDoc assign(ScoreDoc fromScoreDoc, ScoreDoc toScoreDoc) {
     toScoreDoc.score = fromScoreDoc.score;
@@ -263,13 +266,17 @@ public class HitQueuePacked implements HitQueueInterface {
     toScoreDoc.shardIndex = fromScoreDoc.shardIndex;
     return toScoreDoc;
   }
+
+  /* Core conversion methods. Note the special handling of docID to ensure proper sort order */
+  private long valuesToElement(int docID, float score) {
+    return (((long)Float.floatToRawIntBits(score)) << 32) | (Integer.MAX_VALUE-docID);
+  }
   private long scoreDocToElement(ScoreDoc scoreDoc) {
-    return (((long)Float.floatToRawIntBits(scoreDoc.score)) << 32) | scoreDoc.doc;
+    return (((long)Float.floatToRawIntBits(scoreDoc.score)) << 32) | (Integer.MAX_VALUE-scoreDoc.doc);
   }
   private void elementToScoreDoc(long element, ScoreDoc scoreDoc) {
     scoreDoc.score = Float.intBitsToFloat((int) (element >>> 32));
-    // TODO: Maybe this should be Integer.MAX_VALUE-doc to make lessThan correct with regard to doc?
-    scoreDoc.doc = (int) element;
+    scoreDoc.doc = Integer.MAX_VALUE-((int) element);
   }
 
   @SuppressWarnings("FloatingPointEquality")
@@ -277,26 +284,24 @@ public class HitQueuePacked implements HitQueueInterface {
    return hitA.score == hitB.score ? hitA.doc > hitB.doc : hitA.score < hitB.score;
   }
 
-
   private boolean lessThan(int docID, float score, int index) {
     return valuesToElement(docID, score) < elements[index];
   }
   protected final boolean lessThan(int index, long element) {
     return elements[index] < element;
   }
-  @SuppressWarnings("FloatingPointEquality")
   protected final boolean lessThan(int index, ScoreDoc hitA) {
-    float firstScore = Float.intBitsToFloat((int) (elements[index] >>> 32));
+    return elements[index] < scoreDocToElement(hitA);
+/*    float firstScore = Float.intBitsToFloat((int) (elements[index] >>> 32));
     return Float.intBitsToFloat((int) (elements[index] >>> 32)) == hitA.score ?
         ((int)elements[index]) > hitA.doc :
-        firstScore < hitA.score;
+        firstScore < hitA.score;*/
   }
-  @SuppressWarnings("FloatingPointEquality")
   protected final boolean lessThan(ScoreDoc hitA, int index) {
-    float secondScore = Float.intBitsToFloat((int) (elements[index] >>> 32));
-   return hitA.score == secondScore ? hitA.doc > ((int)elements[index]) : hitA.score < secondScore;
+    return scoreDocToElement(hitA) < elements[index];
+/*    float secondScore = Float.intBitsToFloat((int) (elements[index] >>> 32));
+    return hitA.score == secondScore ? hitA.doc > ((int)elements[index]) : hitA.score < secondScore;*/
   }
-  @SuppressWarnings("FloatingPointEquality")
   protected final boolean lessThan(int indexA, int indexB) {
     return elements[indexA] < elements[indexB];
   }

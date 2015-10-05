@@ -99,8 +99,21 @@ final class HitQueue extends PriorityQueue<ScoreDoc> implements HitQueueInterfac
     return maxSize;
   }
 
+  @SuppressWarnings("FloatingPointEquality")
   @Override
   public void insert(int docID, float score) {
+    if (top() != null) {
+      // Emulate {@link TopScoreDocCollector#collect(int)}
+      if (score < top().score) {
+        // Doesn't compete w/ bottom entry in queue
+        return;
+      }
+      // TODO: Wait a minute! Isn't the order wrong for the doc comparison? HitQueue favors newer documents!
+      if (score == top().score && docID > top().doc) {
+        // Break tie in score by doc ID:
+        return;
+      }
+    }
     if (prePopulate) {
       top().doc = docID;
       top().score = score;
@@ -111,13 +124,25 @@ final class HitQueue extends PriorityQueue<ScoreDoc> implements HitQueueInterfac
     }
   }
 
+  @SuppressWarnings("FloatingPointEquality")
   @Override
   public ScoreDoc insert(ScoreDoc element) {
     if (prePopulate) {
+      // Emulate {@link TopScoreDocCollector#collect(int)}
+      if (element.score < top().score) {
+        // Doesn't compete w/ bottom entry in queue
+        return element;
+      }
+      // TODO: Wait a minute! Isn't the order wrong for the doc comparison? HitQueue favors newer documents!
+      if (element.score == top().score && element.doc > top().doc) {
+        // Break tie in score by doc ID:
+        return element;
+      }
+
       top().doc = element.doc;
       top().score = element.score;
       updateTop();
-      return top(); // TODO: This seems wrong...
+      return element;
     } else {
       return insertWithOverflow(element);
     }
@@ -136,11 +161,14 @@ final class HitQueue extends PriorityQueue<ScoreDoc> implements HitQueueInterfac
   // Assumes the heap is ordered
   private class HQIterator implements Iterator<ScoreDoc> {
     public HQIterator() {
+      while (!isEmpty() && top().score < 0f) { // Flush all sentinels
+        pop();
+      }
     }
 
     @Override
     public boolean hasNext() {
-      return !isEmpty();
+      return !isEmpty() && top().score >= 0f;
     }
 
     @Override
