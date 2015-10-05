@@ -44,8 +44,8 @@ import org.apache.lucene.util.LuceneTestCase;
  * The test does not emulate a full search. It only allocates, randomly fills and empties the queues.
  *
  * When running the tests, there are 4 different designations:
- * - Sent:   The default Solr HitQueue with sentinel objects, used for standard Solr top-X searches.
- * - NoSent: Same as Sent, but without sentinel objects.
+ * - Sentinel:   The default Solr HitQueue with sentinel objects, used for standard Solr top-X searches.
+ * - No_Sentinel: Same as Sentinel, but without sentinel objects.
  * - Array:  Instead of storing the heap as an array of Objects, two atomic arrays (one for scores, one for docIDs)
  *           are used.
  * - Packed: Instead of storing the heap as an array of Objects, a single atomic array of longs is used, where score
@@ -55,7 +55,7 @@ public class TestHitQueue extends LuceneTestCase {
   private static final int K = 1000;
   private static final int M = K*K;
 
-  private enum PQTYPE {Sent, NoSent, Array, Packed}
+  private enum PQTYPE {Sentinel, No_Sentinel, Array, Packed}
 
   public void testPQArray() throws ExecutionException, InterruptedException {
     final int RUNS = 10;
@@ -113,12 +113,12 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final int SKIPS= 5;
     final List<Integer> threads = Arrays.asList(2, 4, 8, 16, 32, 64);
     final List<PQTYPE> pqTypes = Arrays.asList(
-        PQTYPE.Sent, // First in list is used as base
-        PQTYPE.NoSent,
+        PQTYPE.Sentinel, // First in list is used as base
+        PQTYPE.No_Sentinel,
         PQTYPE.Array,
         PQTYPE.Packed,
-        PQTYPE.Sent,  // Sanity check. Ideally this should be the same as the first Sent
-        PQTYPE.NoSent,
+        PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
+        PQTYPE.No_Sentinel,
         PQTYPE.Array,
         PQTYPE.Packed
     );
@@ -138,11 +138,11 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final int SKIPS= 5;
     final List<Integer> threads = Arrays.asList(4);
     final List<PQTYPE> pqTypes = Arrays.asList(
-        PQTYPE.Sent, // First in list is used as base
-        PQTYPE.NoSent,
+        PQTYPE.Sentinel, // First in list is used as base
+        PQTYPE.No_Sentinel,
         PQTYPE.Packed,
-        PQTYPE.Sent,  // Sanity check. Ideally this should be the same as the first Sent
-        PQTYPE.NoSent,
+        PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
+        PQTYPE.No_Sentinel,
         PQTYPE.Packed
     );
     final List<Integer> PQSIZES = Arrays.asList(10*K, 100*K, M, 2*M);
@@ -162,12 +162,12 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final int SKIPS= 5;
     final List<Integer> threads = Arrays.asList(2);
     final List<PQTYPE> pqTypes = Arrays.asList(
-        PQTYPE.Sent, // First in list is used as base
-        PQTYPE.NoSent,
-        PQTYPE.Sent, // Sanity check. Ideally this should be the same as the first Sent
+        PQTYPE.Sentinel, // First in list is used as base
+        PQTYPE.No_Sentinel,
+        PQTYPE.Sentinel, // Sanity check. Ideally this should be the same as the first Sentinel
         PQTYPE.Array,
         PQTYPE.Packed,
-        PQTYPE.Sent  // Sanity check. Ideally this should be the same as the first Sent
+        PQTYPE.Sentinel  // Sanity check. Ideally this should be the same as the first Sentinel
     );
     final List<Integer> PQSIZES = Arrays.asList(10, 100);
     final List<Integer> INSERTS = Arrays.asList(10, 100, K, 10 * K, 100 * K, M, 10*M);
@@ -185,9 +185,9 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final int SKIPS= 5;
     final List<Integer> threads = Arrays.asList(4);
     final List<PQTYPE> pqTypes = Arrays.asList(
-        PQTYPE.Sent, // First in list is used as base
+        PQTYPE.Sentinel, // First in list is used as base
         PQTYPE.Packed,
-        PQTYPE.Sent,  // Sanity check. Ideally this should be the same as the first Sent
+        PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
         PQTYPE.Packed
     );
     final List<Integer> PQSIZES = Arrays.asList(K, 10, K, 10 * K, 100 * K, M);
@@ -206,16 +206,16 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final int SKIPS= 20;
     final List<Integer> threads = Arrays.asList(1, 4, 16);
     final List<PQTYPE> pqTypes = Arrays.asList(
-        PQTYPE.Sent, // First in list is used as base
-        PQTYPE.NoSent,
+        PQTYPE.Sentinel, // First in list is used as base
+        PQTYPE.No_Sentinel,
         PQTYPE.Array,
         PQTYPE.Packed,
-        PQTYPE.Sent,  // Sanity check. Ideally this should be the same as the first Sent
-        PQTYPE.NoSent,
+        PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
+        PQTYPE.No_Sentinel,
         PQTYPE.Array,
         PQTYPE.Packed,
-        PQTYPE.Sent,  // Sanity check. Ideally this should be the same as the first Sent
-        PQTYPE.NoSent,
+        PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
+        PQTYPE.No_Sentinel,
         PQTYPE.Array,
         PQTYPE.Packed
     );
@@ -235,17 +235,17 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final int SKIPS= 20;
     final List<Integer> threads = Arrays.asList(1, 4, 8, 16);
     final List<PQTYPE> pqTypes = Arrays.asList(
-        PQTYPE.Sent, // First in list is used as base
-        PQTYPE.NoSent,
+        PQTYPE.Sentinel, // First in list is used as base
+        PQTYPE.No_Sentinel,
 //        PQTYPE.Array,
         PQTYPE.Packed,
-        PQTYPE.Sent,  // Sanity check. Ideally this should be the same as the first Sent
-        PQTYPE.NoSent,
+        PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
+        PQTYPE.No_Sentinel,
 //        PQTYPE.Array,
         PQTYPE.Packed
     );
     final List<Integer> PQSIZES = Arrays.asList(10, 100, K, 10 * K, 100 * K, M);
-    final List<Integer> INSERTS = Arrays.asList(10, 100, 10 * K, 100 * K, M, 10*M, 100*M);
+    final List<Integer> INSERTS = Arrays.asList(10, 100, 10 * K, 100 * K, M, 10*M);
 
     doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }
@@ -254,9 +254,9 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
   private void doPerformanceTest(int runs, int skips, List<Integer> threadss, List<PQTYPE> pqTypes,
                                  List<Integer> pqSizes, List<Integer> insertss, COLLAPSE collapse)
       throws ExecutionException, InterruptedException {
-    System.out.print("Threads     pqSize   inserts");
+    System.out.print("Threads       Top-X   Inserts");
     for (PQTYPE pqType: collapse(pqTypes, collapse)) {
-      System.out.print(String.format(Locale.ENGLISH, "%7s_ms/%% ", pqType));
+      System.out.print(String.format(Locale.ENGLISH, "  %12s ", pqType));
     }
     System.out.println("");
 
@@ -272,11 +272,11 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
           }
 
           results = collapseResults(results, collapse);
-          System.out.print(String.format(Locale.ENGLISH, "%7d %10d %9d", threads, pqSize, inserts));
+          System.out.print(String.format(Locale.ENGLISH, "%7d %11d %9d", threads, pqSize, inserts));
           for (Result result : results) {
             double frac = 1D * result.total() / results.get(0).total();
-            System.out.print(String.format(Locale.ENGLISH, "%6d %5.1f%1s",
-                result.total() / result.runs / M, frac * 100, markFastest(results, result)));
+            System.out.print(String.format(Locale.ENGLISH, "%9.2f %3.0f%%%1s",
+                1D * result.total() / result.runs / M, frac * 100, markFastest(results, result)));
           }
           System.out.println();
         }
@@ -461,10 +461,10 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     private PQMutant(int size, PQTYPE pqType) {
       this.pqType = pqType;
       switch (pqType) {
-        case Sent:
+        case Sentinel:
           hq = new HitQueue(size, true);
           break;
-        case NoSent:
+        case No_Sentinel:
           hq = new HitQueue(size, false);
           break;
         case Array:
@@ -480,7 +480,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
 
     public ScoreDoc getInitial() {
       return new ScoreDoc(0, 0f);
-      //return pqType == PQTYPE.Sent ? ((HitQueue)hq).top() : new ScoreDoc(0, 0f);
+      //return pqType == PQTYPE.Sentinel ? ((HitQueue)hq).top() : new ScoreDoc(0, 0f);
     }
 
     @Override
@@ -550,7 +550,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
       for (PQTYPE pqType: pqTypes) {
         for (int size: sizes) {
           for (int inserts: insertss) {
-            PQMutant expected = new PQMutant(size, PQTYPE.Sent); // Maybe use clean HitQueue instead of wrapped?
+            PQMutant expected = new PQMutant(size, PQTYPE.Sentinel); // Maybe use clean HitQueue instead of wrapped?
             PQMutant actual = new PQMutant(size, pqType);
 
             for (int i = 0 ; i < inserts ; i++) {
@@ -623,7 +623,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
 
   public void testEqualScore() {
     {
-      HitQueueInterface vanilla = new PQMutant(3, PQTYPE.Sent);
+      HitQueueInterface vanilla = new PQMutant(3, PQTYPE.Sentinel);
       vanilla.insert(new ScoreDoc(3, 3.0f));
       vanilla.insert(new ScoreDoc(1, 3.0f));
       vanilla.insert(new ScoreDoc(2, 3.0f));
@@ -659,7 +659,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final int doc1 = 1905463594;
     final Float f2 = 1.8786446E38f;
     final int doc2 = 1559930263;
-    HitQueueInterface packed = new PQMutant(1, PQTYPE.Sent);
+    HitQueueInterface packed = new PQMutant(1, PQTYPE.Sentinel);
     packed.insert(new ScoreDoc(doc2, f2));
     packed.insert(new ScoreDoc(doc1, f1));
 
