@@ -250,6 +250,46 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }
 
+  public void testPQPerformanceReport1M() throws ExecutionException, InterruptedException {
+    final int RUNS = 20;
+    final int SKIPS= 5;
+    final List<Integer> threads = Arrays.asList(1, 4, 16);
+    final List<PQTYPE> pqTypes = Arrays.asList(
+        PQTYPE.Sentinel, // First in list is used as base
+        PQTYPE.No_Sentinel,
+//        PQTYPE.Array,
+        PQTYPE.Packed,
+        PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
+        PQTYPE.No_Sentinel,
+//        PQTYPE.Array,
+        PQTYPE.Packed
+    );
+    final List<Integer> PQSIZES = Arrays.asList(M);
+    final List<Integer> INSERTS = Arrays.asList(10, 100, K, 10*K, 100*K, M, 10*M);
+
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
+  }
+
+  public void testPQPerformanceReport10() throws ExecutionException, InterruptedException {
+    final int RUNS = 20;
+    final int SKIPS= 5;
+    final List<Integer> threads = Arrays.asList(1, 4, 16);
+    final List<PQTYPE> pqTypes = Arrays.asList(
+        PQTYPE.Sentinel, // First in list is used as base
+        PQTYPE.No_Sentinel,
+//        PQTYPE.Array,
+        PQTYPE.Packed,
+        PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
+        PQTYPE.No_Sentinel,
+//        PQTYPE.Array,
+        PQTYPE.Packed
+    );
+    final List<Integer> PQSIZES = Arrays.asList(10);
+    final List<Integer> INSERTS = Arrays.asList(10, 100, K, 10*K, 100*K, M, 10*M);
+
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
+  }
+
   private enum COLLAPSE {none, fastest, slowest}
   private void doPerformanceTest(int runs, int skips, List<Integer> threadss, List<PQTYPE> pqTypes,
                                  List<Integer> pqSizes, List<Integer> insertss, COLLAPSE collapse)
