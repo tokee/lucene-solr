@@ -231,9 +231,9 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
    * @throws InterruptedException
    */
   public void testPQPerformanceMulti() throws ExecutionException, InterruptedException {
-    final int RUNS = 50;
-    final int SKIPS= 5;
-    final List<Integer> threads = Arrays.asList(1, 4, 16);
+    final int RUNS = 100;
+    final int SKIPS= 20;
+    final List<Integer> threads = Arrays.asList(1, 4, 8, 16);
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sent, // First in list is used as base
         PQTYPE.NoSent,
@@ -244,8 +244,8 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
 //        PQTYPE.Array,
         PQTYPE.Packed
     );
-    final List<Integer> PQSIZES = Arrays.asList(K, 10 * K, 100 * K, M);
-    final List<Integer> INSERTS = Arrays.asList(100, 10 * K, 100 * K, M);
+    final List<Integer> PQSIZES = Arrays.asList(10, 100, K, 10 * K, 100 * K, M);
+    final List<Integer> INSERTS = Arrays.asList(10, 100, 10 * K, 100 * K, M, 10*M, 100*M);
 
     doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }
