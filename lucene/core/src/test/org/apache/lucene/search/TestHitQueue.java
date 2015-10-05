@@ -411,6 +411,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
 
     @Override
     public Updater call() throws Exception {
+      final float[] scores = new float[inserts];
 
       for (int run = 0 ; run < runs ; run++) {
         if (run == skips) {
@@ -420,13 +421,20 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
           result.runs = 0;
         }
 
+        // Random is relatively slow, so we pre-fill an array with test data before measuring time
+        // Calling random in-loop increases fill time 10x for top-10 tests
+        for (int i = 0 ; i < inserts ; i++) {
+          scores[i] = random.nextFloat()*Float.MAX_VALUE;
+        }
+
         result.init -= System.nanoTime();
         final PQMutant pq = new PQMutant(pqSize, pqType);
         result.init += System.nanoTime();
 
         result.fill -= System.nanoTime();
         for (int i = 0 ; i < inserts ; i++) {
-          pq.insert(random.nextInt(Integer.MAX_VALUE), random.nextFloat()*Float.MAX_VALUE);
+          pq.insert(i, scores[i]); // We do not randomize docID to save test heap, but it is secondary sort key anyway
+          //pq.insert(random.nextInt(Integer.MAX_VALUE), random.nextFloat()*Float.MAX_VALUE);
         }
         result.fill += System.nanoTime();
 
