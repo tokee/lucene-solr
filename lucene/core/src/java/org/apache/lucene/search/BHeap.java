@@ -44,7 +44,7 @@ public class BHeap {
     elements = new long[maxSize]; //    /7*8?
     clear();
   }
-
+/*
   public void insert(long element) {
     if (maxSize == 0 || (size == maxSize && element < elements[1])) {
       return;
@@ -85,7 +85,7 @@ public class BHeap {
     }
   }
 
-
+  */
   private void clear() {
     size = 0;
   }
