@@ -270,6 +270,26 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }
 
+  public void testPQPerformanceReport30K() throws ExecutionException, InterruptedException {
+    final int RUNS = 50;
+    final int SKIPS= 5;
+    final List<Integer> threads = Arrays.asList(1);
+    final List<PQTYPE> pqTypes = Arrays.asList(
+        PQTYPE.Sentinel, // First in list is used as base
+        PQTYPE.No_Sentinel,
+//        PQTYPE.Array,
+        PQTYPE.Packed,
+        PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
+        PQTYPE.No_Sentinel,
+//        PQTYPE.Array,
+        PQTYPE.Packed
+    );
+    final List<Integer> PQSIZES = Arrays.asList(30*K);
+    final List<Integer> INSERTS = Arrays.asList(10, 100, K, 10*K, 100*K, M, 10*M, 100*M);
+
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
+  }
+
   public void testPQPerformanceReport10() throws ExecutionException, InterruptedException {
     final int RUNS = 50;
     final int SKIPS= 10;
