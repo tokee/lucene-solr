@@ -232,20 +232,62 @@ public class TestBHeap extends LuceneTestCase {
   public void testMonkeySpecific() {
     testMonkey(1, 5, 19, 2, 87L);
   }
-  public void testMonkeyReproduced() {
+
+  // ,
+
+  public void testMonkeyReproduced2() {
+    final long[] INSERTS = new long[]{
+        1559930263, 1185591563, 1905463594, 992500083, 1551741466, 849278534, 959321707, 1614690370, 1027113656,
+        367197353, 1398133165, 323706493, 1910156708, 1045165184, 1484036190, 250637342, 746926416, 653656415,
+        1564936362
+    };
+    final int lastCount = 5;
+    assertInsertExtract(lastCount, INSERTS);
+  }
+  public void testMonkeyReproduced2b() {
+    final long[] INSERTS = new long[]{
+        20, 10, 70, 40, 14, 60, 80, 5, 50
+    };
+    assertInsertExtract(5, INSERTS);
+  }
+  public void testMonkeyReproduced2c() {
+    //  20, 10, 70, 40, 14, 60, 80, 5, 50
+
+    BHeap heap = new BHeap(5, 2);
+
+    insertAssert(heap, new long[][]{
+        {10, 20, 70}
+    }, 20, 10, 70);
+
+    insertAssert(heap, new long[][]{
+        {14, 20, 70},
+        {60, 40}
+    }, 40, 14, 60);
+
+    insertAssert(heap, new long[][]{
+        {20, 40, 70},
+        {60, 80}
+    }, 80);
+  }
+
+  public void testMonkeyReproduced1() {
     final long[] INSERTS = new long[]{
         //1559930263, 1905463594, 959321707, 1614690370, 1910156708
         2, 4, 1, 3, 5
     };
     final int lastCount = 5;
 
-    BHeap heap = new BHeap(5, 2);
-    insert(heap, INSERTS);
+    assertInsertExtract(lastCount, INSERTS);
+  }
 
-    Arrays.sort(INSERTS);
-    long[] last = new long[lastCount];
-    System.arraycopy(INSERTS, INSERTS.length-lastCount, last, 0, lastCount);
-    System.out.println("Last " + lastCount + ":");
+  private void assertInsertExtract(int heapsize, long[] inserts) {
+    BHeap heap = new BHeap(heapsize, 2);
+    insert(heap, inserts);
+
+    Arrays.sort(inserts);
+    long[] last = new long[heapsize];
+    System.arraycopy(inserts, inserts.length-heapsize, last, 0, heapsize);
+    System.out.println("Last " + heapsize + ":");
     for (long element : last) {
       System.out.print(" " + Long.toString(element));
     }
@@ -278,6 +320,7 @@ public class TestBHeap extends LuceneTestCase {
       if (expected.size() > size) {
         expected.poll();
       }
+      System.out.print(", " + element);
     }
     System.out.println("");
 
@@ -301,6 +344,14 @@ public class TestBHeap extends LuceneTestCase {
       assertEquals(message + ". The popped value should match expected[" + i + "]\n" + heap.toString(true),
           expected[i], heap.pop());
     }
+  }
+
+  private void insertAssert(BHeap heap, long[][] expected, long... elements) {
+    insertAssert("", heap, expected, elements);
+  }
+  private void insertAssert(String message, BHeap heap, long[][] expected, long... elements) {
+    insert(heap, elements);
+    assertHeap(message, heap, expected);
   }
 
   public static void insert(BHeap heap, long... elements) {
