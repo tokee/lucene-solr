@@ -49,6 +49,22 @@ public class BHeap {
     clear();
   }
 
+  public long pop() {
+    if (size == 0) {
+      throw new IllegalStateException("The queue is empty");
+    }
+    // Dial the insertion point one back
+    if (--mhOffset == 0) {
+      mhIndex--;
+      mhOffset = MH_MAX;
+    }
+    size--;
+    final long least = get(1, 1);
+    set(1, 1, get(mhIndex, mhOffset));
+    orderDown(1, 1);
+    return least;
+  }
+
   public long insert(long element) {
     if (size < maxSize) {
       set(mhIndex, mhOffset, element);
@@ -56,6 +72,7 @@ public class BHeap {
       mhOffset++;
       if (mhOffset > MH_MAX) {
         mhIndex++;
+        mhOffset = 1;
       }
       size++;
       return SENTINEL;
@@ -76,15 +93,17 @@ public class BHeap {
    * @param mhOffset the element that is assumed to be out of order.
    */
   private void orderDown(int mhIndex, int mhOffset) {
-    long element = get(mhIndex, mhOffset);
-    while (mhIndex < elements.length >> MH_EXP &&
+    final int mhCount = activeMiniheaps();
+    final long element = get(mhIndex, mhOffset);
+
+    while (mhIndex <= mhCount &&
         (mhOffset = orderDownMH(mhIndex, mhOffset) & MH_EXP) != 0) { // element at bottom of miniheap
       int mhChildAIndex = mhIndex << 1;
-      if (mhChildAIndex > maxMiniheapIndex) {
+      if (mhChildAIndex > mhCount) { // TODO: maxMiniheapIndex should be replaced by mhIndex-last
         break; // Bottom reached
       }
       int mhChildBIndex = mhChildAIndex+1;
-      if (mhChildBIndex <= maxMiniheapIndex && get(mhChildBIndex, 1) < get(mhChildAIndex, 1)) {
+      if (mhChildBIndex <= mhCount && get(mhChildBIndex, 1) < get(mhChildAIndex, 1)) {
         mhChildAIndex = mhChildBIndex;
       }
       long elementBelow = get(mhChildAIndex, 1);
@@ -99,6 +118,11 @@ public class BHeap {
     }
   }
 
+  private int activeMiniheaps() {
+    int div = size/MH_MAX;
+    return div*MH_MAX == size ? div : div+1;
+  }
+
   /**
    * Orders the miniheap downwards, where the miniheap is assumed to be ordered,
    * except for the element at mhOffset in the miniheap at mhIndex.
@@ -107,18 +131,19 @@ public class BHeap {
    * @return the offset for the position in the miniheap where the unordered element ended.
    */
   private int orderDownMH(int mhIndex, int mhOffset) {
+    final int maxOffset = mhIndex == activeMiniheaps() ? size - ((mhIndex-1) << MH_EXP) : MH_MAX;
     long oldElement = get(mhIndex, mhOffset);
     int childA = mhOffset << 1;            // find smaller child
     int ChildB = childA + 1;
-    if (ChildB <= size && get(mhIndex, ChildB) < get(mhIndex, childA)) {
+    if (ChildB <= maxOffset && get(mhIndex, ChildB) < get(mhIndex, childA)) {
       childA = ChildB;
     }
-    while (childA <= MH_MAX && get(mhIndex, childA) < oldElement) {
+    while (childA <= maxOffset && get(mhIndex, childA) < oldElement) {
       set(mhIndex, mhOffset, get(mhIndex, childA));            // shift up child
       mhOffset = childA;
       childA = mhOffset << 1;
       ChildB = childA + 1;
-      if (ChildB <= MH_MAX && get(mhIndex, ChildB) < get(mhIndex, childA)) {
+      if (ChildB <= maxOffset && get(mhIndex, ChildB) < get(mhIndex, childA)) {
         childA = ChildB;
       }
     }
@@ -138,7 +163,7 @@ public class BHeap {
    */
   private void orderUp(int mhIndex, int mhOffset) {
     final long newElement = get(mhIndex, mhOffset);
-    while (orderUpMH(mhIndex, mhOffset) != 1) { // Ordering the miniheap caused the top to change
+    while (orderUpMH(mhIndex, mhOffset) == 1) { // Ordering the miniheap caused the top to change
       int mhParentIndex = mhIndex >> 1;
       if (mhParentIndex == 0) {
         break; // top reached
@@ -225,6 +250,15 @@ public class BHeap {
     }
 
     */
+
+  public int getSize() {
+    return size;
+  }
+
+  public boolean isEmpty() {
+    return size == 0;
+  }
+
   private void clear() {
     size = 0;
     mhIndex = 1;

@@ -51,7 +51,7 @@ public class TestBHeap extends LuceneTestCase {
     heap.insert(100);
     heap.insert(99);
     assertHeap(heap, new long[][]{
-        {100, 99}
+        {99, 100}
     });
   }
 
@@ -65,7 +65,8 @@ public class TestBHeap extends LuceneTestCase {
 
   public void testTwoMiniheaps() {
     BHeap heap = new BHeap(20, 2);
-    insert(heap, 100, 99, 101, 87);
+    insert(heap, 100, 99, 101);
+    insert(heap, 87);
     assertHeap(heap, new long[][]{
         {87, 99, 101},
         {100}
@@ -91,19 +92,89 @@ public class TestBHeap extends LuceneTestCase {
 
   public void testTwoMiniheapsOverflow() {
     BHeap heap = new BHeap(4, 2);
-    insert(heap, 100, 99, 101);
-    insert(heap, 102);
+    insert(heap, 100, 99, 101, 102);
     assertHeap(heap, new long[][]{
-        {99, 100, 102, 101}
+        {99, 100, 101},
+        {102}
     });
+    assertFlush(heap, 99,100, 101, 102);
+  }
+
+  public void testAlternateSmall() {
+    BHeap heap = new BHeap(20, 2);
+    insert(heap, 100, 99, 101, 102);
+    assertHeap("Initial", heap, new long[][]{
+        {99, 100, 101},
+        {102}
+    });
+
+    heap.pop();
+    assertHeap("Pop 1", heap, new long[][]{
+        {100, 102, 101}
+    });
+
+    insert(heap, 87);
+    assertHeap("Insert 87", heap, new long[][]{
+        {87, 100, 101},
+        {102}
+    });
+
+    insert(heap, 110);
+    assertHeap("Insert 110", heap, new long[][]{
+        {87, 100, 101},
+        {102, 110}
+    });
+
+    insert(heap, 115);
+    assertHeap("Insert 115", heap, new long[][]{
+        {87, 100, 101},
+        {102, 110, 115}
+    });
+
+    heap.pop();
+    assertHeap("Pop 2", heap, new long[][]{
+        {100, 102, 101},
+        {115, 110}
+    });
+
+    heap.pop();
+    assertHeap("Pop 3", heap, new long[][]{
+        {101, 102, 110},
+        {115}
+    });
+
+    heap.pop();
+    assertHeap("Pop 4", heap, new long[][]{
+        {102, 115, 110}
+    });
+
+    assertFlush("Final flush", heap, 102, 110, 115);
   }
 
   public void test1_1() {
     BHeap heap = new BHeap(1, 2);
-    insert(heap, 100, 99, 101);
+    insert(heap, 100);
+    assertHeap(heap, new long[][]{
+        {100}
+    });
+
+    insert(heap, 99);
+    assertHeap(heap, new long[][]{
+        {100}
+    });
+    insert(heap, 101);
     assertHeap(heap, new long[][]{
         {101}
     });
+  }
+
+  public static void assertFlush(BHeap heap, long... expected) {
+    assertFlush("", heap, expected);
+  }
+  public static void assertFlush(String message, BHeap heap, long... expected) {
+    for (int i = 0; i < expected.length; i++) {
+      assertEquals(message + ". The popped value should match expected[" + i + "]", expected[i], heap.pop());
+    }
   }
 
   public static void insert(BHeap heap, long... elements) {
@@ -115,11 +186,12 @@ public class TestBHeap extends LuceneTestCase {
   public static void assertHeap(BHeap heap, long[][] content) {
     assertHeap("", heap, content);
   }
+
   public static void assertHeap(String message, BHeap heap, long[][] content) {
     for (int miniheap = 1 ; miniheap <= content.length ; miniheap++) {
-      long[] elements = content[miniheap-1];
-      for (int offset = 1 ; offset < elements.length ; offset++) {
-        assertElement(message, heap, miniheap, offset, elements[offset-1]);
+      long[] expected = content[miniheap-1];
+      for (int offset = 1 ; offset <= expected.length ; offset++) {
+        assertElement(message, heap, miniheap, offset, expected[offset-1]);
       }
     }
   }
