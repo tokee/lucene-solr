@@ -17,6 +17,10 @@ package org.apache.lucene.search;
  * limitations under the License.
  */
 
+import java.util.Arrays;
+import java.util.Locale;
+import java.util.Random;
+
 import org.apache.lucene.util.LuceneTestCase;
 
 /**
@@ -166,6 +170,69 @@ public class TestBHeap extends LuceneTestCase {
     assertHeap(heap, new long[][]{
         {101}
     });
+  }
+
+  public void testMonkeySmall() {
+    testMonkeyMulti(10, 1000, 10000, 8);
+  }
+
+  // Failed at one point
+  public void testMonkeySpecific() {
+    testMonkey(1, 5, 19, 2, 87L);
+  }
+  public void testMonkeyReproduced() {
+    final long[] INSERTS = new long[]{
+        1559930263, 1185591563, 1905463594, 992500083, 1551741466, 849278534, 959321707, 1614690370, 1027113656,
+        367197353, 1398133165, 323706493, 1910156708, 1045165184, 1484036190, 250637342, 746926416, 653656415,
+        1564936362};
+    BHeap heap = new BHeap(5, 2);
+    insert(heap, INSERTS);
+
+    Arrays.sort(INSERTS);
+    long[] last5 = new long[5];
+    System.arraycopy(INSERTS, INSERTS.length-5-1, last5, 0, 5);
+    assertFlush(heap, last5);
+  }
+
+  private void testMonkeyMulti(int runs, int maxSize, int maxInserts, int maxExponent) {
+    for  (int run = 1 ; run <= runs ; run++) {
+      long seed = random().nextLong();
+      Random random = new Random(seed);
+
+      int size = random.nextInt(maxSize);             // 0 or more
+      int inserts = random.nextInt(maxInserts);       // 0 or more
+      int exponent = random.nextInt(maxExponent-1)+1; // 1 or more
+
+      testMonkey(run, size, inserts, exponent, seed);
+    }
+  }
+
+  private void testMonkey(int run, int size, int inserts, int exponent, long seed) {
+    Random random = new Random(seed);
+    BHeap actual = new BHeap(size, exponent);
+    java.util.PriorityQueue<Long> expected = new java.util.PriorityQueue<>();
+
+    for (int i = 0 ; i < inserts ; i++) {
+      long element = random.nextInt(Integer.MAX_VALUE);
+      actual.insert(element);
+      expected.add(element);
+        System.out.print(", " + element);
+      if (expected.size() > size) {
+        expected.poll();
+      }
+    }
+    System.out.println("");
+
+
+    String extra = String.format(Locale.ENGLISH, "run=%d, size=%d, inserts=%d, exponent=%d, seed=" + seed,
+        run, size, inserts, exponent);
+    assertEquals("Size should match for " + extra,
+        expected.size(), actual.size());
+    for (int i = 1 ; i <= size ; i++) {
+      assertEquals(String.format(Locale.ENGLISH, "Elements for pop %d should match for %s",
+          i, extra),
+          expected.poll(), new Long(actual.pop()));
+    }
   }
 
   public static void assertFlush(BHeap heap, long... expected) {

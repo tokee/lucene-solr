@@ -251,7 +251,7 @@ public class BHeap {
 
     */
 
-  public int getSize() {
+  public int size() {
     return size;
   }
 
