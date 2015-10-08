@@ -26,6 +26,7 @@ public class BHeap {
   public static final long SENTINEL = Long.MAX_VALUE; // Must be pre-filled with sentinels! TODO: Make sentinel 0?
 
   private final int maxSize;
+  private final int maxMiniheapIndex; // Inclusive
   final long[] elements;
   private int mhIndex = 1;
   private int mhOffset = 1;
@@ -43,7 +44,8 @@ public class BHeap {
     maxSize = size;
     MH_EXP = miniheapExponent;
     MH_MAX = (1 << MH_EXP)-1;
-    elements = new long[(maxSize/MH_MAX+3)<<MH_EXP]; // 1 wasted entry/miniheap, 1 wasted miniheap/heap
+    maxMiniheapIndex = maxSize % MH_MAX == 0 ? maxSize / MH_MAX : maxSize / MH_MAX+1;
+    elements = new long[(maxMiniheapIndex+1)<<MH_EXP]; // 1 wasted entry/miniheap, 1 wasted miniheap/heap
     clear();
   }
 
@@ -57,7 +59,7 @@ public class BHeap {
       }
       size++;
       return SENTINEL;
-    } else if (size > 0 && element < top()) {
+    } else if (size > 0 && element > top()) {
       long oldElement = top();
       set(1, 1, element);
       orderDown(1, 1);
@@ -78,8 +80,11 @@ public class BHeap {
     while (mhIndex < elements.length >> MH_EXP &&
         (mhOffset = orderDownMH(mhIndex, mhOffset) & MH_EXP) != 0) { // element at bottom of miniheap
       int mhChildAIndex = mhIndex << 1;
+      if (mhChildAIndex > maxMiniheapIndex) {
+        break; // Bottom reached
+      }
       int mhChildBIndex = mhChildAIndex+1;
-      if (mhChildBIndex < elements.length >> MH_EXP && get(mhChildBIndex, 1) < get(mhChildAIndex, 1)) {
+      if (mhChildBIndex <= maxMiniheapIndex && get(mhChildBIndex, 1) < get(mhChildAIndex, 1)) {
         mhChildAIndex = mhChildBIndex;
       }
       long elementBelow = get(mhChildAIndex, 1);
