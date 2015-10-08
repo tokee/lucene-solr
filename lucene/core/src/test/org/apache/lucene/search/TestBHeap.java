@@ -17,20 +17,6 @@ package org.apache.lucene.search;
  * limitations under the License.
  */
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Iterator;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Locale;
-import java.util.Random;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-
 import org.apache.lucene.util.LuceneTestCase;
 
 /**
@@ -64,33 +50,82 @@ public class TestBHeap extends LuceneTestCase {
     BHeap heap = new BHeap(20, 2);
     heap.insert(100);
     heap.insert(99);
-    assertEquals("Element 1,1 should be correct\n" + heap.toString(true), 99, heap.elements[5]);
+    assertHeap(heap, new long[][]{
+        {100, 99}
+    });
   }
 
   public void testFullFirstMiniheap() {
     BHeap heap = new BHeap(20, 2);
-    heap.insert(100);
-    heap.insert(99);
-    heap.insert(101);
-    assertEquals("Element 1,1 should be correct\n" + heap.toString(true), 99, heap.elements[5]);
-    assertEquals("Element 1,2 should be correct\n" + heap.toString(true), 100, heap.elements[6]);
-    assertEquals("Element 1,3 should be correct\n" + heap.toString(true), 101, heap.elements[7]);
+    insert(heap, 100, 99, 101);
+    assertHeap(heap, new long[][]{
+        {99, 100, 101}
+    });
   }
 
   public void testTwoMiniheaps() {
     BHeap heap = new BHeap(20, 2);
-    heap.insert(100);
-    heap.insert(99);
-    heap.insert(101);
-    heap.insert(87);
-    assertElement(heap, 1, 1, 87);
-    assertElement(heap, 1, 2, 99);
-    assertElement(heap, 1, 3, 101);
-    assertElement(heap, 2, 1, 100);
+    insert(heap, 100, 99, 101, 87);
+    assertHeap(heap, new long[][]{
+        {87, 99, 101},
+        {100}
+    });
   }
 
-  private void assertElement(BHeap heap, int mhIndex, int mhOffset, long expected) {
-    assertEquals("Element " + mhIndex + ", " + mhOffset + " should be correct\n" + heap.toString(true),
+  public void testTinyHeap() {
+    BHeap heap = new BHeap(3, 2);
+    insert(heap, 100, 99, 101);
+    assertHeap(heap, new long[][]{
+        {99, 100, 101}
+    });
+  }
+
+  public void testTinyHeapOverflow() {
+    BHeap heap = new BHeap(3, 2);
+    insert(heap, 100, 99, 101);
+    insert(heap, 102);
+    assertHeap(heap, new long[][]{
+        {100, 102, 101}
+    });
+  }
+
+  public void testTwoMiniheapsOverflow() {
+    BHeap heap = new BHeap(4, 2);
+    insert(heap, 100, 99, 101);
+    insert(heap, 102);
+    assertHeap(heap, new long[][]{
+        {99, 100, 102, 101}
+    });
+  }
+
+  public void test1_1() {
+    BHeap heap = new BHeap(1, 2);
+    insert(heap, 100, 99, 101);
+    assertHeap(heap, new long[][]{
+        {101}
+    });
+  }
+
+  public static void insert(BHeap heap, long... elements) {
+    for (long element: elements) {
+      heap.insert(element);
+    }
+  }
+
+  public static void assertHeap(BHeap heap, long[][] content) {
+    assertHeap("", heap, content);
+  }
+  public static void assertHeap(String message, BHeap heap, long[][] content) {
+    for (int miniheap = 1 ; miniheap <= content.length ; miniheap++) {
+      long[] elements = content[miniheap-1];
+      for (int offset = 1 ; offset < elements.length ; offset++) {
+        assertElement(message, heap, miniheap, offset, elements[offset-1]);
+      }
+    }
+  }
+
+  public static void assertElement(String message, BHeap heap, int mhIndex, int mhOffset, long expected) {
+    assertEquals(message + ". Element " + mhIndex + ", " + mhOffset + " should be correct\n" + heap.toString(true),
         expected, heap.get(mhIndex, mhOffset));
   }
 }
