@@ -182,15 +182,14 @@ public class TestBHeap extends LuceneTestCase {
   }
   public void testMonkeyReproduced() {
     final long[] INSERTS = new long[]{
-        1559930263, 1185591563, 1905463594, 992500083, 1551741466, 849278534, 959321707, 1614690370, 1027113656,
-        367197353, 1398133165, 323706493, 1910156708, 1045165184, 1484036190, 250637342, 746926416, 653656415,
-        1564936362};
+        1559930263, 1905463594, 959321707, 1614690370, 1910156708, 1564936362
+    };
     BHeap heap = new BHeap(5, 2);
     insert(heap, INSERTS);
 
     Arrays.sort(INSERTS);
     long[] last5 = new long[5];
-    System.arraycopy(INSERTS, INSERTS.length-5-1, last5, 0, 5);
+    System.arraycopy(INSERTS, INSERTS.length-5, last5, 0, 5);
     System.out.println("Last 5:");
     for (long element : last5) {
       System.out.print(" " + Long.toString(element));
