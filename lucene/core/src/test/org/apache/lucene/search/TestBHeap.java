@@ -191,6 +191,11 @@ public class TestBHeap extends LuceneTestCase {
     Arrays.sort(INSERTS);
     long[] last5 = new long[5];
     System.arraycopy(INSERTS, INSERTS.length-5-1, last5, 0, 5);
+    System.out.println("Last 5:");
+    for (long element : last5) {
+      System.out.print(" " + Long.toString(element));
+    }
+    System.out.println();
     assertFlush(heap, last5);
   }
 
@@ -216,7 +221,6 @@ public class TestBHeap extends LuceneTestCase {
       long element = random.nextInt(Integer.MAX_VALUE);
       actual.insert(element);
       expected.add(element);
-        System.out.print(", " + element);
       if (expected.size() > size) {
         expected.poll();
       }
@@ -240,7 +244,8 @@ public class TestBHeap extends LuceneTestCase {
   }
   public static void assertFlush(String message, BHeap heap, long... expected) {
     for (int i = 0; i < expected.length; i++) {
-      assertEquals(message + ". The popped value should match expected[" + i + "]", expected[i], heap.pop());
+      assertEquals(message + ". The popped value should match expected[" + i + "]\n" + heap.toString(true),
+          expected[i], heap.pop());
     }
   }
 

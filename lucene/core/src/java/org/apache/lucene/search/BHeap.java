@@ -266,12 +266,13 @@ public class BHeap {
   }
 
   public String toString(boolean verbose) {
+    final int MAX_MH = 10;
     if (!verbose) {
       return "BHeap(" + size + "/" + maxSize + ")";
     }
     StringBuilder sb = new StringBuilder();
     sb.append("BHeap size=").append(size).append("\n");
-    for (int mhIndex = 1 ; mhIndex < elements.length >> MH_EXP ; mhIndex++) {
+    for (int mhIndex = 1 ; (mhIndex < elements.length >> MH_EXP) && mhIndex <= MAX_MH ; mhIndex++) {
       sb.append(String.format(Locale.ENGLISH, "miniheap %2d: ", mhIndex));
       for (int mhOffset = 1 ; mhOffset <= MH_MAX ; mhOffset++) {
         if ((mhIndex << MH_EXP) + mhOffset >= elements.length) {
