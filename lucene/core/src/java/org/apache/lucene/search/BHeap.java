@@ -97,7 +97,7 @@ public class BHeap {
     final long element = get(mhIndex, mhOffset);
 
     while (mhIndex <= mhCount &&
-        (mhOffset = orderDownMH(mhIndex, mhOffset) & MH_EXP) != 0) { // element at bottom of miniheap
+        ((mhOffset = orderDownMH(mhIndex, mhOffset)) & MH_EXP) != 0) { // element at bottom of miniheap
       int mhChildAIndex = mhIndex << 1;
       if (mhChildAIndex > mhCount) { // TODO: maxMiniheapIndex should be replaced by mhIndex-last
         break; // Bottom reached

@@ -172,6 +172,58 @@ public class TestBHeap extends LuceneTestCase {
     });
   }
 
+  public void testTiny_5() {
+    BHeap heap = new BHeap(5, 2);
+
+    insert(heap, 2);
+    assertHeap("Insert 2", heap, new long[][]{
+        {2}
+    });
+
+    insert(heap, 4);
+    assertHeap("Insert 4", heap, new long[][]{
+        {2, 4}
+    });
+
+    insert(heap, 1);
+    assertHeap("Insert 1", heap, new long[][]{
+        {1, 4, 2}
+    });
+
+    insert(heap, 3);
+    assertHeap("Insert 3", heap, new long[][]{
+        {1, 3, 2},
+        {4}
+    });
+
+    insert(heap, 5);
+    assertHeap("Insert 5", heap, new long[][]{
+        {1, 3, 2},
+        {4, 5}
+    });
+
+    heap.pop();
+    assertHeap("Pop 1", heap, new long[][]{
+        {2, 3, 4},
+        {5}
+    });
+
+    heap.pop();
+    assertHeap("Pop 2", heap, new long[][]{
+        {3, 5, 4}
+    });
+
+    heap.pop();
+    assertHeap("Pop 3", heap, new long[][]{
+        {4, 5}
+    });
+
+    heap.pop();
+    assertHeap("Pop 4", heap, new long[][]{
+        {5}
+    });
+  }
+
   public void testMonkeySmall() {
     testMonkeyMulti(10, 1000, 10000, 8);
   }
@@ -182,20 +234,23 @@ public class TestBHeap extends LuceneTestCase {
   }
   public void testMonkeyReproduced() {
     final long[] INSERTS = new long[]{
-        1559930263, 1905463594, 959321707, 1614690370, 1910156708, 1564936362
+        //1559930263, 1905463594, 959321707, 1614690370, 1910156708
+        2, 4, 1, 3, 5
     };
+    final int lastCount = 5;
+
     BHeap heap = new BHeap(5, 2);
     insert(heap, INSERTS);
 
     Arrays.sort(INSERTS);
-    long[] last5 = new long[5];
-    System.arraycopy(INSERTS, INSERTS.length-5, last5, 0, 5);
-    System.out.println("Last 5:");
-    for (long element : last5) {
+    long[] last = new long[lastCount];
+    System.arraycopy(INSERTS, INSERTS.length-lastCount, last, 0, lastCount);
+    System.out.println("Last " + lastCount + ":");
+    for (long element : last) {
       System.out.print(" " + Long.toString(element));
     }
     System.out.println();
-    assertFlush(heap, last5);
+    assertFlush(heap, last);
   }
 
   private void testMonkeyMulti(int runs, int maxSize, int maxInserts, int maxExponent) {
