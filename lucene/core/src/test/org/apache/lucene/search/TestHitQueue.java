@@ -315,10 +315,12 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sentinel, // First in list is used as base
         PQTYPE.No_Sentinel,
+        PQTYPE.BHeap3,
 //        PQTYPE.Array,
         PQTYPE.Packed,
         PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
         PQTYPE.No_Sentinel,
+        PQTYPE.BHeap3,
 //        PQTYPE.Array,
         PQTYPE.Packed
     );

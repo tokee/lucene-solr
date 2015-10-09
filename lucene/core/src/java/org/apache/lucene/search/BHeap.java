@@ -21,12 +21,13 @@ import java.util.Locale;
 
 /**
  * BHeap: http://playfulprogramming.blogspot.it/2015/08/cache-optimizing-priority-queue.html
+ * </p><p>
+ * Important: This implementation is still buggy. See unit tests in TestBHeap.
  **/
 public class BHeap {
   public static final long SENTINEL = Long.MAX_VALUE; // Must be pre-filled with sentinels! TODO: Make sentinel 0?
   private final int maxSize;
 
-  private final int maxMiniheapIndex; // Inclusive
   final long[] elements;
   private int mhIndex = 1;
   private int mhOffset = 1;
@@ -43,10 +44,13 @@ public class BHeap {
    */
   public BHeap(int size, int miniheapExponent){
     maxSize = size;
+    if (miniheapExponent <= 1) {
+      throw new UnsupportedOperationException("The exponent must be 2 or more");
+    }
     MH_EXP = miniheapExponent;
     MH_MAX = (1 << MH_EXP)-1;
     MH_CHILDREN = 1 << MH_EXP; // Number of children-miniheaps for each miniheap
-    maxMiniheapIndex = maxSize % MH_MAX == 0 ? maxSize / MH_MAX : maxSize / MH_MAX+1;
+    int maxMiniheapIndex = maxSize % MH_MAX == 0 ? maxSize / MH_MAX : maxSize / MH_MAX+1;
     elements = new long[(maxMiniheapIndex+1)<<MH_EXP]; // 1 wasted entry/miniheap, 1 wasted miniheap/heap
     clear();
   }
@@ -136,12 +140,16 @@ public class BHeap {
   private int mhParent(int mhIndex) {
     return (mhIndex+MH_CHILDREN-2) / MH_CHILDREN;
   }
+  private int mhParentOffset(int mhIndex) {
+    // 1 << (MH_EXP-1)) + mhIndex - (mhParentIndex << 1);
+    return (1<<(MH_EXP-1)) + (((mhIndex+MH_CHILDREN-2) % MH_CHILDREN) >> 1);
+  }
 
   /**
    * Orders the miniheap downwards, where the miniheap is assumed to be ordered,
    * except for the element at mhOffset in the miniheap at mhIndex.
    * @param mhIndex  the index for the miniheap containing an out-of-order element.
-   * @param mhOffset the element that is assumed to be out of order.
+   * @p(1<<(MH_EXP-1))aram mhOffset the element that is assumed to be out of order.
    * @return the offset for the position in the miniheap where the unordered element ended.
    */
   private int orderDownMH(final int mhIndex, int mhOffset) {
@@ -186,7 +194,7 @@ public class BHeap {
       }
       // (1 << (MH_EXP-1)) == bottom row origo in the paren miniheap
       // mhIndex - (mhParentIndex << 1) == Offset in the bottom row of the parent miniheap
-      int mhParentOffset = (1 << (MH_EXP-1)) + mhIndex - (mhParentIndex << 1);
+      int mhParentOffset = mhParentOffset(mhIndex);
       if (get(mhParentIndex, mhParentOffset) < newElement) {
         break; // Do not bubble further up
       }
@@ -293,7 +301,8 @@ public class BHeap {
     StringBuilder sb = new StringBuilder();
     sb.append("BHeap size=").append(size).append("\n");
     for (int mhIndex = 1 ; (mhIndex < elements.length >>> MH_EXP) && mhIndex <= MAX_MH ; mhIndex++) {
-      sb.append(String.format(Locale.ENGLISH, "miniheap %2d: ", mhIndex));
+      //sb.append(String.format(Locale.ENGLISH, "miniheap %2d: ", mhIndex));
+      sb.append("{");
       for (int mhOffset = 1 ; mhOffset <= MH_MAX ; mhOffset++) {
         if ((mhIndex << MH_EXP) + mhOffset >= elements.length) {
           break;
@@ -303,7 +312,7 @@ public class BHeap {
         }
         sb.append(Long.toString(get(mhIndex, mhOffset)));
       }
-      sb.append("\n");
+      sb.append("}\n");
     }
     return sb.toString();
   }

@@ -225,15 +225,55 @@ public class TestBHeap extends LuceneTestCase {
   }
 
   public void testMonkeySmall() {
-    testMonkeyMulti(10, 10, 100, 3);
+    testMonkeyMulti(100, 10, 20, 3);
+  }
+
+  public void testMonkeyMedium() {
+    testMonkeyMulti(100, 100, 200, 3);
   }
 
   // Failed at one point
-  public void testMonkeySpecific() {
+  public void testMonkeySpecificA() {
     testMonkey(1, 5, 19, 2, 87L);
   }
 
-  // ,
+  // Failed at another point
+  public void testMonkeySpecificB() {
+    testMonkey(1, 13, 12, 2, -508814577303985115L);
+  }
+  public void testMonkeyReproducedBDetail() {
+//        116, 79, 63, 59, 45, 108, 22, 55, 107, 89, 129, 27
+    BHeap heap = new BHeap(14, 2);
+
+    insertAssert(heap, new long[][]{
+        {63, 116,  79}
+    }, 116, 79, 63);
+
+    insertAssert(heap, new long[][]{
+        {59,  63,  79},
+        {116}
+    }, 59);
+    insertAssert(heap, new long[][]{
+        {45,  59,  79},
+        {63, 116}
+    }, 45);
+    insertAssert(heap, new long[][]{
+        {45,  59,  79},
+        {63, 116, 108}
+    }, 108);
+    insertAssert(heap, new long[][]{
+        {22, 45, 79},
+        {63, 116, 108},
+        {55, 59, 107},
+        {89, 129}
+    }, 22, 55, 107, 89, 129);
+    insertAssert(heap, new long[][]{
+        {22, 45, 27},
+        {63, 116, 108},
+        {55, 59, 107},
+        {79, 129, 89},
+    }, 27);
+  }
 
   public void testMonkeyReproduced2() {
     final long[] INSERTS = new long[]{
@@ -301,7 +341,10 @@ public class TestBHeap extends LuceneTestCase {
   }
 
   private void assertInsertExtract(int heapsize, long[] inserts) {
-    BHeap heap = new BHeap(heapsize, 2);
+    assertInsertExtract(2, heapsize, inserts);
+  }
+  private void assertInsertExtract(int exponent, int heapsize, long[] inserts) {
+    BHeap heap = new BHeap(heapsize, exponent);
     insert(heap, inserts);
 
     Arrays.sort(inserts);
@@ -322,7 +365,7 @@ public class TestBHeap extends LuceneTestCase {
 
       int size = random.nextInt(maxSize-1)+1;         // 1 or more
       int inserts = random.nextInt(maxInserts);       // 0 or more
-      int exponent = random.nextInt(maxExponent-1)+1; // 1 or more
+      int exponent = maxExponent == 2 ? 2 : random.nextInt(maxExponent-2)+2; // 2 or more
 
       testMonkey(run, size, inserts, exponent, seed);
     }
@@ -343,20 +386,22 @@ public class TestBHeap extends LuceneTestCase {
         if (expected.size() > size) {
           expected.poll();
         }
-        if (i < 10) {
-          System.out.print(", " + element);
-        }
+      //    System.out.print(", " + element);
       }
-      System.out.println("");
+      //System.out.println("");
     } catch (Exception e) {
       throw new IllegalStateException("Unexpected Exception for " + extra, e);
     }
 
+    String dump = actual.toString(true) + "size=" + actual.size();
     assertEquals("Size should match for " + extra,
         expected.size(), actual.size());
-    for (int i = 1 ; i <= size ; i++) {
+    int realSize = expected.size();
+    for (int i = 1 ; i <= realSize ; i++) {
+      assertFalse("The queue should not be empty after " + (i-1) + " pops for " + extra + "\n" + dump,
+          actual.isEmpty());
       assertEquals(String.format(Locale.ENGLISH, "Elements for pop %d should match for %s\n%s",
-          i, extra, actual.toString(true)),
+          i, extra, dump),
           expected.poll(), new Long(actual.pop()));
     }
   }
