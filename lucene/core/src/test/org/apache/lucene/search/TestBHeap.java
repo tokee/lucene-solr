@@ -143,13 +143,13 @@ public class TestBHeap extends LuceneTestCase {
 
     heap.pop();
     assertHeap("Pop 3", heap, new long[][]{
-        {101, 102, 110},
-        {115}
+        {101, 102, 115},
+        {110}
     });
 
     heap.pop();
     assertHeap("Pop 4", heap, new long[][]{
-        {102, 115, 110}
+        {102, 110, 115}
     });
 
     assertFlush("Final flush", heap, 102, 110, 115);
@@ -204,13 +204,13 @@ public class TestBHeap extends LuceneTestCase {
 
     heap.pop();
     assertHeap("Pop 1", heap, new long[][]{
-        {2, 3, 4},
-        {5}
+        {2, 3, 5},
+        {4}
     });
 
     heap.pop();
     assertHeap("Pop 2", heap, new long[][]{
-        {3, 5, 4}
+        {3, 4, 5}
     });
 
     heap.pop();
@@ -229,7 +229,11 @@ public class TestBHeap extends LuceneTestCase {
   }
 
   public void testMonkeyMedium() {
-    testMonkeyMulti(100, 100, 200, 3);
+    testMonkeyMulti(100, 50, 200, 3);
+  }
+
+  public void testMonkeyLarge() {
+    testMonkeyMulti(100, 1000, 2000, 7);
   }
 
   // Failed at one point
@@ -273,6 +277,92 @@ public class TestBHeap extends LuceneTestCase {
         {55, 59, 107},
         {79, 129, 89},
     }, 27);
+  }
+
+  public void testMonkeySpecificC() {
+    testMonkey(1, 12, 12, 2, -4650777255441368468L);
+  }
+  public void testMonkeyReproducedCDetail() {
+    final long[] INSERTS = new long[]{93, 22, 9, 55, 111, 90, 43, 83, 96, 30, 88, 68};
+
+    BHeap heap = new BHeap(14, 2);
+
+    insertAssert(heap, new long[][]{
+        {9, 43, 22},
+        {90, 111, 93},
+        {55, 83, 96}
+    }, 93, 22, 9, 55, 111, 90, 43, 83, 96);
+
+    insertAssert(heap, new long[][]{
+        {9, 43, 22},
+        {90, 111, 93},
+        {55, 83, 96},
+        {30, 88, 68}
+    }, 30, 88, 68);
+        /*
+    assertEquals("Pop 1", 9, heap.pop());
+    assertHeap(heap, new long[][]{
+        {22, 43, 30},
+        {90, 111, 93},
+        {55, 83, 96},
+        {68, 88}
+    });
+          */
+
+    Arrays.sort(INSERTS);
+    for (long insert: INSERTS) {
+      assertEquals("Iterating & popping " + join(INSERTS), insert, heap.pop());
+    }
+  }
+
+  public void testMonkeySpecificD() {
+    testMonkey(1, 17, 20, 2, 3664002928452749279L);
+  }
+  public void testMonkeyReproducedCDetailD() {
+    final long[] INSERTS = new long[]{
+        167, 87, 122, 111, 67, 158, 4, 164, 33, 155, 133, 117, 83, 71, 125, 115, 47, 62, 67, 138};
+
+    BHeap heap = new BHeap(17, 2);
+    insert(heap, INSERTS);
+
+    assertEquals("Pop 1", 62, heap.pop());
+    assertHeap(heap, new long[][]{
+        {67, 67, 71},
+        {111, 115, 158},
+        {87, 164, 167},
+        {122, 155, 133},
+        {83, 117, 125},
+        {138}
+    });
+
+    assertEquals("Pop 2", 67, heap.pop());
+    assertHeap(heap, new long[][]{
+        {67, 87, 71},
+        {111, 115, 158},
+        {138, 164, 167},
+        {122, 155, 133},
+        {83, 117, 125}
+    });
+
+    assertEquals("Pop 3", 67, heap.pop());
+    assertHeap(heap, new long[][]{
+        {71, 87, 83},
+        {111, 115, 158},
+        {138, 164, 167},
+        {122, 155, 133},
+        {117, 125}
+    });
+
+    String dump = heap.toString(true);
+    Arrays.sort(INSERTS);
+    long[] left = INSERTS;
+    if (INSERTS.length > heap.size()) {
+      left = new long[heap.size()];
+      System.arraycopy(INSERTS, INSERTS.length-heap.size(), left, 0, heap.size());
+    }
+    for (long insert: left) {
+      assertEquals("Iterating & popping " + join(left) + "\n" + dump, insert, heap.pop());
+    }
   }
 
   public void testMonkeyReproduced2() {
@@ -386,7 +476,7 @@ public class TestBHeap extends LuceneTestCase {
         if (expected.size() > size) {
           expected.poll();
         }
-      //    System.out.print(", " + element);
+        //  System.out.print(", " + element);
       }
       //System.out.println("");
     } catch (Exception e) {

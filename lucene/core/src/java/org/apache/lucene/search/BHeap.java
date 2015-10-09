@@ -135,7 +135,8 @@ public class BHeap {
 
   private int mhLeftChild(int mhIndex, int mhOffset) {
     // ((mhOffset-(1<<(MH_EXP-1))) >>> 1) is the index in lowest row of the miniheap, starting from 0
-    return (mhIndex*MH_CHILDREN - MH_CHILDREN + 2) + ((mhOffset-(1<<(MH_EXP-1))) >>> 1);
+    return (mhIndex*MH_CHILDREN - MH_CHILDREN + 2) + ((mhOffset-(1<<(MH_EXP-1))) << 1); // TODO: Rethink this
+    //return (mhIndex*MH_CHILDREN - MH_CHILDREN + 2) + ((mhOffset-(1<<(MH_EXP-1)))  >>> 1);
   }
   private int mhParent(int mhIndex) {
     return (mhIndex+MH_CHILDREN-2) / MH_CHILDREN;
@@ -301,7 +302,7 @@ public class BHeap {
     StringBuilder sb = new StringBuilder();
     sb.append("BHeap size=").append(size).append("\n");
     for (int mhIndex = 1 ; (mhIndex < elements.length >>> MH_EXP) && mhIndex <= MAX_MH ; mhIndex++) {
-      //sb.append(String.format(Locale.ENGLISH, "miniheap %2d: ", mhIndex));
+            //sb.append(String.format(Locale.ENGLISH, "miniheap %2d: ", mhIndex));
       sb.append("{");
       for (int mhOffset = 1 ; mhOffset <= MH_MAX ; mhOffset++) {
         if ((mhIndex << MH_EXP) + mhOffset >= elements.length) {
