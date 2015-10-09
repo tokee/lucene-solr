@@ -138,7 +138,7 @@ public class TestBHeap extends LuceneTestCase {
     heap.pop();
     assertHeap("Pop 2", heap, new long[][]{
         {100, 102, 101},
-        {115, 110}
+        {110, 115}
     });
 
     heap.pop();
@@ -225,7 +225,7 @@ public class TestBHeap extends LuceneTestCase {
   }
 
   public void testMonkeySmall() {
-    testMonkeyMulti(10, 1000, 10000, 8);
+    testMonkeyMulti(10, 10, 100, 3);
   }
 
   // Failed at one point
@@ -271,22 +271,22 @@ public class TestBHeap extends LuceneTestCase {
 
     insertAssert(heap, new long[][]{
         {14, 20, 70},
-        {60, 40}
+        {40, 60}
     }, 60);
 
     insertAssert(heap, new long[][]{
         {20, 40, 70},
-        {80, 60}
+        {60, 80}
     }, 80);
 
     insertAssert(heap, new long[][]{
-        {20, 60, 70},
-        {80, 40}
+        {20, 40, 70},
+        {60, 80}
     }, 5);
 
     insertAssert(heap, new long[][]{
         {40, 50, 70},
-        {80, 60}
+        {60, 80}
     }, 50);
   }
 
@@ -320,7 +320,7 @@ public class TestBHeap extends LuceneTestCase {
       long seed = random().nextLong();
       Random random = new Random(seed);
 
-      int size = random.nextInt(maxSize);             // 0 or more
+      int size = random.nextInt(maxSize-1)+1;         // 1 or more
       int inserts = random.nextInt(maxInserts);       // 0 or more
       int exponent = random.nextInt(maxExponent-1)+1; // 1 or more
 
@@ -332,26 +332,31 @@ public class TestBHeap extends LuceneTestCase {
     Random random = new Random(seed);
     BHeap actual = new BHeap(size, exponent);
     java.util.PriorityQueue<Long> expected = new java.util.PriorityQueue<>();
-
-    for (int i = 0 ; i < inserts ; i++) {
-      long element = random.nextInt(Integer.MAX_VALUE);
-      actual.insert(element);
-      expected.add(element);
-      if (expected.size() > size) {
-        expected.poll();
-      }
-      System.out.print(", " + element);
-    }
-    System.out.println("");
-
-
     String extra = String.format(Locale.ENGLISH, "run=%d, size=%d, inserts=%d, exponent=%d, seed=" + seed,
         run, size, inserts, exponent);
+
+    try {
+      for (int i = 0; i < inserts; i++) {
+        long element = random.nextInt(size*10);
+        actual.insert(element);
+        expected.add(element);
+        if (expected.size() > size) {
+          expected.poll();
+        }
+        if (i < 10) {
+          System.out.print(", " + element);
+        }
+      }
+      System.out.println("");
+    } catch (Exception e) {
+      throw new IllegalStateException("Unexpected Exception for " + extra, e);
+    }
+
     assertEquals("Size should match for " + extra,
         expected.size(), actual.size());
     for (int i = 1 ; i <= size ; i++) {
-      assertEquals(String.format(Locale.ENGLISH, "Elements for pop %d should match for %s",
-          i, extra),
+      assertEquals(String.format(Locale.ENGLISH, "Elements for pop %d should match for %s\n%s",
+          i, extra, actual.toString(true)),
           expected.poll(), new Long(actual.pop()));
     }
   }
@@ -368,7 +373,8 @@ public class TestBHeap extends LuceneTestCase {
   }
 
   private void insertAssert(BHeap heap, long[][] expected, long... elements) {
-    insertAssert("", heap, expected, elements);
+    insertAssert("Inserted " + (elements.length == 1 ? " element " + elements[0] : elements.length + " elements"),
+        heap, expected, elements);
   }
   private void insertAssert(String message, BHeap heap, long[][] expected, long... elements) {
     insert(heap, elements);
@@ -388,6 +394,13 @@ public class TestBHeap extends LuceneTestCase {
   public static void assertHeap(String message, BHeap heap, long[][] content) {
     for (int miniheap = 1 ; miniheap <= content.length ; miniheap++) {
       long[] expected = content[miniheap-1];
+      for (int i = 1 ; i < expected.length ; i++) {
+        if (expected[i] < expected[0]) {
+          fail(message + ". Illegal heap layout specified as expected in test. Top element (" + expected[0] + ") "
+              + "must be less than all other elements (" + join(expected) + ")");
+        }
+      }
+
       for (int offset = 1 ; offset <= expected.length ; offset++) {
         assertElement(message, heap, miniheap, offset, expected[offset-1]);
       }
@@ -398,4 +411,17 @@ public class TestBHeap extends LuceneTestCase {
     assertEquals(message + ". Element " + mhIndex + ", " + mhOffset + " should be correct\n" + heap.toString(true),
         expected, heap.get(mhIndex, mhOffset));
   }
+
+  private static String join(long[] values) {
+    StringBuilder sb = new StringBuilder(values.length*10);
+    for (long value: values) {
+      if (sb.length() > 0) {
+        sb.append(", ");
+      }
+      sb.append(Long.toString(value));
+    }
+    return sb.toString();
+  }
+
+
 }

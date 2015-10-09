@@ -24,8 +24,8 @@ import java.util.Locale;
  **/
 public class BHeap {
   public static final long SENTINEL = Long.MAX_VALUE; // Must be pre-filled with sentinels! TODO: Make sentinel 0?
-
   private final int maxSize;
+
   private final int maxMiniheapIndex; // Inclusive
   final long[] elements;
   private int mhIndex = 1;
@@ -45,7 +45,7 @@ public class BHeap {
     maxSize = size;
     MH_EXP = miniheapExponent;
     MH_MAX = (1 << MH_EXP)-1;
-    MH_CHILDREN = MH_EXP << 1; // Number of children-miniheaps for each miniheap
+    MH_CHILDREN = 1 << MH_EXP; // Number of children-miniheaps for each miniheap
     maxMiniheapIndex = maxSize % MH_MAX == 0 ? maxSize / MH_MAX : maxSize / MH_MAX+1;
     elements = new long[(maxMiniheapIndex+1)<<MH_EXP]; // 1 wasted entry/miniheap, 1 wasted miniheap/heap
     clear();
@@ -97,10 +97,14 @@ public class BHeap {
   private void orderDown(int mhIndex, int mhOffset) {
     final int mhCount = activeMiniheaps();
     final long element = get(mhIndex, mhOffset);
-
     while (mhIndex <= mhCount &&
-        ((mhOffset = orderDownMH(mhIndex, mhOffset)) & MH_EXP) != 0) { // element at bottom of miniheap
+        ((mhOffset = orderDownMH(mhIndex, mhOffset)) & ~(MH_MAX>>1)) != 0) { // element at bottom of miniheap
       int mhChildAIndex = mhLeftChild(mhIndex, mhOffset);
+/*      if (mhChildAIndex < mhIndex) {
+        throw new IllegalStateException("Got childIndex=" + mhChildAIndex + " from mhIndex=" + mhIndex
+            + ", mhOffset=" + mhOffset + ", mhChildren=" + MH_CHILDREN + ", mhExp=" + MH_EXP + ": " +
+            mhLeftChild(mhIndex, mhOffset));
+      }*/
       if (mhChildAIndex > mhCount) { // TODO: maxMiniheapIndex should be replaced by mhIndex-last
         break; // Bottom reached
       }
@@ -126,8 +130,8 @@ public class BHeap {
   }
 
   private int mhLeftChild(int mhIndex, int mhOffset) {
-    // ((mhOffset-(1<<(MH_EXP-1))) >> 1) is the index in lowest row of the miniheap, starting from 0
-    return (mhIndex*MH_CHILDREN - MH_CHILDREN + 2) + ((mhOffset-(1<<(MH_EXP-1))) >> 1);
+    // ((mhOffset-(1<<(MH_EXP-1))) >>> 1) is the index in lowest row of the miniheap, starting from 0
+    return (mhIndex*MH_CHILDREN - MH_CHILDREN + 2) + ((mhOffset-(1<<(MH_EXP-1))) >>> 1);
   }
   private int mhParent(int mhIndex) {
     return (mhIndex+MH_CHILDREN-2) / MH_CHILDREN;
@@ -141,7 +145,9 @@ public class BHeap {
    * @return the offset for the position in the miniheap where the unordered element ended.
    */
   private int orderDownMH(final int mhIndex, int mhOffset) {
-    final int maxOffset = mhIndex == activeMiniheaps() ? size - ((mhIndex-1) << MH_EXP) : MH_MAX;
+    final int maxOffset = mhIndex == activeMiniheaps() ?
+        size-(((mhIndex-1) << MH_EXP)-(mhIndex-1)) : // (mhIndex-1)*MH_MAX
+        MH_MAX;
     long oldElement = get(mhIndex, mhOffset);
     int childA = mhOffset << 1;            // find smaller child
     int ChildB = childA + 1;
@@ -282,7 +288,7 @@ public class BHeap {
     }
     StringBuilder sb = new StringBuilder();
     sb.append("BHeap size=").append(size).append("\n");
-    for (int mhIndex = 1 ; (mhIndex < elements.length >> MH_EXP) && mhIndex <= MAX_MH ; mhIndex++) {
+    for (int mhIndex = 1 ; (mhIndex < elements.length >>> MH_EXP) && mhIndex <= MAX_MH ; mhIndex++) {
       sb.append(String.format(Locale.ENGLISH, "miniheap %2d: ", mhIndex));
       for (int mhOffset = 1 ; mhOffset <= MH_MAX ; mhOffset++) {
         if ((mhIndex << MH_EXP) + mhOffset >= elements.length) {
