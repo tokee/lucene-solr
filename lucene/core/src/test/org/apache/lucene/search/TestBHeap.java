@@ -275,8 +275,8 @@ public class TestBHeap extends LuceneTestCase {
     }, 60);
 
     insertAssert(heap, new long[][]{
-        {20, 60, 70},
-        {80, 40}
+        {20, 40, 70},
+        {80, 60}
     }, 80);
 
     insertAssert(heap, new long[][]{
