@@ -260,14 +260,34 @@ public class TestBHeap extends LuceneTestCase {
     }, 20, 10, 70);
 
     insertAssert(heap, new long[][]{
-        {14, 20, 70},
-        {60, 40}
-    }, 40, 14, 60);
+        {10, 20, 70},
+        {40}
+    }, 40);
 
     insertAssert(heap, new long[][]{
-        {20, 40, 70},
-        {60, 80}
+        {10, 14, 70},
+        {20, 40}
+    }, 14);
+
+    insertAssert(heap, new long[][]{
+        {14, 20, 70},
+        {60, 40}
+    }, 60);
+
+    insertAssert(heap, new long[][]{
+        {20, 60, 70},
+        {80, 40}
     }, 80);
+
+    insertAssert(heap, new long[][]{
+        {20, 60, 70},
+        {80, 40}
+    }, 5);
+
+    insertAssert(heap, new long[][]{
+        {40, 50, 70},
+        {80, 60}
+    }, 50);
   }
 
   public void testMonkeyReproduced1() {
@@ -340,8 +360,9 @@ public class TestBHeap extends LuceneTestCase {
     assertFlush("", heap, expected);
   }
   public static void assertFlush(String message, BHeap heap, long... expected) {
+    String dump = heap.toString(true);
     for (int i = 0; i < expected.length; i++) {
-      assertEquals(message + ". The popped value should match expected[" + i + "]\n" + heap.toString(true),
+      assertEquals(message + ". The popped value should match expected[" + i + "]\n" + dump,
           expected[i], heap.pop());
     }
   }
