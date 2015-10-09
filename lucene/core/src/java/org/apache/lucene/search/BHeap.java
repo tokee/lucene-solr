@@ -271,11 +271,15 @@ public class BHeap {
     return size;
   }
 
+  public int capacity() {
+    return maxSize;
+  }
+
   public boolean isEmpty() {
     return size == 0;
   }
 
-  private void clear() {
+  public void clear() {
     size = 0;
     mhIndex = 1;
     mhOffset = 1;

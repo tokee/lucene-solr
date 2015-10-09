@@ -55,7 +55,7 @@ public class TestHitQueue extends LuceneTestCase {
   private static final int K = 1000;
   private static final int M = K*K;
 
-  private enum PQTYPE {Sentinel, No_Sentinel, Array, Packed}
+  private enum PQTYPE {Sentinel, No_Sentinel, Array, Packed, BHeap2, BHeap3, BHeap4, BHeap5}
 
   public void testPQArray() throws ExecutionException, InterruptedException {
     final int RUNS = 10;
@@ -237,10 +237,18 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sentinel, // First in list is used as base
         PQTYPE.No_Sentinel,
+        PQTYPE.BHeap2,
+        PQTYPE.BHeap3,
+        PQTYPE.BHeap4,
+        PQTYPE.BHeap5,
 //        PQTYPE.Array,
         PQTYPE.Packed,
         PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
         PQTYPE.No_Sentinel,
+        PQTYPE.BHeap2,
+        PQTYPE.BHeap3,
+        PQTYPE.BHeap4,
+        PQTYPE.BHeap5,
 //        PQTYPE.Array,
         PQTYPE.Packed
     );
@@ -257,15 +265,45 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sentinel, // First in list is used as base
         PQTYPE.No_Sentinel,
+        PQTYPE.BHeap2,
+        PQTYPE.BHeap3,
+        PQTYPE.BHeap4,
+        PQTYPE.BHeap5,
 //        PQTYPE.Array,
         PQTYPE.Packed,
         PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
         PQTYPE.No_Sentinel,
+        PQTYPE.BHeap2,
+        PQTYPE.BHeap3,
+        PQTYPE.BHeap4,
+        PQTYPE.BHeap5,
 //        PQTYPE.Array,
         PQTYPE.Packed
     );
     final List<Integer> PQSIZES = Arrays.asList(M);
     final List<Integer> INSERTS = Arrays.asList(10, 100, K, 10*K, 100*K, M, 10*M);
+
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
+  }
+
+  public void testPQPerformanceAtomicHeaps() throws ExecutionException, InterruptedException {
+    final int RUNS = 15;
+    final int SKIPS= 3;
+    final List<Integer> threads = Arrays.asList(1, 4, 16);
+    final List<PQTYPE> pqTypes = Arrays.asList(
+        PQTYPE.Packed,  // First in list is used as base
+        PQTYPE.BHeap2,
+        PQTYPE.BHeap3,
+        PQTYPE.BHeap4,
+        PQTYPE.BHeap5,
+        PQTYPE.Packed,
+        PQTYPE.BHeap2,
+        PQTYPE.BHeap3,
+        PQTYPE.BHeap4,
+        PQTYPE.BHeap5
+    );
+    final List<Integer> PQSIZES = Arrays.asList(M);
+    final List<Integer> INSERTS = Arrays.asList(100*K, M, 2*M, 5*M, 10*M);
 
     doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }
@@ -515,32 +553,24 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
   }
 
   private class PQMutant implements HitQueueInterface {
-    private final PQTYPE pqType;
     private final HitQueueInterface hq;
 
     private PQMutant(int size, PQTYPE pqType) {
-      this.pqType = pqType;
+      hq = createQueue(size, pqType);
+    }
+    private HitQueueInterface createQueue(int size, PQTYPE pqType) {
       switch (pqType) {
-        case Sentinel:
-          hq = new HitQueue(size, true);
-          break;
-        case No_Sentinel:
-          hq = new HitQueue(size, false);
-          break;
-        case Array:
-          hq = new HitQueueArray(size);
-          break;
-        case Packed:
-          hq = new HitQueuePacked(size);
-          break;
+        case Sentinel:    return new HitQueue(size, true);
+        case No_Sentinel: return new HitQueue(size, false);
+        case Array:       return new HitQueueArray(size);
+        case Packed:      return new HitQueuePacked(size);
+        case BHeap2:      return new HitQueuePackedBHeap(size, 2);
+        case BHeap3:      return new HitQueuePackedBHeap(size, 3);
+        case BHeap4:      return new HitQueuePackedBHeap(size, 4);
+        case BHeap5:      return new HitQueuePackedBHeap(size, 5);
         default:
           throw new IllegalStateException("Unknown PQTYPE: " + pqType);
       }
-    }
-
-    public ScoreDoc getInitial() {
-      return new ScoreDoc(0, 0f);
-      //return pqType == PQTYPE.Sentinel ? ((HitQueue)hq).top() : new ScoreDoc(0, 0f);
     }
 
     @Override
