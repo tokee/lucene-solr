@@ -55,7 +55,7 @@ public class TestHitQueue extends LuceneTestCase {
   private static final int K = 1000;
   private static final int M = K*K;
 
-  private enum PQTYPE {Sentinel, No_Sentinel, Array, Packed, BHeap2, BHeap3, BHeap4, BHeap5}
+  private enum PQTYPE {Sentinel, No_Sentinel, Array, Packed, BHeap2, BHeap3, BHeap4, BHeap5, BHeap10, BHeap20}
 
   public void testPQArray() throws ExecutionException, InterruptedException {
     final int RUNS = 10;
@@ -231,7 +231,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
    * @throws InterruptedException
    */
   public void testPQPerformanceMulti() throws ExecutionException, InterruptedException {
-    final int RUNS = 100;
+    final int RUNS = 50;
     final int SKIPS= 20;
     final List<Integer> threads = Arrays.asList(1, 4, 8, 16);
     final List<PQTYPE> pqTypes = Arrays.asList(
@@ -259,8 +259,8 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
   }
 
   public void testPQPerformanceReport1M() throws ExecutionException, InterruptedException {
-    final int RUNS = 20;
-    final int SKIPS= 5;
+    final int RUNS = 30;
+    final int SKIPS= 10;
     final List<Integer> threads = Arrays.asList(1, 4, 16);
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sentinel, // First in list is used as base
@@ -269,6 +269,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         PQTYPE.BHeap3,
         PQTYPE.BHeap4,
         PQTYPE.BHeap5,
+        PQTYPE.BHeap10,
 //        PQTYPE.Array,
         PQTYPE.Packed,
         PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
@@ -277,6 +278,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         PQTYPE.BHeap3,
         PQTYPE.BHeap4,
         PQTYPE.BHeap5,
+        PQTYPE.BHeap10,
 //        PQTYPE.Array,
         PQTYPE.Packed
     );
@@ -570,6 +572,8 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         case BHeap3:      return new HitQueuePackedBHeap(size, 3);
         case BHeap4:      return new HitQueuePackedBHeap(size, 4);
         case BHeap5:      return new HitQueuePackedBHeap(size, 5);
+        case BHeap10:      return new HitQueuePackedBHeap(size, 10);
+        case BHeap20:      return new HitQueuePackedBHeap(size, 20);
         default:
           throw new IllegalStateException("Unknown PQTYPE: " + pqType);
       }

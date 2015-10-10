@@ -143,7 +143,7 @@ public class BHeap {
   }
   private int mhParentOffset(int mhIndex) {
     // 1 << (MH_EXP-1)) + mhIndex - (mhParentIndex << 1);
-    return (1<<(MH_EXP-1)) + (((mhIndex+MH_CHILDREN-2) % MH_CHILDREN) >> 1);
+    return (1<<(MH_EXP-1)) + (((mhIndex+MH_CHILDREN-2) % MH_CHILDREN) >> 1); // TODO: Remove the slow modulo
   }
 
   /**
