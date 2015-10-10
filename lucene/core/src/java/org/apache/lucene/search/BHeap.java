@@ -99,9 +99,8 @@ public class BHeap {
    * @param mhOffset the element that is assumed to be out of order.
    */
   private void orderDown(int mhIndex, int mhOffset) {
-    final int mhCount = activeMiniheaps();
     final long element = get(mhIndex, mhOffset);
-    while (mhIndex <= mhCount &&
+    while (mhIndex <= activeMiniheaps() &&
         ((mhOffset = orderDownMH(mhIndex, mhOffset)) & ~(MH_MAX>>1)) != 0) { // element at bottom of miniheap
       int mhChildAIndex = mhLeftChild(mhIndex, mhOffset);
 /*      if (mhChildAIndex < mhIndex) {
@@ -109,11 +108,11 @@ public class BHeap {
             + ", mhOffset=" + mhOffset + ", mhChildren=" + MH_CHILDREN + ", mhExp=" + MH_EXP + ": " +
             mhLeftChild(mhIndex, mhOffset));
       }*/
-      if (mhChildAIndex > mhCount) { // TODO: maxMiniheapIndex should be replaced by mhIndex-last
+      if (mhChildAIndex > activeMiniheaps()) { // TODO: maxMiniheapIndex should be replaced by mhIndex-last
         break; // Bottom reached
       }
       int mhChildBIndex = mhChildAIndex+1;
-      if (mhChildBIndex <= mhCount && get(mhChildBIndex, 1) < get(mhChildAIndex, 1)) {
+      if (mhChildBIndex <= activeMiniheaps() && get(mhChildBIndex, 1) < get(mhChildAIndex, 1)) {
         mhChildAIndex = mhChildBIndex;
       }
       long elementBelow = get(mhChildAIndex, 1);
@@ -142,18 +141,18 @@ public class BHeap {
     return (mhIndex+MH_CHILDREN-2) / MH_CHILDREN;
   }
   private int mhParentOffset(int mhIndex) {
-    // 1 << (MH_EXP-1)) + mhIndex - (mhParentIndex << 1);
-    return (1<<(MH_EXP-1)) + (((mhIndex+MH_CHILDREN-2) % MH_CHILDREN) >> 1); // TODO: Remove the slow modulo
+//    return (1<<(MH_EXP-1)) + (((mhIndex+MH_CHILDREN-2) % MH_CHILDREN) >> 1); // Works
+    return (1<<(MH_EXP-1)) + (((mhIndex+MH_CHILDREN-2) & (MH_CHILDREN-1)) >> 1);
   }
 
   /**
    * Orders the miniheap downwards, where the miniheap is assumed to be ordered,
    * except for the element at mhOffset in the miniheap at mhIndex.
    * @param mhIndex  the index for the miniheap containing an out-of-order element.
-   * @p(1<<(MH_EXP-1))aram mhOffset the element that is assumed to be out of order.
+   * @param mhOffset the element that is assumed to be out of order.
    * @return the offset for the position in the miniheap where the unordered element ended.
    */
-  private int orderDownMH(final int mhIndex, int mhOffset) {
+  private int orderDownMHSlow(final int mhIndex, int mhOffset) {
     final int maxOffset = mhIndex == activeMiniheaps() ?
         size-(((mhIndex-1) << MH_EXP)-(mhIndex-1)) : // (mhIndex-1)*MH_MAX
         MH_MAX;
@@ -173,6 +172,30 @@ public class BHeap {
       }
     }
     set(mhIndex, mhOffset, oldElement);
+    return mhOffset;
+  }
+  private int orderDownMH(final int mhIndex, int mhOffset) {
+    final int origo = mhIndex << MH_EXP;
+
+    final int maxOffset = mhIndex == activeMiniheaps() ?
+        size-(((mhIndex-1) << MH_EXP)-(mhIndex-1)) : // (mhIndex-1)*MH_MAX
+        MH_MAX;
+    long oldElement = elements[origo+mhOffset];
+    int childA = mhOffset << 1;            // find smaller child
+    int childB = childA + 1;
+    if (childB <= maxOffset && elements[origo+childB] < elements[origo+childA]) {
+      childA = childB;
+    }
+    while (childA <= maxOffset && elements[origo+childA] < oldElement) {
+      elements[origo+mhOffset] = elements[origo+childA];            // shift up child
+      mhOffset = childA;
+      childA = mhOffset << 1;
+      childB = childA + 1;
+      if (childB <= maxOffset && elements[origo+childB] < elements[origo+childA]) {
+        childA = childB;
+      }
+    }
+    elements[origo+mhOffset] = oldElement;
     return mhOffset;
   }
 

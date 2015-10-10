@@ -298,14 +298,32 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         PQTYPE.BHeap3,
         PQTYPE.BHeap4,
         PQTYPE.BHeap5,
+        PQTYPE.BHeap10,
+        PQTYPE.BHeap20,
         PQTYPE.Packed,
         PQTYPE.BHeap2,
         PQTYPE.BHeap3,
         PQTYPE.BHeap4,
-        PQTYPE.BHeap5
+        PQTYPE.BHeap5,
+        PQTYPE.BHeap10,
+        PQTYPE.BHeap20
     );
     final List<Integer> PQSIZES = Arrays.asList(M);
     final List<Integer> INSERTS = Arrays.asList(100*K, M, 2*M, 5*M, 10*M);
+
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
+  }
+
+  // Use a profiler on this
+  public void testPQProfileBHeap() throws ExecutionException, InterruptedException {
+    final int RUNS = 100;
+    final int SKIPS= 3;
+    final List<Integer> threads = Arrays.asList(1);
+    final List<PQTYPE> pqTypes = Arrays.asList(
+        PQTYPE.BHeap4
+    );
+    final List<Integer> PQSIZES = Arrays.asList(M);
+    final List<Integer> INSERTS = Arrays.asList(10*M);
 
     doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }
