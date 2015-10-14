@@ -81,18 +81,7 @@ public class BHeap {
         mhOffset = 1;
       }
       size++;
-      return SENTINEL;
-    } else if (size > 0 && element > top()) {
-      long oldElement = top();
-      set(1, 1, element);
-      orderDown(1, 1);
-      return oldElement;
-    } else {
-      return element;
-    }
-  }
 
-  /**
    * Orders the heap of miniheaps downwards, where the miniheaps are assumed to be ordered,
    * except for the element at mhOffset in the miniheap at mhIndex.
    * @param mhIndex  the index for the miniheap containing an out-of-order element.
@@ -127,9 +116,25 @@ public class BHeap {
     }
   }
 
-  private int activeMiniheaps() {
+  private int activeMiniheapsWorks() {
     int div = size/MH_MAX;
     return div*MH_MAX == size ? div : div+1;
+  }
+  private int activeMiniheaps() {
+    return mhOffset == 1 ? mhIndex-1 : mhIndex;
+  }
+  private int activeMiniheapsTest() {
+    int div = size/MH_MAX;
+    int res = div*MH_MAX == size ? div : div+1;
+
+  //    int alt = mhOffset == 1 ? mhIndex-1 : mhIndex; // Works
+      int alt = mhOffset == 1 ? mhIndex-1 : mhIndex; // Works
+
+
+    if (res != (alt)) {
+      throw new IllegalStateException("mhIndex = " + (mhIndex) + ", activeMiniheaps = " + res + ", size=" + size + ", exp=" + MH_EXP);
+    }
+    return res;
   }
 
   private int mhLeftChild(int mhIndex, int mhOffset) {
@@ -148,7 +153,7 @@ public class BHeap {
   /**
    * Orders the miniheap downwards, where the miniheap is assumed to be ordered,
    * except for the element at mhOffset in the miniheap at mhIndex.
-   * @param mhIndex  the index for the miniheap containing an out-of-order element.
+     * @param mhIndex  the index for the miniheap containing an out-of-order element.
    * @param mhOffset the element that is assumed to be out of order.
    * @return the offset for the position in the miniheap where the unordered element ended.
    */

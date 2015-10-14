@@ -314,7 +314,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }
 
-  // Use a profiler on this
+  // Use a profiler on this to locate bottleneck
   public void testPQProfileBHeap() throws ExecutionException, InterruptedException {
     final int RUNS = 100;
     final int SKIPS= 3;
