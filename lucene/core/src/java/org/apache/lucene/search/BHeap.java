@@ -81,7 +81,18 @@ public class BHeap {
         mhOffset = 1;
       }
       size++;
+      return SENTINEL;
+    } else if (size > 0 && element > top()) {
+      long oldElement = top();
+      set(1, 1, element);
+      orderDown(1, 1);
+      return oldElement;
+    } else {
+      return element;
+    }
+  }
 
+  /**
    * Orders the heap of miniheaps downwards, where the miniheaps are assumed to be ordered,
    * except for the element at mhOffset in the miniheap at mhIndex.
    * @param mhIndex  the index for the miniheap containing an out-of-order element.
