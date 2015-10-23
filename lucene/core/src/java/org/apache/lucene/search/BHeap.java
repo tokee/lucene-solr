@@ -26,9 +26,10 @@ import java.util.Locale;
  **/
 public class BHeap {
   public static final long SENTINEL = Long.MAX_VALUE; // Must be pre-filled with sentinels! TODO: Make sentinel 0?
-  private final int maxSize;
 
+  private final int maxSize;
   final long[] elements;
+
   private int mhIndex = 1;
   private int mhOffset = 1;
   private int size = 0;
@@ -100,19 +101,21 @@ public class BHeap {
    */
   private void orderDown(int mhIndex, int mhOffset) {
     final long element = get(mhIndex, mhOffset);
-    while (mhIndex <= activeMiniheaps() &&
-        ((mhOffset = orderDownMH(mhIndex, mhOffset)) & ~(MH_MAX>>1)) != 0) { // element at bottom of miniheap
+    final int activeMiniheaps = activeMiniheaps();
+
+    while (mhIndex <= activeMiniheaps &&
+        ((mhOffset = orderDownMH(mhIndex, mhOffset, element)) & ~(MH_MAX>>1)) != 0) { // element at bottom of miniheap
       int mhChildAIndex = mhLeftChild(mhIndex, mhOffset);
 /*      if (mhChildAIndex < mhIndex) {
         throw new IllegalStateException("Got childIndex=" + mhChildAIndex + " from mhIndex=" + mhIndex
             + ", mhOffset=" + mhOffset + ", mhChildren=" + MH_CHILDREN + ", mhExp=" + MH_EXP + ": " +
             mhLeftChild(mhIndex, mhOffset));
       }*/
-      if (mhChildAIndex > activeMiniheaps()) { // TODO: maxMiniheapIndex should be replaced by mhIndex-last
+      if (mhChildAIndex > activeMiniheaps) { // TODO: maxMiniheapIndex should be replaced by mhIndex-last
         break; // Bottom reached
       }
       int mhChildBIndex = mhChildAIndex+1;
-      if (mhChildBIndex <= activeMiniheaps() && get(mhChildBIndex, 1) < get(mhChildAIndex, 1)) {
+      if (mhChildBIndex <= activeMiniheaps && get(mhChildBIndex, 1) < get(mhChildAIndex, 1)) {
         mhChildAIndex = mhChildBIndex;
       }
       long elementBelow = get(mhChildAIndex, 1);
@@ -184,19 +187,19 @@ public class BHeap {
     set(mhIndex, mhOffset, oldElement);
     return mhOffset;
   }
-  private int orderDownMH(final int mhIndex, int mhOffset) {
+  private int orderDownMH(final int mhIndex, int mhOffset, final long element) {
     final int origo = mhIndex << MH_EXP;
-
     final int maxOffset = mhIndex == activeMiniheaps() ?
         size-(((mhIndex-1) << MH_EXP)-(mhIndex-1)) : // (mhIndex-1)*MH_MAX
         MH_MAX;
-    long oldElement = elements[origo+mhOffset];
+
+//    long oldElement = elements[origo+mhOffset];
     int childA = mhOffset << 1;            // find smaller child
     int childB = childA + 1;
     if (childB <= maxOffset && elements[origo+childB] < elements[origo+childA]) {
       childA = childB;
     }
-    while (childA <= maxOffset && elements[origo+childA] < oldElement) {
+    while (childA <= maxOffset && elements[origo+childA] < element) {
       elements[origo+mhOffset] = elements[origo+childA];            // shift up child
       mhOffset = childA;
       childA = mhOffset << 1;
@@ -205,13 +208,13 @@ public class BHeap {
         childA = childB;
       }
     }
-    elements[origo+mhOffset] = oldElement;
+    elements[origo+mhOffset] = element;
     return mhOffset;
   }
 
   private long top() {
     return get(1, 1);
-  }
+   }
 
   /**
    * Orders the heap of miniheaps upwards, where the miniheaps are assumed to be ordered,
