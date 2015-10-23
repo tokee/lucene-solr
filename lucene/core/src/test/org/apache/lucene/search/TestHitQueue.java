@@ -309,7 +309,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         PQTYPE.BHeap20
     );
     final List<Integer> PQSIZES = Arrays.asList(M);
-    final List<Integer> INSERTS = Arrays.asList(100*K, M, 2*M, 5*M, 10*M);
+    final List<Integer> INSERTS = Arrays.asList(2*M, 100*K, M, 2*M, 5*M, 10*M);
 
     doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }

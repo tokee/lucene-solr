@@ -128,17 +128,27 @@ public class BHeap {
   }
 
   private int activeMiniheaps() {
-    int div = size/MH_MAX;
-    return div*MH_MAX == size ? div : div+1;
+    return mhOffset == 1 ? mhIndex-1 : mhIndex;
+//    int div = size/MH_MAX;
+//    return div*MH_MAX == size ? div : div+1;
   }
 
   private int mhLeftChild(int mhIndex, int mhOffset) {
+    // assert mhOffset >= MH_CHILDREN
+
     // ((mhOffset-(1<<(MH_EXP-1))) >>> 1) is the index in lowest row of the miniheap, starting from 0
-    return (mhIndex*MH_CHILDREN - MH_CHILDREN + 2) + ((mhOffset-(1<<(MH_EXP-1))) << 1); // TODO: Rethink this
+
+    return ((mhIndex<<MH_EXP) - (MH_CHILDREN<<1) + 2) + (mhOffset<<1);
+    //return ((mhIndex<<MH_EXP) - MH_CHILDREN + 2) + ((mhOffset<<1)^MH_CHILDREN); // Valid
+    //return ((mhIndex<<MH_EXP) - MH_CHILDREN + 2) + ((mhOffset^(MH_CHILDREN >> 1)) << 1); Valid
+    //return ((mhIndex<<MH_EXP) - MH_CHILDREN + 2) + ((mhOffset-(1<<(MH_EXP-1))) << 1); // Valid
+    //return (mhIndex*MH_CHILDREN - MH_CHILDREN + 2) + ((mhOffset-(1<<(MH_EXP-1))) << 1); // Valid
+
     //return (mhIndex*MH_CHILDREN - MH_CHILDREN + 2) + ((mhOffset-(1<<(MH_EXP-1)))  >>> 1);
   }
   private int mhParent(int mhIndex) {
-    return (mhIndex+MH_CHILDREN-2) / MH_CHILDREN;
+    return (mhIndex+MH_CHILDREN-2) >> MH_EXP;
+//    return (mhIndex+MH_CHILDREN-2) / MH_CHILDREN; // Valid
   }
   private int mhParentOffset(int mhIndex) {
 //    return (1<<(MH_EXP-1)) + (((mhIndex+MH_CHILDREN-2) % MH_CHILDREN) >> 1); // Works
