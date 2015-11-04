@@ -238,23 +238,43 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sentinel, // First in list is used as base
         PQTYPE.No_Sentinel,
-        PQTYPE.BHeap2,
+        PQTYPE.IndShard,
+        PQTYPE.IndNoShard,
         PQTYPE.BHeap3,
         PQTYPE.BHeap4,
-        PQTYPE.BHeap5,
 //        PQTYPE.Array,
         PQTYPE.Packed,
         PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
         PQTYPE.No_Sentinel,
-        PQTYPE.BHeap2,
+        PQTYPE.IndShard,
+        PQTYPE.IndNoShard,
         PQTYPE.BHeap3,
         PQTYPE.BHeap4,
-        PQTYPE.BHeap5,
 //        PQTYPE.Array,
         PQTYPE.Packed
     );
     final List<Integer> PQSIZES = Arrays.asList(10, 100, K, 10 * K, 100 * K, M);
     final List<Integer> INSERTS = Arrays.asList(10, 100, 10 * K, 100 * K, M, 10*M);
+
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
+  }
+
+  public void testPQPerformanceArray2() throws ExecutionException, InterruptedException {
+    final int RUNS = 50;
+    final int SKIPS= 20;
+    final List<Integer> threads = Arrays.asList(1, 4, 8, 16);
+    final List<PQTYPE> pqTypes = Arrays.asList(
+        PQTYPE.Sentinel,
+        PQTYPE.Packed,
+        PQTYPE.IndShard,
+        PQTYPE.IndNoShard,
+        PQTYPE.Sentinel,
+        PQTYPE.Packed,
+        PQTYPE.IndShard,
+        PQTYPE.IndNoShard
+    );
+    final List<Integer> PQSIZES = Arrays.asList(100,10 * K, M);
+    final List<Integer> INSERTS = Arrays.asList(100, 10 * K, M, 2*M);
 
     doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
   }
@@ -266,6 +286,8 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sentinel, // First in list is used as base
         PQTYPE.No_Sentinel,
+        PQTYPE.IndShard,
+        PQTYPE.IndNoShard,
         PQTYPE.BHeap2,
         PQTYPE.BHeap3,
         PQTYPE.BHeap4,
@@ -275,6 +297,8 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         PQTYPE.Packed,
         PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
         PQTYPE.No_Sentinel,
+        PQTYPE.IndShard,
+        PQTYPE.IndNoShard,
         PQTYPE.BHeap2,
         PQTYPE.BHeap3,
         PQTYPE.BHeap4,
@@ -322,6 +346,20 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<Integer> threads = Arrays.asList(1);
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.BHeap4
+    );
+    final List<Integer> PQSIZES = Arrays.asList(M);
+    final List<Integer> INSERTS = Arrays.asList(10*M);
+
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
+  }
+
+  // Use a profiler on this to locate bottleneck
+  public void testPQProfileArray2() throws ExecutionException, InterruptedException {
+    final int RUNS = 100;
+    final int SKIPS= 3;
+    final List<Integer> threads = Arrays.asList(1);
+    final List<PQTYPE> pqTypes = Arrays.asList(
+        PQTYPE.IndNoShard
     );
     final List<Integer> PQSIZES = Arrays.asList(M);
     final List<Integer> INSERTS = Arrays.asList(10*M);
@@ -690,6 +728,9 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
 
   public void testBasicQueueOperationsPacked() {
     testBasicQueueOperations(new HitQueuePacked(10));
+  }
+  public void testBasicQueueOperationsArray2() {
+    testBasicQueueOperations(new HitQueueArray2(10));
   }
   public void testBasicQueueOperationsMutant() {
     testBasicQueueOperations(new PQMutant(10, PQTYPE.Packed));

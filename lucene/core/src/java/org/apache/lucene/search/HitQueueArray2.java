@@ -27,10 +27,8 @@ import org.apache.lucene.util.PriorityQueueInts;
  * queues (the value of "large" has yet to be determined) this means faster processing and substantially less
  * garbage collections.
  * </p><p>
- * Note: This implementation ignores the shardIndex from ScoreDoc.
- * </p><p>
- * Warning: This class is used primarily for experimentations with performance.
- * Correctness of the implementation has not been properly unit tested!
+ * Note: This implementation does not deliver the promised speed up at current time.
+ * </p>
  **/
 public class HitQueueArray2 extends PriorityQueueInts<ScoreDoc> implements HitQueueInterface {
   private final int shardID; // -1 means shardIDs are stored in the elements
@@ -103,10 +101,18 @@ public class HitQueueArray2 extends PriorityQueueInts<ScoreDoc> implements HitQu
   }
 
   @Override
+  protected boolean lessThan(ScoreDoc element, int[] ints, int offset) {
+    final int rawScore = Float.floatToRawIntBits(element.score);
+    return rawScore == ints[offset] ?
+        element.doc > ints[offset+1] :
+        rawScore < ints[offset];
+  }
+
+  @Override
   public boolean lessThan(int[] elementA, int offsetA, int[] elementB, int offsetB) {
     // The raw bits representation of Floats are order comparable for values >= 0 and all scores are positive
     return elementA[offsetA] == elementB[offsetB] ?
         elementA[offsetA+1] > elementB[offsetB+1] :
-        elementA[offsetA] == elementB[offsetB];
+        elementA[offsetA] < elementB[offsetB];
   }
 }

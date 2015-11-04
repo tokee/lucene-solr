@@ -30,7 +30,8 @@ import java.util.Iterator;
  * Note: This heap is lazy: Until the heap is full, inserts are done without ordering the heap.
  * </p><p>
  * Besides the abstract methods, it is <em>highky</em> recommended to override and optimize
- * {@link #lessThan(int[], int, int[], int)} as that method is the core of most heap operations.
+ * {@link #lessThan(int[], int, int[], int)} and {@link #lessThan(Object, int[], int)} as those methods are
+ * used extensively at the core of most heap operations.
  **/
 public abstract class PriorityQueueInts<T> {
   protected final int maxSize;
@@ -73,16 +74,11 @@ public abstract class PriorityQueueInts<T> {
       serialize(element, elements, ++size*elementSize);
       dirty = true;
       return null;
-    } else if (size > 0) {
-      serialize(element, insertCache, 0);
-      T least = deserialize(elements, elementSize, null);
-      if (lessThan(element, least)) {
-        return element;
-      }
+    } else if (size > 0 && !lessThan(element, elements, elementSize)) {
       orderHeap();
-      assign(insertCache, 1);
+      serialize(element, elements, 1);
       downHeap();
-      return least;
+      return deserialize(elements, elementSize, element);
     } else {
       return element;
     }
@@ -242,6 +238,11 @@ public abstract class PriorityQueueInts<T> {
    */
   public boolean lessThan(int[] elementA, int offsetA, int[] elementB, int offsetB) {
     return lessThan(deserialize(elementA, offsetA, null), deserialize(elementB, offsetB, null));
+  }
+
+  protected boolean lessThan(T element, int[] ints, int offset) {
+    serialize(element, swapAndLessThanCache, 0);
+    return lessThan(swapAndLessThanCache, 0, ints, offset);
   }
 
   protected final boolean lessThan(int index, int[] element) {
