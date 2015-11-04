@@ -35,7 +35,7 @@ public class TestHitQueue extends LuceneTestCase {
   private static final int K = 1000;
   private static final int M = K*K;
 
-  private enum PQTYPE {Sent, NoSent, Array, Packed}
+  private enum PQTYPE {Sent, NoSent, Array, Packed, IndS, IndNoS}
 
   public void testPQArray() throws ExecutionException, InterruptedException {
     final int RUNS = 10;
@@ -91,6 +91,8 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         PQTYPE.Sent,
         PQTYPE.Array,
         PQTYPE.Packed,
+        PQTYPE.IndS,
+        PQTYPE.IndNoS,
         PQTYPE.Sent  // Sanity check. Ideally this should be the same as the first Sent
     );
 
@@ -271,6 +273,12 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
           break;
         case Packed:
           hq = new HitQueuePacked(size);
+          break;
+        case IndS:
+          hq = new HitQueueArray2(size);
+          break;
+        case IndNoS:
+          hq = new HitQueueArray2(size, 5);
           break;
         default:
           throw new IllegalStateException("Unknown PQTYPE: " + pqType);
