@@ -55,7 +55,8 @@ public class TestHitQueue extends LuceneTestCase {
   private static final int K = 1000;
   private static final int M = K*K;
 
-  private enum PQTYPE {Sentinel, No_Sentinel, Array, Packed, BHeap2, BHeap3, BHeap4, BHeap5, BHeap10, BHeap20}
+  private enum PQTYPE {Sentinel, No_Sentinel, Array, Packed, IndShard, IndNoShard,
+    BHeap2, BHeap3, BHeap4, BHeap5, BHeap10, BHeap20}
 
   public void testPQArray() throws ExecutionException, InterruptedException {
     final int RUNS = 10;
@@ -335,11 +336,15 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final List<PQTYPE> pqTypes = Arrays.asList(
         PQTYPE.Sentinel, // First in list is used as base
         PQTYPE.No_Sentinel,
+        PQTYPE.IndShard,
+        PQTYPE.IndNoShard,
         PQTYPE.BHeap3,
 //        PQTYPE.Array,
         PQTYPE.Packed,
         PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
         PQTYPE.No_Sentinel,
+        PQTYPE.IndShard,
+        PQTYPE.IndNoShard,
         PQTYPE.BHeap3,
 //        PQTYPE.Array,
         PQTYPE.Packed
@@ -586,6 +591,8 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         case No_Sentinel: return new HitQueue(size, false);
         case Array:       return new HitQueueArray(size);
         case Packed:      return new HitQueuePacked(size);
+        case IndShard:    return new HitQueueArray2(size);
+        case IndNoShard:  return new HitQueueArray2(size, 5);
         case BHeap2:      return new HitQueuePackedBHeap(size, 2);
         case BHeap3:      return new HitQueuePackedBHeap(size, 3);
         case BHeap4:      return new HitQueuePackedBHeap(size, 4);
