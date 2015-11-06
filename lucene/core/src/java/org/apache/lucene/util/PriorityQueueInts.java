@@ -41,7 +41,6 @@ public abstract class PriorityQueueInts<T> {
   protected int size = 0;
   protected boolean dirty = false;
 
-  private final int[] insertCache;
   private final int[] downHeapCache;
   private final int[] swapAndLessThanCache;
 
@@ -57,7 +56,6 @@ public abstract class PriorityQueueInts<T> {
       throw new IllegalArgumentException("The number (" + elementCount + ") and size (" + elementSize + ") of " +
           "elements for this queue cannot be represented in a single Java int[]");
     }
-    insertCache = new int[elementSize];
     downHeapCache = new int[elementSize];
     swapAndLessThanCache = new int[elementSize];
     clear();
