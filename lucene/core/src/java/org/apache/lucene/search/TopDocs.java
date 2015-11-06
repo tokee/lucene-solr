@@ -18,6 +18,7 @@ package org.apache.lucene.search;
  */
 
 import org.apache.lucene.util.PriorityQueue;
+import org.apache.lucene.util.PriorityQueueLong;
 
 import java.io.IOException;
 
@@ -77,11 +78,29 @@ public class TopDocs {
     }
   };
 
+  private static class ShardRefCompact {
+    // Which shard (index into shardHits[]):
+    final int shardIndex;
+
+    // Which hit within the shard:
+    int hitIndex;
+    float score;
+
+    public ShardRefCompact(int shardIndex) {
+      this.shardIndex = shardIndex;
+    }
+
+    @Override
+    public String toString() {
+      return "ShardRef(shardIndex=" + shardIndex + " hitIndex=" + hitIndex + " score=" + score + ")";
+    }
+  };
+
   // Specialized MergeSortQueue that just merges by
   // relevance score, descending:
-  private static class ScoreMergeSortQueue extends PriorityQueue<ShardRef> {
+  public static class ScoreMergeSortQueue extends PriorityQueue<ShardRef> {
     final ScoreDoc[][] shardHits;
-
+    public static long numCompares;
     public ScoreMergeSortQueue(TopDocs[] shardHits) {
       super(shardHits.length);
       this.shardHits = new ScoreDoc[shardHits.length][];
@@ -94,12 +113,55 @@ public class TopDocs {
     @Override
     public boolean lessThan(ShardRef first, ShardRef second) {
       assert first != second;
+      numCompares++;
       final float firstScore = shardHits[first.shardIndex][first.hitIndex].score;
       final float secondScore = shardHits[second.shardIndex][second.hitIndex].score;
 
       if (firstScore < secondScore) {
         return false;
       } else if (firstScore > secondScore) {
+        return true;
+      } else {
+        // Tie break: earlier shard wins
+        if (first.shardIndex < second.shardIndex) {
+          return true;
+        } else if (first.shardIndex > second.shardIndex) {
+          return false;
+        } else {
+          // Tie break in same shard: resolve however the
+          // shard had resolved it:
+          assert first.hitIndex != second.hitIndex;
+          return first.hitIndex < second.hitIndex;
+        }
+      }
+    }
+  }
+
+  public static class ScoreMergeSortQueueCompact extends PriorityQueue<ShardRefCompact> {
+    final ScoreDoc[][] shardHits;
+    public static long numCompares;
+    public ScoreMergeSortQueueCompact(TopDocs[] shardHits) {
+      super(shardHits.length);
+      this.shardHits = new ScoreDoc[shardHits.length][];
+      for(int shardIDX=0;shardIDX<shardHits.length;shardIDX++) {
+        this.shardHits[shardIDX] = shardHits[shardIDX].scoreDocs;
+      }
+    }
+
+    public ShardRefCompact enrichAndAdd(ShardRefCompact shardRef) {
+      shardRef.score = shardHits[shardRef.shardIndex][shardRef.hitIndex].score;
+      return add(shardRef);
+    }
+
+    // Returns true if first is < second
+    @Override
+    public boolean lessThan(ShardRefCompact first, ShardRefCompact second) {
+      assert first != second;
+      numCompares++;
+
+      if (first.score < second.score) {
+        return false;
+      } else if (first.score > second.score) {
         return true;
       } else {
         // Tie break: earlier shard wins
@@ -207,6 +269,65 @@ public class TopDocs {
    * @lucene.experimental */
   public static TopDocs merge(Sort sort, int topN, TopDocs[] shardHits) throws IOException {
     return merge(sort, 0, topN, shardHits);
+  }
+  public static TopDocs merge(int size, TopDocs[] shardHits) throws IOException {
+    return mergeCompact(0, size, shardHits);
+    //return merge(null, 0, size, shardHits);
+  }
+
+  public static TopDocs mergeCompact(int start, int size, TopDocs[] shardHits) throws IOException {
+    ScoreMergeSortQueueCompact queue = new ScoreMergeSortQueueCompact(shardHits);
+
+    int totalHitCount = 0;
+    int availHitCount = 0;
+    float maxScore = Float.MIN_VALUE;
+    for(int shardIDX=0;shardIDX<shardHits.length;shardIDX++) {
+      final TopDocs shard = shardHits[shardIDX];
+      // totalHits can be non-zero even if no hits were
+      // collected, when searchAfter was used:
+      totalHitCount += shard.totalHits;
+      if (shard.scoreDocs != null && shard.scoreDocs.length > 0) {
+        availHitCount += shard.scoreDocs.length;
+        queue.enrichAndAdd(new ShardRefCompact(shardIDX));
+        maxScore = Math.max(maxScore, shard.getMaxScore());
+        //System.out.println("  maxScore now " + maxScore + " vs " + shard.getMaxScore());
+      }
+    }
+
+    if (availHitCount == 0) {
+      maxScore = Float.NaN;
+    }
+
+    final ScoreDoc[] hits;
+    if (availHitCount <= start) {
+      hits = new ScoreDoc[0];
+    } else {
+      hits = new ScoreDoc[Math.min(size, availHitCount - start)];
+      int requestedResultWindow = start + size;
+      int numIterOnHits = Math.min(availHitCount, requestedResultWindow);
+      int hitUpto = 0;
+      while (hitUpto < numIterOnHits) {
+        assert queue.size() > 0;
+        ShardRefCompact ref = queue.pop();
+        final ScoreDoc hit = shardHits[ref.shardIndex].scoreDocs[ref.hitIndex++];
+        hit.shardIndex = ref.shardIndex;
+        if (hitUpto >= start) {
+          hits[hitUpto - start] = hit;
+        }
+
+        //System.out.println("  hitUpto=" + hitUpto);
+        //System.out.println("    doc=" + hits[hitUpto].doc + " score=" + hits[hitUpto].score);
+
+        hitUpto++;
+
+        if (ref.hitIndex < shardHits[ref.shardIndex].scoreDocs.length) {
+          // Not done with this these TopDocs yet:
+          queue.add(ref);
+        }
+      }
+    }
+
+    return new TopDocs(totalHitCount, hits, maxScore);
   }
 
   /**
