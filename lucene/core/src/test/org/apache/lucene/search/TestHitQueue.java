@@ -55,7 +55,7 @@ public class TestHitQueue extends LuceneTestCase {
   private static final int K = 1000;
   private static final int M = K*K;
 
-  private enum PQTYPE {Sentinel, No_Sentinel, Array, Packed, IndShard, IndNoShard,
+  private enum PQTYPE {Sentinel, No_Sentinel, Array, Packed, Packed2, IndShard, IndNoShard,
     BHeap2, BHeap3, BHeap4, BHeap5, BHeap10, BHeap20}
 
   public void testPQArray() throws ExecutionException, InterruptedException {
@@ -244,6 +244,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         PQTYPE.BHeap4,
 //        PQTYPE.Array,
         PQTYPE.Packed,
+        PQTYPE.Packed2,
         PQTYPE.Sentinel,  // Sanity check. Ideally this should be the same as the first Sentinel
         PQTYPE.No_Sentinel,
         PQTYPE.IndShard,
@@ -251,7 +252,8 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         PQTYPE.BHeap3,
         PQTYPE.BHeap4,
 //        PQTYPE.Array,
-        PQTYPE.Packed
+        PQTYPE.Packed,
+        PQTYPE.Packed2
     );
     final List<Integer> PQSIZES = Arrays.asList(10, 100, K, 10 * K, 100 * K, M);
     final List<Integer> INSERTS = Arrays.asList(10, 100, 10 * K, 100 * K, M, 10*M);
@@ -273,6 +275,25 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         PQTYPE.IndShard,
         PQTYPE.IndNoShard
     );
+    final List<Integer> PQSIZES = Arrays.asList(100,10 * K, M);
+    final List<Integer> INSERTS = Arrays.asList(100, 10 * K, M, 2*M);
+
+    doPerformanceTest(RUNS, SKIPS, threads, pqTypes, PQSIZES, INSERTS, COLLAPSE.fastest);
+  }
+
+  public void testPQPerformancePackedVersions() throws ExecutionException, InterruptedException {
+    final int RUNS = 50;
+    final int SKIPS= 20;
+    final List<Integer> threads = Arrays.asList(1, 4, 8, 16);
+    final List<PQTYPE> pqTypes = Arrays.asList(
+        PQTYPE.Sentinel,
+        PQTYPE.No_Sentinel,
+        PQTYPE.Packed,
+        PQTYPE.Packed2,
+        PQTYPE.No_Sentinel,
+        PQTYPE.Packed,
+        PQTYPE.Packed2
+        );
     final List<Integer> PQSIZES = Arrays.asList(100,10 * K, M);
     final List<Integer> INSERTS = Arrays.asList(100, 10 * K, M, 2*M);
 
@@ -629,14 +650,15 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
         case No_Sentinel: return new HitQueue(size, false);
         case Array:       return new HitQueueArray(size);
         case Packed:      return new HitQueuePacked(size);
+        case Packed2:     return new HitQueuePacked2(size);
         case IndShard:    return new HitQueueArray2(size);
         case IndNoShard:  return new HitQueueArray2(size, 5);
         case BHeap2:      return new HitQueuePackedBHeap(size, 2);
         case BHeap3:      return new HitQueuePackedBHeap(size, 3);
         case BHeap4:      return new HitQueuePackedBHeap(size, 4);
         case BHeap5:      return new HitQueuePackedBHeap(size, 5);
-        case BHeap10:      return new HitQueuePackedBHeap(size, 10);
-        case BHeap20:      return new HitQueuePackedBHeap(size, 20);
+        case BHeap10:     return new HitQueuePackedBHeap(size, 10);
+        case BHeap20:     return new HitQueuePackedBHeap(size, 20);
         default:
           throw new IllegalStateException("Unknown PQTYPE: " + pqType);
       }
@@ -685,7 +707,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
   /**
    * Quick & dirty valifity test of implementations by comparing them to vanilla hitQueue.
    */
-  public void testValidityMisc() {
+  public void testValidityMonkey() {
     final int RUNS = 10;
     final int[] SIZES = new int[]{1, 2, 1000};
     final int[] INSERTS = new int[]{0, 1, 99, 1000, 1001, 10000};
@@ -699,7 +721,7 @@ Threads     pqSize   inserts  arrayMS  inserts/MS  initMS  emptyMS
     final int[] SIZES = new int[]{1};
     final int[] INSERTS = new int[]{2};
     final Random random = new Random(87); // We fix for now to locate errors
-    final PQTYPE[] PQTYPES = new PQTYPE[]{PQTYPE.Packed};
+    final PQTYPE[] PQTYPES = new PQTYPE[]{PQTYPE.Packed2};
 
     testValidity(RUNS, SIZES, INSERTS, random, PQTYPES);
   }
