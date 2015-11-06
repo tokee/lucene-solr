@@ -36,8 +36,10 @@ import org.apache.lucene.util.TestUtil;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 public class TestTopDocsMerge extends LuceneTestCase {
 
@@ -70,6 +72,55 @@ public class TestTopDocsMerge extends LuceneTestCase {
 
   public void testSort_2() throws Exception {
     testSort(true);
+  }
+
+  public void testSpeedRandom() throws Exception {
+    testSpeedGeneric("Random", 64, 100000, 5, 10, (int index) -> new ScoreDoc(index, (float)Math.random()));
+  }
+
+  public void testSpeedConstant() throws Exception {
+    testSpeedGeneric("Constant", 64, 100000, 5, 10, (int index) -> new ScoreDoc(index, 1.0f));
+  }
+
+  public void testSpeedSameList() throws Exception {
+    testSpeedGeneric("SameList", 64, 100000, 5, 10, (int index) -> new ScoreDoc(index, 10000-index));
+  }
+
+  interface ScoreDocProducer {
+    ScoreDoc createScoreDoc(int index);
+  }
+  private void testSpeedGeneric(
+      String designation, int shards, int entries, int runs, int iterations, ScoreDocProducer producer)
+      throws Exception {
+    final TopDocs[] shardHits = new TopDocs[shards];
+    for(int shardIDX = 0 ; shardIDX < shards ; shardIDX++) {
+      final ScoreDoc[] hits = new ScoreDoc[entries];
+      for(int i = 0 ; i < hits.length ; i++) {
+        hits[i] = producer.createScoreDoc(i);
+        //new ScoreDoc(i, hits[i-1].score - (float)Math.random());
+      }
+      final TopDocs subHits = new TopDocs(hits.length,hits,hits.length);
+      shardHits[shardIDX] = subHits;
+    }
+
+    final long[] results = new long[runs];
+
+    for (int run = 0 ; run < runs ; run++) {
+      long startTime = System.nanoTime();
+      for (int i = 0; i < iterations; i++) {
+        TopDocs mergedHits = TopDocs.merge(100000, shardHits);
+        assertTrue(designation + ". Sanity check to guard against JITting of result. Should never fail",
+            mergedHits.getMaxScore() > Float.MIN_VALUE);
+      }
+      results[run] = System.nanoTime() - startTime;
+      System.out.println(String.format(Locale.ENGLISH,
+          designation + ". Run %2d average merge speed for %d TopDocs @ %d entries: %5.2fms",
+          run, shardHits.length, entries, 1.0*results[run]/runs/iterations/1000000));
+    }
+    Arrays.sort(results);
+    System.out.println(String.format(Locale.ENGLISH,
+        "\n" + designation + ". Median average merge speed for %d TopDocs @ %d entries: %5.2fms",
+        shardHits.length, entries, 1.0 * results[results.length / 2] / runs / iterations / 1000000));
   }
 
   void testSort(boolean useFrom) throws Exception {
