@@ -75,23 +75,44 @@ public class TestTopDocsMerge extends LuceneTestCase {
   }
 
   public void testSpeedRandom() throws Exception {
-    testSpeedGeneric("Random", 64, 100000, 5, 10, (int index) -> new ScoreDoc(index, (float)Math.random()));
+    final AFloat generator = new AFloat(100000); // Must be >= length to avoid the chance of negative scores
+    testSpeedGeneric("Random", true, 64, 100000, 5, 10, (int index) -> new ScoreDoc(index, generator.next()));
+  }
+
+  public void testSpeedRandomAlternate() throws Exception {
+    for (Boolean inline: Arrays.asList(true, false, true, false, true, false)) {
+      final AFloat generator = new AFloat(100000); // Must be >= length to avoid the chance of negative scores
+      testSpeedGeneric("Random", inline, 64, 100000, 5, 10, (int index) -> new ScoreDoc(index, generator.next()));
+    }
+    }
+  private static class AFloat {
+    public float value = 0;
+
+    private AFloat(float value) {
+      this.value = value;
+    }
+
+    public float next() {
+      float r = value;
+      value -= (float)Math.random();
+      return r;
+    }
   }
 
   public void testSpeedConstant() throws Exception {
-    testSpeedGeneric("Constant", 64, 100000, 5, 10, (int index) -> new ScoreDoc(index, 1.0f));
+    testSpeedGeneric("Constant", true, 64, 100000, 5, 10, (int index) -> new ScoreDoc(index, 1.0f));
   }
 
   public void testSpeedSameList() throws Exception {
-    testSpeedGeneric("SameList", 64, 100000, 5, 10, (int index) -> new ScoreDoc(index, 10000-index));
+    testSpeedGeneric("SameList", true, 64, 100000, 5, 10, (int index) -> new ScoreDoc(index, 10000-index));
   }
 
   interface ScoreDocProducer {
     ScoreDoc createScoreDoc(int index);
   }
-  private void testSpeedGeneric(
-      String designation, int shards, int entries, int runs, int iterations, ScoreDocProducer producer)
-      throws Exception {
+  private void testSpeedGeneric(String designation, boolean inline,  int shards, int entries, int runs, int iterations,
+                                ScoreDocProducer producer) throws Exception {
+    TopDocs.inline = inline;
     final TopDocs[] shardHits = new TopDocs[shards];
     for(int shardIDX = 0 ; shardIDX < shards ; shardIDX++) {
       final ScoreDoc[] hits = new ScoreDoc[entries];
@@ -119,8 +140,8 @@ public class TestTopDocsMerge extends LuceneTestCase {
     }
     Arrays.sort(results);
     System.out.println(String.format(Locale.ENGLISH,
-        "\n" + designation + ". Median average merge speed for %d TopDocs @ %d entries: %5.2fms",
-        shardHits.length, entries, 1.0 * results[results.length / 2] / runs / iterations / 1000000));
+        designation + ". Median average merge speed for %d TopDocs @ %d entries: %5.2fms (inline=%b)",
+        shardHits.length, entries, 1.0 * results[results.length / 2] / runs / iterations / 1000000, inline));
   }
 
   void testSort(boolean useFrom) throws Exception {

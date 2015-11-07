@@ -18,7 +18,6 @@ package org.apache.lucene.search;
  */
 
 import org.apache.lucene.util.PriorityQueue;
-import org.apache.lucene.util.PriorityQueueLong;
 
 import java.io.IOException;
 
@@ -73,45 +72,80 @@ public class TopDocs {
 
     @Override
     public String toString() {
-      return "ShardRef(shardIndex=" + shardIndex + " hitIndex=" + hitIndex + ")";
+      return this.getClass().getSimpleName() + "(shardIndex=" + shardIndex + " hitIndex=" + hitIndex + ")";
     }
-  };
+  }
 
-  private static class ShardRefCompact {
-    // Which shard (index into shardHits[]):
-    final int shardIndex;
-
-    // Which hit within the shard:
-    int hitIndex;
+  private static class ShardRefScore extends ShardRef {
     float score;
-
-    public ShardRefCompact(int shardIndex) {
-      this.shardIndex = shardIndex;
+    public ShardRefScore(int shardIndex) {
+      super(shardIndex);
     }
+  }
 
-    @Override
-    public String toString() {
-      return "ShardRef(shardIndex=" + shardIndex + " hitIndex=" + hitIndex + " score=" + score + ")";
+  private static class ShardRefFields extends ShardRef {
+    Object[] fields;
+    public ShardRefFields(int shardIndex) {
+      super(shardIndex);
     }
-  };
+  }
 
-  // Specialized MergeSortQueue that just merges by
-  // relevance score, descending:
-  public static class ScoreMergeSortQueue extends PriorityQueue<ShardRef> {
-    final ScoreDoc[][] shardHits;
-
-    public ScoreMergeSortQueue(TopDocs[] shardHits) {
+  private abstract static class MergeQueue<T extends ShardRef> extends PriorityQueue<T> {
+    public MergeQueue(TopDocs[] shardHits) {
       super(shardHits.length);
+    }
+
+    protected abstract T createShardRef(int shardIDX);
+    protected abstract T enrich(T shardRef);
+
+    public T wrapAndAdd(int shardIDX) {
+      return add(enrich(createShardRef(shardIDX)));
+    }
+
+    public T enrichAndUpdateTop() {
+      enrich(top());
+      return updateTop();
+    }
+
+    protected final boolean tieBreak(T first, T second) {
+      // Tie break: earlier shard wins
+      if (first.shardIndex < second.shardIndex) {
+        return true;
+      } else if (first.shardIndex > second.shardIndex) {
+        return false;
+      }
+      // Tie break in same shard: resolve however the
+      // shard had resolved it:
+      assert first.hitIndex != second.hitIndex;
+      return first.hitIndex < second.hitIndex;
+    }
+  }
+
+  public static class ScoreMergeSortQueue extends MergeQueue<ShardRef>{
+    final ScoreDoc[][] shardHits;
+    public ScoreMergeSortQueue(TopDocs[] shardHits) {
+      super(shardHits);
       this.shardHits = new ScoreDoc[shardHits.length][];
       for(int shardIDX=0;shardIDX<shardHits.length;shardIDX++) {
         this.shardHits[shardIDX] = shardHits[shardIDX].scoreDocs;
       }
     }
 
+    @Override
+    public ShardRef createShardRef(int shardIDX) {
+      return new ShardRef(shardIDX);
+    }
+
+    @Override
+    public ShardRef enrich(ShardRef shardRef) {
+      return shardRef;
+    }
+
     // Returns true if first is < second
     @Override
-    public boolean lessThan(ShardRef first, ShardRef second) {
+    protected boolean lessThan(ShardRef first, ShardRef second) {
       assert first != second;
+
       final float firstScore = shardHits[first.shardIndex][first.hitIndex].score;
       final float secondScore = shardHits[second.shardIndex][second.hitIndex].score;
 
@@ -119,61 +153,177 @@ public class TopDocs {
         return false;
       } else if (firstScore > secondScore) {
         return true;
-      } else {
-        // Tie break: earlier shard wins
-        if (first.shardIndex < second.shardIndex) {
-          return true;
-        } else if (first.shardIndex > second.shardIndex) {
-          return false;
-        } else {
-          // Tie break in same shard: resolve however the
-          // shard had resolved it:
-          assert first.hitIndex != second.hitIndex;
-          return first.hitIndex < second.hitIndex;
-        }
       }
+      return tieBreak(first, second);
     }
   }
 
-  public static class ScoreMergeSortQueueCompact extends PriorityQueue<ShardRefCompact> {
+  public static class ScoreMergeSortQueueInline extends MergeQueue<ShardRefScore>{
     final ScoreDoc[][] shardHits;
-    public static long numCompares;
-    public ScoreMergeSortQueueCompact(TopDocs[] shardHits) {
-      super(shardHits.length);
+    public ScoreMergeSortQueueInline(TopDocs[] shardHits) {
+      super(shardHits);
       this.shardHits = new ScoreDoc[shardHits.length][];
       for(int shardIDX=0;shardIDX<shardHits.length;shardIDX++) {
         this.shardHits[shardIDX] = shardHits[shardIDX].scoreDocs;
       }
     }
 
-    public ShardRefCompact enrichAndAdd(ShardRefCompact shardRef) {
+    @Override
+    public ShardRefScore createShardRef(int shardIDX) {
+      return new ShardRefScore(shardIDX);
+    }
+
+    @Override
+    public ShardRefScore enrich(ShardRefScore shardRef) {
       shardRef.score = shardHits[shardRef.shardIndex][shardRef.hitIndex].score;
-      return add(shardRef);
+      return shardRef;
     }
 
     // Returns true if first is < second
     @Override
-    public boolean lessThan(ShardRefCompact first, ShardRefCompact second) {
+    public boolean lessThan(ShardRefScore first, ShardRefScore second) {
       assert first != second;
-      numCompares++;
 
       if (first.score < second.score) {
         return false;
       } else if (first.score > second.score) {
         return true;
-      } else {
-        // Tie break: earlier shard wins
-        if (first.shardIndex < second.shardIndex) {
-          return true;
-        } else if (first.shardIndex > second.shardIndex) {
-          return false;
-        } else {
-          // Tie break in same shard: resolve however the
-          // shard had resolved it:
-          assert first.hitIndex != second.hitIndex;
-          return first.hitIndex < second.hitIndex;
+      }
+      return tieBreak(first, second);
+    }
+  }
+
+  private static class MergeSortQueueIndirect extends MergeQueue<ShardRef> {
+    final ScoreDoc[][] shardHits;
+    final FieldComparator<?>[] comparators;
+    final int[] reverseMul;
+
+    public MergeSortQueueIndirect(Sort sort, TopDocs[] shardHits) throws IOException {
+      super(shardHits);
+      this.shardHits = new ScoreDoc[shardHits.length][];
+      for(int shardIDX = 0 ; shardIDX < shardHits.length ; shardIDX++) {
+        final ScoreDoc[] shard = shardHits[shardIDX].scoreDocs;
+        //System.out.println("  init shardIdx=" + shardIDX + " hits=" + shard);
+        if (shard != null) {
+          this.shardHits[shardIDX] = shard;
+          // Fail gracefully if API is misused:
+          for (final ScoreDoc sd: shard) {
+            if (!(sd instanceof FieldDoc)) {
+              throw new IllegalArgumentException("shard " + shardIDX + " was not sorted by the provided Sort (expected FieldDoc but got ScoreDoc)");
+            }
+            final FieldDoc fd = (FieldDoc) sd;
+            if (fd.fields == null) {
+              throw new IllegalArgumentException("shard " + shardIDX + " did not set sort field values (FieldDoc.fields is null); you must pass fillFields=true to IndexSearcher.search on each shard");
+            }
+          }
         }
       }
+
+      final SortField[] sortFields = sort.getSort();
+      comparators = new FieldComparator[sortFields.length];
+      reverseMul = new int[sortFields.length];
+      for(int compIDX=0;compIDX<sortFields.length;compIDX++) {
+        final SortField sortField = sortFields[compIDX];
+        comparators[compIDX] = sortField.getComparator(1, compIDX);
+        reverseMul[compIDX] = sortField.getReverse() ? -1 : 1;
+      }
+    }
+
+    @Override
+    public ShardRef createShardRef(int shardIDX) {
+      return new ShardRef(shardIDX);
+    }
+
+    @Override
+    public ShardRef enrich(ShardRef shardRef) {
+      return shardRef;
+    }
+
+    @SuppressWarnings({"rawtypes","unchecked"})
+    @Override
+    public boolean lessThan(ShardRef first, ShardRef second) {
+      assert first != second;
+      final FieldDoc firstFD = (FieldDoc) shardHits[first.shardIndex][first.hitIndex];
+      final FieldDoc secondFD = (FieldDoc) shardHits[second.shardIndex][second.hitIndex];
+      //System.out.println("  lessThan:\n     first=" + first + " doc=" + firstFD.doc + " score=" + firstFD.score + "\n    second=" + second + " doc=" + secondFD.doc + " score=" + secondFD.score);
+
+      for(int compIDX=0;compIDX<comparators.length;compIDX++) {
+        final FieldComparator comp = comparators[compIDX];
+        //System.out.println("    cmp idx=" + compIDX + " cmp1=" + firstFD.fields[compIDX] + " cmp2=" + secondFD.fields[compIDX] + " reverse=" + reverseMul[compIDX]);
+
+        final int cmp = reverseMul[compIDX] * comp.compareValues(firstFD.fields[compIDX], secondFD.fields[compIDX]);
+
+        if (cmp != 0) {
+          //System.out.println("    return " + (cmp < 0));
+          return cmp < 0;
+        }
+      }
+      return tieBreak(first, second);
+    }
+  }
+
+  private static class MergeSortQueueInline extends MergeQueue<ShardRefFields> {
+    final ScoreDoc[][] shardHits;
+    final FieldComparator<?>[] comparators;
+    final int[] reverseMul;
+
+    public MergeSortQueueInline(Sort sort, TopDocs[] shardHits) throws IOException {
+      super(shardHits);
+      this.shardHits = new FieldDoc[shardHits.length][];
+      for(int shardIDX = 0 ; shardIDX < shardHits.length ; shardIDX++) {
+        final ScoreDoc[] shard = shardHits[shardIDX].scoreDocs;
+        //System.out.println("  init shardIdx=" + shardIDX + " hits=" + shard);
+        if (shard != null) {
+          this.shardHits[shardIDX] = shard;
+        }
+      }
+
+      final SortField[] sortFields = sort.getSort();
+      comparators = new FieldComparator[sortFields.length];
+      reverseMul = new int[sortFields.length];
+      for(int compIDX = 0 ; compIDX < sortFields.length ; compIDX++) {
+        final SortField sortField = sortFields[compIDX];
+        comparators[compIDX] = sortField.getComparator(1, compIDX);
+        reverseMul[compIDX] = sortField.getReverse() ? -1 : 1;
+      }
+    }
+
+    @Override
+    public ShardRefFields createShardRef(int shardIDX) {
+      return new ShardRefFields(shardIDX);
+    }
+
+    @Override
+    public ShardRefFields enrich(ShardRefFields shardRef) {
+      final ScoreDoc sd = shardHits[shardRef.shardIndex][shardRef.hitIndex];
+      if (!(sd instanceof FieldDoc)) {
+        throw new IllegalArgumentException("shard " + shardRef.shardIndex + " was not sorted by the provided Sort (expected FieldDoc but got ScoreDoc)");
+      }
+      final FieldDoc fd = (FieldDoc) sd;
+      if (fd.fields == null) {
+        throw new IllegalArgumentException("shard " + shardRef.shardIndex + " did not set sort field values (FieldDoc.fields is null); you must pass fillFields=true to IndexSearcher.search on each shard");
+      }
+
+      shardRef.fields = fd.fields;
+      return shardRef;
+    }
+
+    @SuppressWarnings({"rawtypes","unchecked"})
+    @Override
+    public boolean lessThan(ShardRefFields first, ShardRefFields second) {
+      assert first != second;
+
+      for(int compIDX=0 ; compIDX < comparators.length ; compIDX++) {
+        final FieldComparator comp = comparators[compIDX];
+        //System.out.println("    cmp idx=" + compIDX + " cmp1=" + firstFD.fields[compIDX] + " cmp2=" + secondFD.fields[compIDX] + " reverse=" + reverseMul[compIDX]);
+
+        final int cmp = reverseMul[compIDX] * comp.compareValues(first.fields[compIDX], second.fields[compIDX]);
+
+        if (cmp != 0) {
+          return cmp < 0;
+        }
+      }
+      return tieBreak(first, second);
     }
   }
 
@@ -258,8 +408,8 @@ public class TopDocs {
    *  instance must be sorted.
    *  @lucene.experimental */
   public static TopDocs merge(int topN, TopDocs[] shardHits) throws IOException {
-    return mergeCompact(0, topN, shardHits);
-//   return merge(0, topN, shardHits);
+//    return mergeCompact(0, topN, shardHits);
+   return merge(0, topN, shardHits);
   }
 
 
@@ -284,7 +434,7 @@ public class TopDocs {
   }
 
   public static TopDocs mergeCompact(int start, int size, TopDocs[] shardHits) throws IOException {
-    ScoreMergeSortQueueCompact queue = new ScoreMergeSortQueueCompact(shardHits);
+    ScoreMergeSortQueueInline queue = new ScoreMergeSortQueueInline(shardHits);
 
     int totalHitCount = 0;
     int availHitCount = 0;
@@ -296,7 +446,7 @@ public class TopDocs {
       totalHitCount += shard.totalHits;
       if (shard.scoreDocs != null && shard.scoreDocs.length > 0) {
         availHitCount += shard.scoreDocs.length;
-        queue.enrichAndAdd(new ShardRefCompact(shardIDX));
+        queue.wrapAndAdd(shardIDX);
         maxScore = Math.max(maxScore, shard.getMaxScore());
         //System.out.println("  maxScore now " + maxScore + " vs " + shard.getMaxScore());
       }
@@ -316,7 +466,7 @@ public class TopDocs {
       int hitUpto = 0;
       while (hitUpto < numIterOnHits) {
         assert queue.size() > 0;
-        ShardRefCompact ref = queue.pop();
+        ShardRefScore ref = queue.pop();
         final ScoreDoc hit = shardHits[ref.shardIndex].scoreDocs[ref.hitIndex++];
         hit.shardIndex = ref.shardIndex;
         if (hitUpto >= start) {
@@ -351,14 +501,18 @@ public class TopDocs {
     return (TopFieldDocs) mergeAux(sort, start, topN, shardHits);
   }
 
+  static boolean inline = true; // For debugging
   /** Auxiliary method used by the {@link #merge} impls. A sort value of null
    *  is used to indicate that docs should be sorted by score. */
   private static TopDocs mergeAux(Sort sort, int start, int size, TopDocs[] shardHits) throws IOException {
-    final PriorityQueue<ShardRef> queue;
+    //final PriorityQueue<ShardRef> queue;
+    final MergeQueue<? extends ShardRef> queue;
     if (sort == null) {
-      queue = new ScoreMergeSortQueue(shardHits);
+      //queue = new ScoreMergeSortQueue(shardHits);
+      queue = inline ? new ScoreMergeSortQueueInline(shardHits) : new ScoreMergeSortQueue(shardHits);
     } else {
-      queue = new MergeSortQueue(sort, shardHits);
+      //queue = new MergeSortQueue(sort, shardHits);
+      queue = inline ? new MergeSortQueueIndirect(sort, shardHits) : new MergeSortQueueInline(sort, shardHits);
     }
 
     int totalHitCount = 0;
@@ -371,7 +525,7 @@ public class TopDocs {
       totalHitCount += shard.totalHits;
       if (shard.scoreDocs != null && shard.scoreDocs.length > 0) {
         availHitCount += shard.scoreDocs.length;
-        queue.add(new ShardRef(shardIDX));
+        queue.wrapAndAdd(shardIDX);
         maxScore = Math.max(maxScore, shard.getMaxScore());
         //System.out.println("  maxScore now " + maxScore + " vs " + shard.getMaxScore());
       }
@@ -391,7 +545,7 @@ public class TopDocs {
       int hitUpto = 0;
       while (hitUpto < numIterOnHits) {
         assert queue.size() > 0;
-        ShardRef ref = queue.pop();
+        ShardRef ref = queue.top();
         final ScoreDoc hit = shardHits[ref.shardIndex].scoreDocs[ref.hitIndex++];
         hit.shardIndex = ref.shardIndex;
         if (hitUpto >= start) {
@@ -405,7 +559,9 @@ public class TopDocs {
 
         if (ref.hitIndex < shardHits[ref.shardIndex].scoreDocs.length) {
           // Not done with this these TopDocs yet:
-          queue.add(ref);
+          queue.enrichAndUpdateTop();
+        } else {
+          queue.pop();
         }
       }
     }
@@ -416,4 +572,6 @@ public class TopDocs {
       return new TopFieldDocs(totalHitCount, hits, sort.getSort(), maxScore);
     }
   }
+
+
 }
