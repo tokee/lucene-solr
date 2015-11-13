@@ -33,7 +33,6 @@ ant jar-core
 ant compile-test
 
 3) Run a test
-Tracked FixedBitSet:
-
+cd solr
 java -cp ./build/solr-core/solr-core-6.0.0-SNAPSHOT.jar:build/solr-core/classes/test/:../lucene/build/core/lucene-core-6.0.0-SNAPSHOT.jar org.apache.solr.util.BitSetPerf 20000000 10 20000 "union, cardinality, icount, nextSetBit, iterator" 100 all
 
