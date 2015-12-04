@@ -41,6 +41,7 @@ public class GroupingSpecification {
   private Grouping.Format responseFormat;
   private boolean needScore;
   private boolean truncateGroups;
+  private boolean optimizeScoreCollecting;
 
   public String[] getFields() {
     return fields;
@@ -164,5 +165,13 @@ public class GroupingSpecification {
 
   public void setTruncateGroups(boolean truncateGroups) {
     this.truncateGroups = truncateGroups;
+  }
+
+  public boolean isOptimizeScoreCollecting() {
+    return optimizeScoreCollecting;
+  }
+
+  public void setOptimizeScoreCollecting(boolean optimizeScoreCollecting) {
+    this.optimizeScoreCollecting = optimizeScoreCollecting;
   }
 }

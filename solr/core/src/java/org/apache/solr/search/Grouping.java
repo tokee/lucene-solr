@@ -98,6 +98,7 @@ public class Grouping {
 
   private int maxDoc;
   private boolean needScores;
+  private boolean optimizeScoreCollecting;
   private boolean getDocSet;
   private boolean getGroupedDocSet;
   private boolean getDocList; // doclist needed for debugging or highlighting
@@ -166,6 +167,7 @@ public class Grouping {
     gc.sort = sort;
     gc.format = defaultFormat;
     gc.totalCount = defaultTotalCount;
+    gc.optimizeScoreCollecting = optimizeScoreCollecting;
 
     if (main) {
       gc.main = true;
@@ -208,6 +210,7 @@ public class Grouping {
     gc.sort = sort;
     gc.format = defaultFormat;
     gc.totalCount = defaultTotalCount;
+    gc.optimizeScoreCollecting = optimizeScoreCollecting;
 
     if (main) {
       gc.main = true;
@@ -231,6 +234,7 @@ public class Grouping {
     gc.numGroups = limitDefault;
     gc.docsPerGroup = docsPerGroupDefault;
     gc.groupOffset = groupOffsetDefault;
+    gc.optimizeScoreCollecting = optimizeScoreCollecting;
 
     // these two params will only be used if this is for the main result set
     gc.offset = cmd.getOffset();
@@ -251,6 +255,15 @@ public class Grouping {
 
   public Grouping setSort(Sort sort) {
     this.sort = sort;
+    return this;
+  }
+
+  public boolean isOptimizeScoreCollecting() {
+    return optimizeScoreCollecting;
+  }
+
+  public Grouping setOptimizeScoreCollecting(boolean optimizeScoreCollecting) {
+    this.optimizeScoreCollecting = optimizeScoreCollecting;
     return this;
   }
 
@@ -325,6 +338,7 @@ public class Grouping {
     getDocSet = (cmd.getFlags() & SolrIndexSearcher.GET_DOCSET) != 0;
     getDocList = (cmd.getFlags() & SolrIndexSearcher.GET_DOCLIST) != 0;
     query = QueryUtils.makeQueryable(cmd.getQuery());
+    optimizeScoreCollecting = commands.get(0).optimizeScoreCollecting;
 
     for (Command cmd : commands) {
       cmd.prepare();
@@ -526,8 +540,9 @@ public class Grouping {
     public int offset;       // offset into the list of groups
     public Format format;
     public boolean main;     // use as the main result in simple format (grouped.main=true param)
-    public TotalCount totalCount = TotalCount.ungrouped;
+    public boolean optimizeScoreCollecting;
 
+    public TotalCount totalCount = TotalCount.ungrouped;
     TopGroups<GROUP_VALUE_TYPE> result;
 
 
@@ -752,7 +767,7 @@ public class Grouping {
       int groupedDocsToCollect = getMax(groupOffset, docsPerGroup, maxDoc);
       groupedDocsToCollect = Math.max(groupedDocsToCollect, 1);
       secondPass = new TermSecondPassGroupingCollector(
-          groupBy, topGroups, sort, groupSort, groupedDocsToCollect, needScores, needScores, false
+          groupBy, topGroups, sort, groupSort, groupedDocsToCollect, needScores, needScores, false, optimizeScoreCollecting
       );
 
       if (totalCount == TotalCount.grouped) {
@@ -972,7 +987,7 @@ public class Grouping {
       int groupdDocsToCollect = getMax(groupOffset, docsPerGroup, maxDoc);
       groupdDocsToCollect = Math.max(groupdDocsToCollect, 1);
       secondPass = new FunctionSecondPassGroupingCollector(
-          topGroups, sort, groupSort, groupdDocsToCollect, needScores, needScores, false, groupBy, context
+          topGroups, sort, groupSort, groupdDocsToCollect, needScores, needScores, false, groupBy, context, optimizeScoreCollecting
       );
 
       if (totalCount == TotalCount.grouped) {

@@ -42,11 +42,17 @@ public class TermSecondPassGroupingCollector extends AbstractSecondPassGroupingC
   private SortedDocValues index;
   private final String groupField;
 
+  public TermSecondPassGroupingCollector(String groupField, Collection<SearchGroup<BytesRef>> groups, Sort groupSort, Sort withinGroupSort,
+                                         int maxDocsPerGroup, boolean getScores, boolean getMaxScores, boolean fillSortFields) throws IOException {
+    this(groupField, groups, groupSort, withinGroupSort, maxDocsPerGroup, getScores, getMaxScores, fillSortFields, false);
+  }
+
   @SuppressWarnings({"unchecked"})
   public TermSecondPassGroupingCollector(String groupField, Collection<SearchGroup<BytesRef>> groups, Sort groupSort, Sort withinGroupSort,
-                                         int maxDocsPerGroup, boolean getScores, boolean getMaxScores, boolean fillSortFields)
+                                         int maxDocsPerGroup, boolean getScores, boolean getMaxScores, boolean fillSortFields,
+                                         boolean optimizeScoreCollecting)
       throws IOException {
-    super(groups, groupSort, withinGroupSort, maxDocsPerGroup, getScores, getMaxScores, fillSortFields);
+    super(groups, groupSort, withinGroupSort, maxDocsPerGroup, getScores, getMaxScores, fillSortFields, optimizeScoreCollecting);
     ordSet = new SentinelIntSet(groupMap.size(), -2);
     this.groupField = groupField;
     groupDocs = (SearchGroupDocs<BytesRef>[]) new SearchGroupDocs[ordSet.keys.length];

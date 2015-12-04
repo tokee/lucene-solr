@@ -44,6 +44,9 @@ public class FunctionSecondPassGroupingCollector extends AbstractSecondPassGroup
   private FunctionValues.ValueFiller filler;
   private MutableValue mval;
 
+  public FunctionSecondPassGroupingCollector(Collection<SearchGroup<MutableValue>> searchGroups, Sort groupSort, Sort withinGroupSort, int maxDocsPerGroup, boolean getScores, boolean getMaxScores, boolean fillSortFields, ValueSource groupByVS, Map<?, ?> vsContext) throws IOException {
+    this(searchGroups, groupSort, withinGroupSort, maxDocsPerGroup, getScores, getMaxScores, fillSortFields, groupByVS, vsContext, false);
+  }
   /**
    * Constructs a {@link FunctionSecondPassGroupingCollector} instance.
    *
@@ -58,8 +61,8 @@ public class FunctionSecondPassGroupingCollector extends AbstractSecondPassGroup
    * @param vsContext The value source context
    * @throws IOException IOException When I/O related errors occur
    */
-  public FunctionSecondPassGroupingCollector(Collection<SearchGroup<MutableValue>> searchGroups, Sort groupSort, Sort withinGroupSort, int maxDocsPerGroup, boolean getScores, boolean getMaxScores, boolean fillSortFields, ValueSource groupByVS, Map<?, ?> vsContext) throws IOException {
-    super(searchGroups, groupSort, withinGroupSort, maxDocsPerGroup, getScores, getMaxScores, fillSortFields);
+  public FunctionSecondPassGroupingCollector(Collection<SearchGroup<MutableValue>> searchGroups, Sort groupSort, Sort withinGroupSort, int maxDocsPerGroup, boolean getScores, boolean getMaxScores, boolean fillSortFields, ValueSource groupByVS, Map<?, ?> vsContext, boolean optimizeScoreCollecting) throws IOException {
+    super(searchGroups, groupSort, withinGroupSort, maxDocsPerGroup, getScores, getMaxScores, fillSortFields, optimizeScoreCollecting);
     this.groupByVS = groupByVS;
     this.vsContext = vsContext;
   }

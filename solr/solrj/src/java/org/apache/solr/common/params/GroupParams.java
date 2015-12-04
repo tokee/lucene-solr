@@ -67,5 +67,10 @@ public interface GroupParams {
   public static final String GROUP_DISTRIBUTED_SECOND = GROUP + ".distributed.second";
 
   public static final String GROUP_DISTRIBUTED_TOPGROUPS_PREFIX = GROUP + ".topgroups.";
+
+  /**
+   * Experimental optimization of score-sorted grouping.
+   */
+  public static final String GROUP_OPTIMIZE_SCORE_COLLECTING = GROUP + ".optimize.score";
 }
 

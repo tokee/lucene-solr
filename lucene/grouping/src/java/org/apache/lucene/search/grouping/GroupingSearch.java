@@ -41,6 +41,7 @@ import org.apache.lucene.util.mutable.MutableValue;
  */
 public class GroupingSearch {
 
+  private static final boolean DEFAULT_OPTIMIZE_SCORE_COLLECTING = false;
   private final String groupField;
   private final ValueSource groupFunction;
   private final Map<?, ?> valueSourceContext;
@@ -64,6 +65,7 @@ public class GroupingSearch {
 
   private Collection<?> matchingGroups;
   private Bits matchingGroupHeads;
+  private final boolean optimizeScoreCollecting;
 
   /**
    * Constructs a <code>GroupingSearch</code> instance that groups documents by index terms using the {@link FieldCache}.
@@ -72,9 +74,12 @@ public class GroupingSearch {
    * @param groupField The name of the field to group by.
    */
   public GroupingSearch(String groupField) {
-    this(groupField, null, null, null);
+    this(groupField, null, null, null, DEFAULT_OPTIMIZE_SCORE_COLLECTING);
   }
 
+  public GroupingSearch(String groupField, boolean optimizeScoreCollecting) {
+    this(groupField, null, null, null, optimizeScoreCollecting);
+  }
   /**
    * Constructs a <code>GroupingSearch</code> instance that groups documents by function using a {@link ValueSource}
    * instance.
@@ -83,7 +88,10 @@ public class GroupingSearch {
    * @param valueSourceContext The context of the specified groupFunction
    */
   public GroupingSearch(ValueSource groupFunction, Map<?, ?> valueSourceContext) {
-    this(null, groupFunction, valueSourceContext, null);
+    this(null, groupFunction, valueSourceContext, null, DEFAULT_OPTIMIZE_SCORE_COLLECTING);
+  }
+  public GroupingSearch(ValueSource groupFunction, Map<?, ?> valueSourceContext, boolean optimizeScoreCollecting) {
+    this(null, groupFunction, valueSourceContext, null, optimizeScoreCollecting);
   }
 
   /**
@@ -93,15 +101,17 @@ public class GroupingSearch {
    * @param groupEndDocs The filter that marks the last document in all doc blocks
    */
   public GroupingSearch(Filter groupEndDocs) {
-    this(null, null, null, groupEndDocs);
+    this(null, null, null, groupEndDocs, DEFAULT_OPTIMIZE_SCORE_COLLECTING);
   }
 
-  private GroupingSearch(String groupField, ValueSource groupFunction, Map<?, ?> valueSourceContext, Filter groupEndDocs) {
+  private GroupingSearch(String groupField, ValueSource groupFunction, Map<?, ?> valueSourceContext, Filter groupEndDocs, boolean optimizeScoreCollecting) {
     this.groupField = groupField;
     this.groupFunction = groupFunction;
     this.valueSourceContext = valueSourceContext;
     this.groupEndDocs = groupEndDocs;
+    this.optimizeScoreCollecting = optimizeScoreCollecting;
   }
+
 
   /**
    * Executes a grouped search. Both the first pass and second pass are executed on the specified searcher.
@@ -217,9 +227,9 @@ public class GroupingSearch {
     int topNInsideGroup = groupDocsOffset + groupDocsLimit;
     AbstractSecondPassGroupingCollector secondPassCollector;
     if (groupFunction != null) {
-      secondPassCollector = new FunctionSecondPassGroupingCollector((Collection) topSearchGroups, groupSort, sortWithinGroup, topNInsideGroup, includeScores, includeMaxScore, fillSortFields, groupFunction, valueSourceContext);
+      secondPassCollector = new FunctionSecondPassGroupingCollector((Collection) topSearchGroups, groupSort, sortWithinGroup, topNInsideGroup, includeScores, includeMaxScore, fillSortFields, groupFunction, valueSourceContext, optimizeScoreCollecting);
     } else {
-      secondPassCollector = new TermSecondPassGroupingCollector(groupField, (Collection) topSearchGroups, groupSort, sortWithinGroup, topNInsideGroup, includeScores, includeMaxScore, fillSortFields);
+      secondPassCollector = new TermSecondPassGroupingCollector(groupField, (Collection) topSearchGroups, groupSort, sortWithinGroup, topNInsideGroup, includeScores, includeMaxScore, fillSortFields, optimizeScoreCollecting);
     }
 
     if (cachedCollector != null && cachedCollector.isCached()) {

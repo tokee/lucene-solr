@@ -76,14 +76,34 @@ public class GroupingSearchTest extends LuceneTestCase {
     w.close();
 
     Sort groupSort = Sort.RELEVANCE;
-    GroupingSearch groupingSearch = createRandomGroupingSearch(groupField, groupSort, 5, canUseIDV);
+//    GroupingSearch groupingSearch = createRandomGroupingSearch(groupField, groupSort, 5, canUseIDV);
 
-    TopGroups<?> groups = groupingSearch.search(
-        indexSearcher, null, new TermQuery(new Term("content", "random")), 0, 4);
+    {
+      GroupingSearch groupingSearch = new GroupingSearch(groupField, false);
+      groupingSearch.setGroupSort(groupSort);
+      groupingSearch.setGroupDocsLimit(5);
 
-    assertEquals(1000, groups.totalHitCount);
-    assertEquals(400, groups.totalGroupedHitCount);
-    assertEquals(4, groups.groups.length);
+      TopGroups<?> groups = groupingSearch.search(
+          indexSearcher, null, new TermQuery(new Term("content", "random")), 0, 4);
+
+      assertEquals("Non-optimized hits should match", 1000, groups.totalHitCount);
+      assertEquals("Non-optimized grouped count should be exact", 400, groups.totalGroupedHitCount);
+      assertEquals("Non-optimized group.length should match", 4, groups.groups.length);
+    }
+
+    {
+      GroupingSearch groupingSearch = new GroupingSearch(groupField, false);
+      groupingSearch.setGroupSort(groupSort);
+      groupingSearch.setGroupDocsLimit(5);
+
+      TopGroups<?> groups = groupingSearch.search(
+          indexSearcher, null, new TermQuery(new Term("content", "random")), 0, 4);
+
+      assertEquals("Optimized hits should match", 1000, groups.totalHitCount);
+      assertTrue("Optimized grouped count should be < 400 (there's an off chance of hitting 400)",
+          groups.totalGroupedHitCount <= 400);
+      assertEquals("Optimized group.length should match", 4, groups.groups.length);
+    }
 
     indexSearcher.getIndexReader().close();
     dir.close();
@@ -165,7 +185,7 @@ public class GroupingSearchTest extends LuceneTestCase {
     w.close();
 
     Sort groupSort = Sort.RELEVANCE;
-    GroupingSearch groupingSearch = createRandomGroupingSearch(groupField, groupSort, 5, canUseIDV);
+    GroupingSearch groupingSearch = createRandomGroupingSearch(groupField, groupSort, 5, canUseIDV, false);
 
     TopGroups<?> groups = groupingSearch.search(indexSearcher, null, new TermQuery(new Term("content", "random")), 0, 10);
 
@@ -246,13 +266,13 @@ public class GroupingSearchTest extends LuceneTestCase {
     }
   }
 
-  private GroupingSearch createRandomGroupingSearch(String groupField, Sort groupSort, int docsInGroup, boolean canUseIDV) {
+  private GroupingSearch createRandomGroupingSearch(String groupField, Sort groupSort, int docsInGroup, boolean canUseIDV, boolean optimizeScoreCollecting) {
     GroupingSearch groupingSearch;
     if (random().nextBoolean()) {
       ValueSource vs = new BytesRefFieldSource(groupField);
-      groupingSearch = new GroupingSearch(vs, new HashMap<>());
+      groupingSearch = new GroupingSearch(vs, new HashMap<>(), optimizeScoreCollecting);
     } else {
-      groupingSearch = new GroupingSearch(groupField);
+      groupingSearch = new GroupingSearch(groupField, optimizeScoreCollecting);
     }
 
     groupingSearch.setGroupSort(groupSort);

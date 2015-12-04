@@ -50,9 +50,11 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
   private int totalGroupedHitCount;
   protected Scorer scorer = null;
   private float lowestScore = Float.MIN_VALUE;
+  private final boolean optimizeScoreCollecting;
 
   public AbstractSecondPassGroupingCollector(Collection<SearchGroup<GROUP_VALUE_TYPE>> groups, Sort groupSort, Sort withinGroupSort,
-                                             int maxDocsPerGroup, boolean getScores, boolean getMaxScores, boolean fillSortFields)
+                                             int maxDocsPerGroup, boolean getScores, boolean getMaxScores, boolean fillSortFields,
+                                             boolean optimizeScoreCollecting)
     throws IOException {
 
     //System.out.println("SP init");
@@ -64,6 +66,7 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
     this.withinGroupSort = withinGroupSort;
     this.groups = groups;
     this.maxDocsPerGroup = maxDocsPerGroup;
+    this.optimizeScoreCollecting = optimizeScoreCollecting;
     groupMap = new HashMap<>(groups.size());
 
     for (SearchGroup<GROUP_VALUE_TYPE> group : groups) {
@@ -94,7 +97,7 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
   @Override
   public void collect(int doc) throws IOException {
     totalHitCount++;
-    if (withinGroupSort != null) {
+    if (withinGroupSort != null || !optimizeScoreCollecting) {
       SearchGroupDocs<GROUP_VALUE_TYPE> group = retrieveGroup(doc);
       if (group != null) {
         totalGroupedHitCount++;
@@ -120,6 +123,7 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
       float gLow = scoreCollector.getLowestScore();
       if (gLow > lowestScore) { // This group is no longer lowest. Iterate to find other lowest
         float newMin = Float.MAX_VALUE;
+        // TODO: Replace with priority queue of groups?
         for (SearchGroup<GROUP_VALUE_TYPE> subGroup: groups) {
           TopScoreDocCollector subScoreCollector = (TopScoreDocCollector)group.collector;
           float gMin = subScoreCollector.getLowestScore();
@@ -128,7 +132,7 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
           }
         }
         if (newMin > lowestScore) {
-          System.out.println("Low " + lowestScore + " -> " + newMin);
+//          System.out.println("Low " + lowestScore + " -> " + newMin);
           lowestScore = newMin;
         }
 
