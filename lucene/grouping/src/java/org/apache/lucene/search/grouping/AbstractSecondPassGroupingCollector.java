@@ -118,9 +118,20 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
       totalGroupedHitCount++;
       scoreCollector.collect(doc, score);
       float gLow = scoreCollector.getLowestScore();
-      if (gLow > lowestScore) {
-        System.out.println("Low " + lowestScore + " -> " + gLow);
-        lowestScore = gLow;
+      if (gLow > lowestScore) { // This group is no longer lowest. Iterate to find other lowest
+        float newMin = Float.MAX_VALUE;
+        for (SearchGroup<GROUP_VALUE_TYPE> subGroup: groups) {
+          TopScoreDocCollector subScoreCollector = (TopScoreDocCollector)group.collector;
+          float gMin = subScoreCollector.getLowestScore();
+          if (gMin < newMin) {
+            newMin = gMin;
+          }
+        }
+        if (newMin > lowestScore) {
+          System.out.println("Low " + lowestScore + " -> " + newMin);
+          lowestScore = newMin;
+        }
+
       }
     }
   }
