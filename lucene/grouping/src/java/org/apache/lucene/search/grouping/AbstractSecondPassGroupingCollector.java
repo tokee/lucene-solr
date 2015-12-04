@@ -51,6 +51,7 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
   protected Scorer scorer = null;
   private float lowestScore = Float.MIN_VALUE;
   private final boolean optimizeScoreCollecting;
+  private final boolean isScoreSortedWithin;
 
   public AbstractSecondPassGroupingCollector(Collection<SearchGroup<GROUP_VALUE_TYPE>> groups, Sort groupSort, Sort withinGroupSort,
                                              int maxDocsPerGroup, boolean getScores, boolean getMaxScores, boolean fillSortFields,
@@ -67,6 +68,10 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
     this.groups = groups;
     this.maxDocsPerGroup = maxDocsPerGroup;
     this.optimizeScoreCollecting = optimizeScoreCollecting;
+    this.isScoreSortedWithin = withinGroupSort == null || (
+        withinGroupSort.getSort().length == 1 &&
+            withinGroupSort.getSort()[0].getType()==SortField.Type.SCORE &&
+            !withinGroupSort.getSort()[0].getReverse()); // TODO: We could handle reverse too
     groupMap = new HashMap<>(groups.size());
 
     for (SearchGroup<GROUP_VALUE_TYPE> group : groups) {
@@ -97,7 +102,8 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
   @Override
   public void collect(int doc) throws IOException {
     totalHitCount++;
-    if (withinGroupSort != null || !optimizeScoreCollecting) {
+    System.out.println("*** Here " + optimizeScoreCollecting + " within=" + withinGroupSort);
+    if (!isScoreSortedWithin) {
       SearchGroupDocs<GROUP_VALUE_TYPE> group = retrieveGroup(doc);
       if (group != null) {
         totalGroupedHitCount++;
@@ -108,6 +114,7 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
 
     // Score-sorted groups. Avoid lookup of group value if possible
     float score = scorer.score();
+    System.out.println("*** score=" + score);
     if (score < lowestScore) {
 //      System.out.println("Skipped as score=" + score + " for doc=" + doc + " is < " + lowestScore);
 

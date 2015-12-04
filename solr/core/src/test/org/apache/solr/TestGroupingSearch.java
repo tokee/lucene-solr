@@ -71,6 +71,73 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
   }
 
   @Test
+  public void testGroupingGroupSortingScore_noOptimization() {
+    final int DOCS = 1000;
+    for (int docID = 0; docID < DOCS; docID++) {
+      assertU(add(doc("id", Integer.toString(docID),
+          "name", "author" + docID % 10,
+          "title", "a book title")));
+    }
+    assertU(commit());
+
+    assertQ(req(
+            "q","title:title",
+            "group", "true",
+            "group.field", "name",
+            "rows", "5")
+
+            ,"//lst[@name='grouped']/lst[@name='name']"
+            ,"*[count(//arr[@name='groups']/lst) = 5]"
+
+//            ,"//arr[@name='groups']/lst[1]/str[@name='groupValue'][.='author2']"
+    //        ,"//arr[@name='groups']/lst[1]/int[@name='matches'][.='2']"
+//            ,"//arr[@name='groups']/lst[1]/result[@numFound='2']"
+//            ,"//arr[@name='groups']/lst[1]/result/doc/*[@name='id'][.='4']"
+    //        ,"//arr[@name='groups']/lst[3]/int[@name='matches'][.='1']"
+            ,"//arr[@name='groups']/lst[3]/result[@numFound='" + DOCS/10 + "']"
+//            ,"//arr[@name='groups']/lst[3]/result/doc/*[@name='id'][.='5']"
+            );
+
+//    <lst name="responseHeader"><int name="status">0</int><int name="QTime">80</int></lst>
+// <lst name="grouped"><lst name="name"><int name="matches">1000</int><arr name="groups">
+// <lst><str name="groupValue">author0</str>
+// <result name="doclist" numFound="100" start="0"><doc><str name="id">0</str>
+// <str name="name">author0</str>
+// <str name="title">a book title</str><int name="group_si">0</int></doc></result></lst><lst><str name="groupValue">author1</str><result name="doclist" numFound="100" start="0"><doc><str name="id">1</str><str name="name">author1</str><str name="title">a book title</str><int name="group_si">1</int></doc></result></lst><lst><str name="groupValue">author2</str><result name="doclist" numFound="100" start="0"><doc><str name="id">2</str><str name="name">author2</str><str name="title">a book title</str><int name="group_si">2</int></doc></result></lst><lst><str name="groupValue">author3</str><result name="doclist" numFound="100" start="0"><doc><str name="id">3</str><str name="name">author3</str><str name="title">a book title</str><int name="group_si">3</int></doc></result></lst><lst><str name="groupValue">author4</str><result name="doclist" numFound="100" start="0"><doc><str name="id">4</str><str name="name">author4</str><str name="title">a book title</str><int name="group_si">4</int></doc></result></lst><lst><str name="groupValue">author5</str><result name="doclist" numFound="100" start="0"><doc><str name="id">5</str><str name="name">author5</str><str name="title">a book title</str><int name="group_si">5</int></doc></result></lst><lst><str name="groupValue">author6</str><result name="doclist" numFound="100" start="0"><doc><str name="id">6</str><str name="name">author6</str><str name="title">a book title</str><int name="group_si">6</int></doc></result></lst><lst><str name="groupValue">author7</str><result name="doclist" numFound="100" start="0"><doc><str name="id">7</str><str name="name">author7</str><str name="title">a book title</str><int name="group_si">7</int></doc></result></lst><lst><str name="groupValue">author8</str><result name="doclist" numFound="100" start="0"><doc><str name="id">8</str><str name="name">author8</str><str name="title">a book title</str><int name="group_si">8</int></doc></result></lst><lst><str name="groupValue">author9</str><result name="doclist" numFound="100" start="0"><doc><str name="id">9</str><str name="name">author9</str><str name="title">a book title</str><int name="group_si">0</int></doc></result></lst></arr></lst></lst>
+
+  }
+
+  @Test
+  public void testGroupingGroupSortingScore_optimization() {
+    final int DOCS = 1000;
+    for (int docID = 0; docID < DOCS; docID++) {
+      assertU(add(doc("id", Integer.toString(docID),
+          "name", "author" + docID % 10,
+          "title", "a book title")));
+    }
+    assertU(commit());
+
+    assertQ(req(
+            "q","title:title",
+            "group", "true",
+            "group.field", "name",
+            GroupParams.GROUP_OPTIMIZE_SCORE_COLLECTING, Boolean.TRUE.toString(),
+            "rows", "5")
+
+            ,"//lst[@name='grouped']/lst[@name='name']"
+            ,"*[count(//arr[@name='groups']/lst) = 5]"
+            ,"//arr[@name='groups']/lst[3]/result[@numFound='" + DOCS/10 + "']"
+            );
+
+// 	<lst name="responseHeader"><int name="status">0</int><int name="QTime">106</int></lst>
+// <lst name="grouped"><lst name="name"><int name="matches">1000</int><arr name="groups"><lst>
+// <str name="groupValue">author0</str><result name="doclist" numFound="100" start="0">
+// <doc><str name="id">0</str><str name="name">author0</str><str name="title">a book title</str></doc></result></lst>
+// <lst><str name="groupValue">author1</str><result name="doclist" numFound="100" start="0">
+// <doc><str name="id">1</str><str name="name">author1</str><str name="title">a book title</str></doc></result></lst><lst><str name="groupValue">author2</str><result name="doclist" numFound="100" start="0"><doc><str name="id">2</str><str name="name">author2</str><str name="title">a book title</str></doc></result></lst><lst><str name="groupValue">author3</str><result name="doclist" numFound="100" start="0"><doc><str name="id">3</str><str name="name">author3</str><str name="title">a book title</str></doc></result></lst><lst><str name="groupValue">author4</str><result name="doclist" numFound="100" start="0"><doc><str name="id">4</str><str name="name">author4</str><str name="title">a book title</str></doc></result></lst></arr></lst></lst>
+  }
+
+  @Test
   public void testGroupingGroupSortingScore_basic() {
     assertU(add(doc("id", "1","name", "author1", "title", "a book title", "group_si", "1")));
     assertU(add(doc("id", "2","name", "author1", "title", "the title", "group_si", "2")));
