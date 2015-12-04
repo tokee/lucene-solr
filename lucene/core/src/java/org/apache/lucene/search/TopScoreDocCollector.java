@@ -43,9 +43,7 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
     }
     
     @Override
-    public void collect(int doc) throws IOException {
-      float score = scorer.score();
-
+    public void collect(int doc, float score) throws IOException {
       // This collector cannot handle these scores:
       assert score != Float.NEGATIVE_INFINITY;
       assert !Float.isNaN(score);
@@ -61,7 +59,7 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
       pqTop.score = score;
       pqTop = pq.updateTop();
     }
-    
+
     @Override
     public boolean acceptsDocsOutOfOrder() {
       return false;
@@ -81,8 +79,7 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
     }
     
     @Override
-    public void collect(int doc) throws IOException {
-      float score = scorer.score();
+    public void collect(int doc, float score) throws IOException {
 
       // This collector cannot handle these scores:
       assert score != Float.NEGATIVE_INFINITY;
@@ -136,9 +133,7 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
     }
     
     @Override
-    public void collect(int doc) throws IOException {
-      float score = scorer.score();
-
+    public void collect(int doc, float score) throws IOException {
       // This collector cannot handle NaN
       assert !Float.isNaN(score);
 
@@ -156,7 +151,6 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
       pqTop.score = score;
       pqTop = pq.updateTop();
     }
-    
     @Override
     public boolean acceptsDocsOutOfOrder() {
       return true;
@@ -176,9 +170,7 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
     }
     
     @Override
-    public void collect(int doc) throws IOException {
-      float score = scorer.score();
-
+    public void collect(int doc, float score) throws IOException {
       // This collector cannot handle NaN
       assert !Float.isNaN(score);
 
@@ -265,11 +257,34 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
     }
     
   }
-  
+
   ScoreDoc pqTop;
   int docBase = 0;
   Scorer scorer;
-    
+
+  /**
+   * Calculates the score for the document and determines if the document should be collected.
+   * If this method is used, it is recommended to use the {@link #collect(int, float)} method instead of
+   * {@link #collect(int)} in order to avoid duplicate score calculations.
+   * @param doc a document ID.
+   * @return the score of the document if it should be collected, else Float.NaN.
+   */
+  public float mightCollect(int doc) throws IOException {
+    float score = scorer.score();
+
+    // This collector cannot handle NaN
+    assert !Float.isNaN(score);
+    return score < pqTop.score ? Float.NaN : score;
+  }
+  @Override
+  public void collect(int doc) throws IOException {
+    collect(doc, scorer.score());
+  }
+  public abstract void collect(int doc, float score) throws IOException;
+  public float getLowestScore() {
+    return pqTop.score;
+  }
+
   // prevents instantiation
   private TopScoreDocCollector(int numHits) {
     super(new HitQueue(numHits, true));

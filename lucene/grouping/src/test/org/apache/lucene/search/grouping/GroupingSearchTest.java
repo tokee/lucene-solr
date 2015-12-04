@@ -45,6 +45,50 @@ import java.util.List;
 
 public class GroupingSearchTest extends LuceneTestCase {
 
+  public void testScoreOptimization() throws Exception {
+    final int DOCS = 1000;
+    final String groupField = "author";
+
+    FieldType customType = new FieldType();
+    customType.setStored(true);
+
+    Directory dir = newDirectory();
+    RandomIndexWriter w = new RandomIndexWriter(
+        random(),
+        dir,
+        newIndexWriterConfig(new MockAnalyzer(random())).setMergePolicy(newLogMergePolicy()));
+    boolean canUseIDV = !"Lucene3x".equals(w.w.getConfig().getCodec().getName());
+//    if (canUseIDV) {
+//      fail("Skipping test as it only makes sense to compare performance with DV-enabled index");
+//    }
+    List<Document> documents = new ArrayList<>();
+    for (int docID = 0 ; docID < DOCS ; docID++) {
+      Document doc = new Document();
+      addGroupField(doc, groupField, "author" + docID % 10, canUseIDV);
+      Field content = new TextField("content", "random text", Field.Store.YES);
+      content.setBoost(random().nextFloat());
+      doc.add(content);
+      doc.add(new Field("id", Integer.toString(docID), customType));
+      documents.add(doc);
+    }
+    w.addDocuments(documents);
+    IndexSearcher indexSearcher = newSearcher(w.getReader());
+    w.close();
+
+    Sort groupSort = Sort.RELEVANCE;
+    GroupingSearch groupingSearch = createRandomGroupingSearch(groupField, groupSort, 5, canUseIDV);
+
+    TopGroups<?> groups = groupingSearch.search(
+        indexSearcher, null, new TermQuery(new Term("content", "random")), 0, 4);
+
+    assertEquals(1000, groups.totalHitCount);
+    assertEquals(400, groups.totalGroupedHitCount);
+    assertEquals(4, groups.groups.length);
+
+    indexSearcher.getIndexReader().close();
+    dir.close();
+  }
+
   // Tests some very basic usages...
   public void testBasic() throws Exception {
 

@@ -70,6 +70,10 @@ public class TermSecondPassGroupingCollector extends AbstractSecondPassGroupingC
 
   @Override
   protected SearchGroupDocs<BytesRef> retrieveGroup(int doc) throws IOException {
+    // Retrieving the ordinal for the group value is not free.
+    // Instead we calculate the score and check if it is a viable candidate.
+    // TODO: Cache the score to avoid duplicate calculations
+//    System.out.println("*** Calling retrieveGroup");
     int slot = ordSet.find(index.getOrd(doc));
     if (slot >= 0) {
       return groupDocs[slot];

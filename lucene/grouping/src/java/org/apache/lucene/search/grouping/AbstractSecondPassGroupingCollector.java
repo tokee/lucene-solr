@@ -48,6 +48,8 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
 
   private int totalHitCount;
   private int totalGroupedHitCount;
+  protected Scorer scorer = null;
+  private float lowestScore = Float.MIN_VALUE;
 
   public AbstractSecondPassGroupingCollector(Collection<SearchGroup<GROUP_VALUE_TYPE>> groups, Sort groupSort, Sort withinGroupSort,
                                              int maxDocsPerGroup, boolean getScores, boolean getMaxScores, boolean fillSortFields)
@@ -82,6 +84,8 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
 
   @Override
   public void setScorer(Scorer scorer) throws IOException {
+//    System.out.println("*** Setting scorer");
+    this.scorer = scorer;
     for (SearchGroupDocs<GROUP_VALUE_TYPE> group : groupMap.values()) {
       group.collector.setScorer(scorer);
     }
@@ -90,10 +94,34 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
   @Override
   public void collect(int doc) throws IOException {
     totalHitCount++;
+    if (withinGroupSort != null) {
+      SearchGroupDocs<GROUP_VALUE_TYPE> group = retrieveGroup(doc);
+      if (group != null) {
+        totalGroupedHitCount++;
+        group.collector.collect(doc);
+      }
+      return;
+    }
+
+    // Score-sorted groups. Avoid lookup of group value if possible
+    float score = scorer.score();
+    if (score < lowestScore) {
+//      System.out.println("Skipped as score=" + score + " for doc=" + doc + " is < " + lowestScore);
+
+      // FIXME: This is the optimization part, but it seems to give incorrect results in GroupingSearchTest#testScoreOptimization
+      return;
+    }
     SearchGroupDocs<GROUP_VALUE_TYPE> group = retrieveGroup(doc);
     if (group != null) {
+//      System.out.println("Updating group with doc=" + doc + ", score=" + score);
+      TopScoreDocCollector scoreCollector = (TopScoreDocCollector)group.collector;
       totalGroupedHitCount++;
-      group.collector.collect(doc);
+      scoreCollector.collect(doc, score);
+      float gLow = scoreCollector.getLowestScore();
+      if (gLow > lowestScore) {
+        System.out.println("Low " + lowestScore + " -> " + gLow);
+        lowestScore = gLow;
+      }
     }
   }
 
