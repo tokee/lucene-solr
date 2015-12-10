@@ -18,6 +18,8 @@ package org.apache.lucene.search;
  */
 
 
+import java.io.IOException;
+
 import org.apache.lucene.util.PriorityQueue;
 
 /**
@@ -156,6 +158,39 @@ public abstract class TopDocsCollector<T extends ScoreDoc> extends Collector {
     populateResults(results, howMany);
     
     return newTopDocs(results, start);
+  }
+
+  // Hacks below to test whether it makes sense to optimize for score grouping
+
+
+  /**
+   * Calculates the score for the document and determines if the document should be collected.
+   * Only supported if {@link #hasLowestScore()} is true.
+   * If this method is used, it is recommended to use the {@link #collect(int, float)} method instead of
+   * {@link #collect(int)} in order to avoid duplicate score calculations.
+   * @param doc a document ID.
+   * @return the score of the document if it should be collected, else Float.NaN.
+   */
+  public float mightCollect(int doc) throws IOException {
+    throw new UnsupportedOperationException("getLowestScore is not supported in this implementation");
+  }
+
+  public void collect(int doc, float score) throws IOException {
+    throw new UnsupportedOperationException("collect with score is not supported in this implementation");
+  }
+  /**
+   * @return true if this collector keeps track of lowest score received else false.
+   */
+  public boolean hasLowestScore() {
+    return false;
+  }
+
+  /**
+   * @return the lowest score of all collected documents or {@code Float.MIN_VALUE} if unsupported or no documents
+   *         has been collected.
+   */
+  public float getLowestScore() {
+    throw new UnsupportedOperationException("getLowestScore is not supported in this implementation");
   }
 
 }

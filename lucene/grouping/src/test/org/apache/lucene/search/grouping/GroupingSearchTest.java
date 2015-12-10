@@ -92,7 +92,7 @@ public class GroupingSearchTest extends LuceneTestCase {
     }
 
     {
-      GroupingSearch groupingSearch = new GroupingSearch(groupField, false);
+      GroupingSearch groupingSearch = new GroupingSearch(groupField, true);
       groupingSearch.setGroupSort(groupSort);
       groupingSearch.setGroupDocsLimit(5);
 
@@ -100,9 +100,12 @@ public class GroupingSearchTest extends LuceneTestCase {
           indexSearcher, null, new TermQuery(new Term("content", "random")), 0, 4);
 
       assertEquals("Optimized hits should match", 1000, groups.totalHitCount);
-      assertTrue("Optimized grouped count should be < 400 (there's an off chance of hitting 400)",
-          groups.totalGroupedHitCount <= 400);
+      // TODO: Inject deterministic boosts in index creation to ensure totalGroupedHitCount is always < 400
+      assertTrue("Optimized grouped count should be < 400 " +
+          "(there's an off chance of hitting 400, so run test again if it fails)",
+          groups.totalGroupedHitCount < 400);
       assertEquals("Optimized group.length should match", 4, groups.groups.length);
+      System.out.println("Total grouped hitCount with scoreOptimizing: " + groups.totalGroupedHitCount + "/400");
     }
 
     indexSearcher.getIndexReader().close();

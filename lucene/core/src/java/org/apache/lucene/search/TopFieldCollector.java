@@ -49,6 +49,9 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
     FieldComparator<?> comparator;
     final int reverseMul;
     final FieldValueHitQueue<Entry> queue;
+    final boolean hasScore;
+    private float lowest = Float.MIN_VALUE;
+    private Scorer scorer = null;
     
     public OneComparatorNonScoringCollector(FieldValueHitQueue<Entry> queue,
         int numHits, boolean fillFields) {
@@ -56,6 +59,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
       this.queue = queue;
       comparator = queue.getComparators()[0];
       reverseMul = queue.getReverseMul()[0];
+      hasScore = reverseMul == 1 && comparator instanceof FieldComparator.RelevanceComparator;
     }
     
     final void updateBottom(int doc) {
@@ -79,6 +83,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
         comparator.copy(bottom.slot, doc);
         updateBottom(doc);
         comparator.setBottom(bottom.slot);
+        lowest = pq.top().score;
       } else {
         // Startup transient: queue hasn't gathered numHits yet
         final int slot = totalHits - 1;
@@ -87,6 +92,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
         add(slot, doc, Float.NaN);
         if (queueFull) {
           comparator.setBottom(bottom.slot);
+          lowest = pq.top().score; // Only needed when the queue is full
         }
       }
     }
@@ -101,8 +107,28 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
     @Override
     public void setScorer(Scorer scorer) throws IOException {
       comparator.setScorer(scorer);
+      this.scorer = scorer;
     }
-    
+
+    @Override
+    public float getLowestScore() {
+      return lowest;
+    }
+
+    @Override
+    public boolean hasLowestScore() {
+      return hasScore;
+    }
+
+    @Override
+    public void collect(int doc, float score) throws IOException {
+      collect(doc); // Hack: We assime the scorer is a caching scorer so there is no penalty of double score-calls.
+    }
+
+    @Override
+    public float mightCollect(int doc) throws IOException {
+      return scorer.score();
+    }
   }
 
   /*

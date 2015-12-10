@@ -102,8 +102,8 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
   @Override
   public void collect(int doc) throws IOException {
     totalHitCount++;
-    System.out.println("*** Here " + optimizeScoreCollecting + " within=" + withinGroupSort);
-    if (!isScoreSortedWithin) {
+//    System.out.println("*** Here " + optimizeScoreCollecting + " within=" + withinGroupSort);
+    if (!isScoreSortedWithin || !optimizeScoreCollecting) {
       SearchGroupDocs<GROUP_VALUE_TYPE> group = retrieveGroup(doc);
       if (group != null) {
         totalGroupedHitCount++;
@@ -114,7 +114,7 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
 
     // Score-sorted groups. Avoid lookup of group value if possible
     float score = scorer.score();
-    System.out.println("*** score=" + score);
+//    System.out.println("*** score=" + score);
     if (score < lowestScore) {
 //      System.out.println("Skipped as score=" + score + " for doc=" + doc + " is < " + lowestScore);
 
@@ -123,11 +123,13 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
     }
     SearchGroupDocs<GROUP_VALUE_TYPE> group = retrieveGroup(doc);
     if (group != null) {
+      if (!group.collector.hasLowestScore()) {
+        throw new IllegalStateException("Expected score keeping collector");
+      }
 //      System.out.println("Updating group with doc=" + doc + ", score=" + score);
-      TopScoreDocCollector scoreCollector = (TopScoreDocCollector)group.collector;
       totalGroupedHitCount++;
-      scoreCollector.collect(doc, score);
-      float gLow = scoreCollector.getLowestScore();
+      group.collector.collect(doc, score);
+      float gLow = group.collector.getLowestScore();
       if (gLow > lowestScore) { // This group is no longer lowest. Iterate to find other lowest
         float newMin = Float.MAX_VALUE;
         // TODO: Replace with priority queue of groups?

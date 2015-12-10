@@ -269,6 +269,7 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
    * @param doc a document ID.
    * @return the score of the document if it should be collected, else Float.NaN.
    */
+  @Override
   public float mightCollect(int doc) throws IOException {
     float score = scorer.score();
 
@@ -280,7 +281,13 @@ public abstract class TopScoreDocCollector extends TopDocsCollector<ScoreDoc> {
   public void collect(int doc) throws IOException {
     collect(doc, scorer.score());
   }
-  public abstract void collect(int doc, float score) throws IOException;
+
+  @Override
+  public boolean hasLowestScore() {
+    return true;
+  }
+
+  @Override
   public float getLowestScore() {
     return pqTop.score;
   }
