@@ -114,7 +114,6 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
 
     // Score-sorted groups. Avoid lookup of group value if possible
     float score = scorer.score();
-//    System.out.println("*** score=" + score);
     if (score < lowestScore) {
 //      System.out.println("Skipped as score=" + score + " for doc=" + doc + " is < " + lowestScore);
 
@@ -126,18 +125,19 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
       if (!group.collector.hasLowestScore()) {
         throw new IllegalStateException("Expected score keeping collector");
       }
-//      System.out.println("Updating group with doc=" + doc + ", score=" + score);
       totalGroupedHitCount++;
       group.collector.collect(doc, score);
       float gLow = group.collector.getLowestScore();
+      System.out.println("Updating group with doc=" + doc + ", score=" + score + ", new lowest group score is " + gLow);
       if (gLow > lowestScore) { // This group is no longer lowest. Iterate to find other lowest
+        System.out.println("*** score=" + score + ", groupLow=" + gLow + ", overallLow=" + lowestScore);
         float newMin = Float.MAX_VALUE;
         // TODO: Replace with priority queue of groups?
-        for (SearchGroup<GROUP_VALUE_TYPE> subGroup: groups) {
-          TopScoreDocCollector subScoreCollector = (TopScoreDocCollector)group.collector;
-          float gMin = subScoreCollector.getLowestScore();
+        for (SearchGroupDocs<GROUP_VALUE_TYPE> subGroup: groupDocs) {
+          float gMin =  subGroup.collector.getLowestScore();
           if (gMin < newMin) {
             newMin = gMin;
+            System.out.println("*** new lowest score=" + score);
           }
         }
         if (newMin > lowestScore) {

@@ -83,7 +83,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
         comparator.copy(bottom.slot, doc);
         updateBottom(doc);
         comparator.setBottom(bottom.slot);
-        lowest = pq.top().score;
+        lowest = pq.top().score; // FIXME: The PQ does not have the score - it is stored in the comparator(!)
       } else {
         // Startup transient: queue hasn't gathered numHits yet
         final int slot = totalHits - 1;
@@ -92,7 +92,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
         add(slot, doc, Float.NaN);
         if (queueFull) {
           comparator.setBottom(bottom.slot);
-          lowest = pq.top().score; // Only needed when the queue is full
+          lowest = pq.top().score; // FIXME: The PQ does not have the score - it is stored in the comparator(!)
         }
       }
     }

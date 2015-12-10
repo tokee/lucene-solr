@@ -110,10 +110,18 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
   @Test
   public void testGroupingGroupSortingScore_optimization() {
     final int DOCS = 1000;
+    final StringBuilder sb = new StringBuilder();
     for (int docID = 0; docID < DOCS; docID++) {
+      // Randomising score by adding content
+      sb.setLength(0);
+      int num = random().nextInt(DOCS);
+      for (int i = 0 ; i < num ; i++) {
+        sb.append(" ").append(Integer.toString(i));
+      }
+
       assertU(add(doc("id", Integer.toString(docID),
           "name", "author" + docID % 10,
-          "title", "a book title")));
+          "title", "a book title" + sb)));
     }
     assertU(commit());
 
@@ -129,12 +137,12 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
             ,"//arr[@name='groups']/lst[3]/result[@numFound='" + DOCS/10 + "']"
             );
 
-// 	<lst name="responseHeader"><int name="status">0</int><int name="QTime">106</int></lst>
-// <lst name="grouped"><lst name="name"><int name="matches">1000</int><arr name="groups"><lst>
+//    <lst name="responseHeader"><int name="status">0</int><int name="QTime">243</int></lst><lst name="grouped">
+// <lst name="name"><int name="matches">1000</int><arr name="groups"><lst>
 // <str name="groupValue">author0</str><result name="doclist" numFound="100" start="0">
-// <doc><str name="id">0</str><str name="name">author0</str><str name="title">a book title</str></doc></result></lst>
-// <lst><str name="groupValue">author1</str><result name="doclist" numFound="100" start="0">
-// <doc><str name="id">1</str><str name="name">author1</str><str name="title">a book title</str></doc></result></lst><lst><str name="groupValue">author2</str><result name="doclist" numFound="100" start="0"><doc><str name="id">2</str><str name="name">author2</str><str name="title">a book title</str></doc></result></lst><lst><str name="groupValue">author3</str><result name="doclist" numFound="100" start="0"><doc><str name="id">3</str><str name="name">author3</str><str name="title">a book title</str></doc></result></lst><lst><str name="groupValue">author4</str><result name="doclist" numFound="100" start="0"><doc><str name="id">4</str><str name="name">author4</str><str name="title">a book title</str></doc></result></lst></arr></lst></lst>
+// <doc><str name="id">0</str><str name="name">author0</str><str name="title">a book title</str></doc>
+// </result></lst><lst><str name="groupValue">author1</str><result name="doclist" numFound="100" start="0"><doc><str name="id">1</str><str name="name">author1</str><str name="title">a book title</str></doc></result></lst><lst><str name="groupValue">author2</str><result name="doclist" numFound="100" start="0"><doc><str name="id">2</str><str name="name">author2</str><str name="title">a book title</str></doc></result></lst><lst><str name="groupValue">author3</str><result name="doclist" numFound="100" start="0"><doc><str name="id">3</str><str name="name">author3</str><str name="title">a book title</str></doc></result></lst><lst><str name="groupValue">author4</str><result name="doclist" numFound="100" start="0"><doc><str name="id">4</str><str name="name">author4</str><str name="title">a book title</str></doc></result></lst></arr></lst></lst>
+
   }
 
   @Test
