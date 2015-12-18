@@ -97,6 +97,10 @@ import org.apache.lucene.util.BytesRefBuilder;
  */
 public abstract class FieldComparator<T> {
 
+  public float getLowestScore() { // Hack to measure effect of score optimization. Override!
+    return Float.MIN_VALUE;
+  }
+
   /**
    * Compare hit at slot1 with hit at slot2.
    * 
@@ -763,6 +767,11 @@ public abstract class FieldComparator<T> {
 
     RelevanceComparator(int numHits) {
       scores = new float[numHits];
+    }
+
+    @Override
+    public float getLowestScore() {
+      return bottom;
     }
 
     @Override

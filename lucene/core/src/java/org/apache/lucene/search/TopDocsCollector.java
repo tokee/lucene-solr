@@ -190,7 +190,7 @@ public abstract class TopDocsCollector<T extends ScoreDoc> extends Collector {
    *         has been collected.
    */
   public float getLowestScore() {
-    throw new UnsupportedOperationException("getLowestScore is not supported in this implementation");
+    throw new UnsupportedOperationException("getLowestScore is not supported in implementation: " + this.getClass());
   }
 
 }

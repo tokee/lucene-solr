@@ -129,6 +129,19 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
             "q","title:title",
             "group", "true",
             "group.field", "name",
+            GroupParams.GROUP_OPTIMIZE_SCORE_COLLECTING, Boolean.FALSE.toString(),
+            "rows", "5")
+
+            ,"//lst[@name='grouped']/lst[@name='name']"
+            ,"*[count(//arr[@name='groups']/lst) = 5]"
+            ,"//arr[@name='groups']/lst[3]/result[@numFound='" + DOCS/10 + "']"
+            );
+
+    log.info("Switching to optimized");
+    assertQ(req(
+            "q","title:title",
+            "group", "true",
+            "group.field", "name",
             GroupParams.GROUP_OPTIMIZE_SCORE_COLLECTING, Boolean.TRUE.toString(),
             "rows", "5")
 
@@ -136,6 +149,13 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
             ,"*[count(//arr[@name='groups']/lst) = 5]"
             ,"//arr[@name='groups']/lst[3]/result[@numFound='" + DOCS/10 + "']"
             );
+
+//    <lst name="responseHeader"><int name="status">0</int><int name="QTime">72</int></lst>
+// <lst name="grouped"><lst name="name"><int name="matches">1000</int><arr name="groups"><lst>
+// <str name="groupValue">author1</str><result name="doclist" numFound="14" start="0"><doc><str name="id">541</str>
+// <str name="name">author1</str><str name="title">a book title 0</str></doc></result></lst><lst>
+// <str name="groupValue">author5</str><result name="doclist" numFound="8" start="0"><doc><str name="id">155</str><str name="name">author5</str><str name="title">a book title 0 1 2 3 4 5 6</str></doc></result></lst><lst><str name="groupValue">author0</str><result name="doclist" numFound="13" start="0"><doc><str name="id">650</str><str name="name">author0</str><str name="title">a book title 0 1 2 3 4</str></doc></result></lst><lst><str name="groupValue">author7</str><result name="doclist" numFound="11" start="0"><doc><str name="id">67</str><str name="name">author7</str><str name="title">a book title 0 1 2 3 4 5 6 7 8 9 10 11</str></doc></result></lst><lst><str name="groupValue">author6</str><result name="doclist" numFound="9" start="0"><doc><str name="id">666</str><str name="name">author6</str><str name="title">a book title 0 1 2 3 4 5 6 7 8 9 10 11 12</str></doc></result></lst></arr></lst></lst>
+
 
 //    <lst name="responseHeader"><int name="status">0</int><int name="QTime">243</int></lst><lst name="grouped">
 // <lst name="name"><int name="matches">1000</int><arr name="groups"><lst>
