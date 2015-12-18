@@ -297,6 +297,7 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
   private static class OneComparatorScoringMaxScoreCollector extends
       OneComparatorNonScoringCollector {
 
+    private float lowest = Float.MIN_VALUE;
     Scorer scorer;
     
     public OneComparatorScoringMaxScoreCollector(FieldValueHitQueue<Entry> queue,
@@ -331,6 +332,8 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
         comparator.copy(bottom.slot, doc);
         updateBottom(doc, score);
         comparator.setBottom(bottom.slot);
+        lowest = comparator.getLowestScore();
+//        System.out.println("*** Got full lowest score " + lowest + " from comparator " + comparator.getClass() + " with bottom-score=" + bottom.score + " inside of " + this.getClass());
       } else {
         // Startup transient: queue hasn't gathered numHits yet
         final int slot = totalHits - 1;
@@ -340,10 +343,17 @@ public abstract class TopFieldCollector extends TopDocsCollector<Entry> {
         if (queueFull) {
           comparator.setBottom(bottom.slot);
         }
+        lowest = comparator.getLowestScore();
+//        System.out.println("*** Got nf lowest score " + lowest + " from comparator " + comparator.getClass() + " with bottom-score=" + bottom.score);
       }
 
     }
-    
+
+    @Override
+    public float getLowestScore() {
+      return lowest;
+    }
+
     @Override
     public void setScorer(Scorer scorer) throws IOException {
       this.scorer = scorer;

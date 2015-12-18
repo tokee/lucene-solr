@@ -98,6 +98,9 @@ import org.apache.solr.search.grouping.endresulttransformer.GroupedEndResultTran
 import org.apache.solr.search.grouping.endresulttransformer.MainEndResultTransformer;
 import org.apache.solr.search.grouping.endresulttransformer.SimpleEndResultTransformer;
 import org.apache.solr.util.SolrPluginUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.Collections;
 import java.util.Comparator;
 
@@ -107,14 +110,14 @@ import java.util.Comparator;
  *
  * @since solr 1.3
  */
-public class QueryComponent extends SearchComponent
-{
+public class QueryComponent extends SearchComponent {
+  public static Logger log = LoggerFactory.getLogger(QueryComponent.class);
+
+
   public static final String COMPONENT_NAME = "query";
 
   @Override
-  public void prepare(ResponseBuilder rb) throws IOException
-  {
-
+  public void prepare(ResponseBuilder rb) throws IOException {
     SolrQueryRequest req = rb.req;
     SolrParams params = req.getParams();
     if (!params.getBool(COMPONENT_NAME, true)) {
@@ -213,6 +216,8 @@ public class QueryComponent extends SearchComponent
 
     SolrQueryRequest req = rb.req;
     SolrParams params = req.getParams();
+    // TODO: *** remove this
+    log.info("*** prepareGrouping called with Score_optimised_grouping=" + params.getBool(GroupParams.GROUP_OPTIMIZE_SCORE_COLLECTING, false));
 
     if (null != rb.getCursorMark()) {
       // It's hard to imagine, conceptually, what it would mean to combine
