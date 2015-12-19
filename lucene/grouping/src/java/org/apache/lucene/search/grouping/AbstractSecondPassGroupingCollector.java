@@ -131,7 +131,7 @@ public abstract class AbstractSecondPassGroupingCollector<GROUP_VALUE_TYPE> exte
       group.collector.collect(doc, score);
       float gLow = group.collector.getLowestScore();
 //      System.out.println("*** Updating group with doc=" + doc + ", score=" + score + ", new lowest group score is " + gLow + " from collector " + group.collector.getClass());
-      if (oLow != gLow && gLow > lowestScore) { // This group is no longer lowest. Iterate to find other lowest
+      if (oLow == lowestScore && gLow > lowestScore) { // This group is no longer lowest. Iterate to find other lowest
 //        System.out.println("*** score=" + score + ", groupLow=" + gLow + ", overallLow=" + lowestScore);
         float newMin = Float.MAX_VALUE;
         // TODO: Replace with priority queue of groups?
