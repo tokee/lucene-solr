@@ -142,6 +142,7 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
             "q","title:title",
             "group", "true",
             "group.field", "name",
+            "indent", "true",
             GroupParams.GROUP_OPTIMIZE_SCORE_COLLECTING, Boolean.TRUE.toString(),
             "rows", "5")
 
