@@ -67,5 +67,11 @@ public interface GroupParams {
   public static final String GROUP_DISTRIBUTED_SECOND = GROUP + ".distributed.second";
 
   public static final String GROUP_DISTRIBUTED_TOPGROUPS_PREFIX = GROUP + ".topgroups.";
+
+  /**
+   * If true, grouping terms are resolved lazily and global ordinals used as long as possible.
+   * Using lazy term resolving introduces a first-call overhead, but speeds up subsequent grouping calls until the index is updated.
+   */
+  public static final String GROUP_LAZY = GROUP + ".lazy";
 }
 

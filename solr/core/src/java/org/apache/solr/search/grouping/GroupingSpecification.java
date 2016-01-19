@@ -41,6 +41,7 @@ public class GroupingSpecification {
   private Grouping.Format responseFormat;
   private boolean needScore;
   private boolean truncateGroups;
+  private boolean lazy = true;
 
   public String[] getFields() {
     return fields;
@@ -164,5 +165,13 @@ public class GroupingSpecification {
 
   public void setTruncateGroups(boolean truncateGroups) {
     this.truncateGroups = truncateGroups;
+  }
+
+  public boolean isLazy() {
+    return lazy;
+  }
+
+  public void setLazy(boolean lazy) {
+    this.lazy = lazy;
   }
 }

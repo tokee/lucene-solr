@@ -266,6 +266,7 @@ public class QueryComponent extends SearchComponent
 
     groupingSpec.setSortWithinGroup(sortWithinGroup);
     groupingSpec.setGroupSort(groupSort);
+    groupingSpec.setLazy(params.getBool(GroupParams.GROUP_LAZY, groupingSpec.isLazy()));
 
     String formatStr = params.get(GroupParams.GROUP_FORMAT, Grouping.Format.grouped.name());
     Grouping.Format responseFormat;
@@ -471,6 +472,7 @@ public class QueryComponent extends SearchComponent
             .setDefaultTotalCount(defaultTotalCount)
             .setDocsPerGroupDefault(groupingSpec.getGroupLimit())
             .setGroupOffsetDefault(groupingSpec.getGroupOffset())
+            .setGetlazyGrouping(groupingSpec.isLazy())
             .setGetGroupedDocSet(groupingSpec.isTruncateGroups());
 
         if (groupingSpec.getFields() != null) {

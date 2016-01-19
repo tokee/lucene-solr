@@ -116,8 +116,7 @@ public class Grouping {
   private boolean signalCacheWarning = false;
   private TimeLimitingCollector timeLimitingCollector;
 
-  // TODO: Make this a user-supplied option
-  private static boolean lazyGrouping = true;
+  private boolean isLazy = true;
 
   public DocList mainResult;  // output if one of the grouping commands should be used as the main result.
 
@@ -293,6 +292,11 @@ public class Grouping {
 
   public Grouping setGetGroupedDocSet(boolean getGroupedDocSet) {
     this.getGroupedDocSet = getGroupedDocSet;
+    return this;
+  }
+
+  public Grouping setGetlazyGrouping(boolean lazyGrouping) {
+    this.isLazy = lazyGrouping;
     return this;
   }
 
@@ -737,7 +741,9 @@ public class Grouping {
 
       groupSort = groupSort == null ? Sort.RELEVANCE : groupSort;
 
-      if (lazyGrouping) {
+      // TODO: Remove this when lazy is no longer experimental
+      logger.info("Performing grouping on '" + groupBy + "' with lazy term resolving = " + isLazy);
+      if (isLazy) {
         firstPassOrdinal = new OrdinalFirstPassGroupingCollector(searcher, groupBy, groupSort, actualGroupsToFind);
         return firstPassOrdinal;
       } else {
@@ -758,7 +764,7 @@ public class Grouping {
 
       Collection<SearchGroup<Long>> topGroupsOrdinals = null;
       Collection<SearchGroup<BytesRef>> topGroupsTerms = null;
-      if (lazyGrouping) {
+      if (isLazy) {
         topGroupsOrdinals = format == Format.grouped ?
             firstPassOrdinal.getTopGroups(offset, false) :
             firstPassOrdinal.getTopGroups(0, false);
@@ -780,7 +786,7 @@ public class Grouping {
 
       int groupedDocsToCollect = getMax(groupOffset, docsPerGroup, maxDoc);
       groupedDocsToCollect = Math.max(groupedDocsToCollect, 1);
-      if (lazyGrouping) {
+      if (isLazy) {
         secondPassOrdinal = new OrdinalSecondPassGroupingCollector(
             searcher, groupBy, topGroupsOrdinals, groupSort, withinGroupSort, groupedDocsToCollect,
             needScores, needScores, false);
@@ -791,9 +797,9 @@ public class Grouping {
 
       if (totalCount == TotalCount.grouped) {
         allGroupsCollector = new TermAllGroupsCollector(groupBy);
-        return MultiCollector.wrap(lazyGrouping ? secondPassOrdinal : secondPassTerm, allGroupsCollector);
+        return MultiCollector.wrap(isLazy ? secondPassOrdinal : secondPassTerm, allGroupsCollector);
       } else {
-        return lazyGrouping ? secondPassOrdinal : secondPassTerm;
+        return isLazy ? secondPassOrdinal : secondPassTerm;
       }
     }
 
@@ -811,7 +817,7 @@ public class Grouping {
      */
     @Override
     protected void finish() throws IOException {
-      if (lazyGrouping) {
+      if (isLazy) {
         result = secondPassOrdinal != null ? secondPassOrdinal.getTopGroupsBytesRef(0) : null;
       } else {
         result = secondPassTerm != null ? secondPassTerm.getTopGroups(0) : null;
