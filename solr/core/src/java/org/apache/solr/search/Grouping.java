@@ -69,6 +69,7 @@ import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.schema.FieldType;
 import org.apache.solr.schema.SchemaField;
 import org.apache.solr.schema.StrFieldSource;
+import org.apache.solr.search.grouping.OrdinalFirstPassGroupingCollector;
 import org.apache.solr.search.grouping.collector.FilterCollector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -114,6 +115,8 @@ public class Grouping {
   private boolean signalCacheWarning = false;
   private TimeLimitingCollector timeLimitingCollector;
 
+  // TODO: Make this a user-supplied option
+  private static boolean lazyGrouping = true;
 
   public DocList mainResult;  // output if one of the grouping commands should be used as the main result.
 
@@ -700,7 +703,9 @@ public class Grouping {
   public class CommandField extends Command<BytesRef> {
 
     public String groupBy;
-    TermFirstPassGroupingCollector firstPass;
+    OrdinalFirstPassGroupingCollector firstPassOrdinal;
+    TermFirstPassGroupingCollector firstPassTerm;
+    // TermFirstPassGroupingCollector firstPass;
     TermSecondPassGroupingCollector secondPass;
 
     TermAllGroupsCollector allGroupsCollector;
@@ -729,8 +734,10 @@ public class Grouping {
       }
 
       groupSort = groupSort == null ? Sort.RELEVANCE : groupSort;
-      firstPass = new TermFirstPassGroupingCollector(groupBy, groupSort, actualGroupsToFind);
-      return firstPass;
+
+      return lazyGrouping ?
+          new OrdinalFirstPassGroupingCollector(searcher, groupBy, groupSort, actualGroupsToFind) :
+          new TermFirstPassGroupingCollector(groupBy, groupSort, actualGroupsToFind);
     }
 
     /**
@@ -743,7 +750,9 @@ public class Grouping {
         return totalCount == TotalCount.grouped ? allGroupsCollector : null;
       }
 
-      topGroups = format == Format.grouped ? firstPass.getTopGroups(offset, false) : firstPass.getTopGroups(0, false);
+      topGroups = format == Format.grouped ?
+          (lazyGrouping ? firstPassOrdinal.getTopGroupsTerms(offset, false) : firstPassTerm.getTopGroups(offset, false)) :
+          (lazyGrouping ? firstPassOrdinal.getTopGroupsTerms(0, false) : firstPassTerm.getTopGroups(0, false));
       if (topGroups == null) {
         if (totalCount == TotalCount.grouped) {
           allGroupsCollector = new TermAllGroupsCollector(groupBy);
