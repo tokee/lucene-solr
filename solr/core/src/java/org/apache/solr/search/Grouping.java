@@ -69,8 +69,9 @@ import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.schema.FieldType;
 import org.apache.solr.schema.SchemaField;
 import org.apache.solr.schema.StrFieldSource;
-import org.apache.solr.search.grouping.OrdinalFirstPassGroupingCollector;
+import org.apache.solr.search.grouping.collector.OrdinalFirstPassGroupingCollector;
 import org.apache.solr.search.grouping.collector.FilterCollector;
+import org.apache.solr.search.grouping.collector.OrdinalSecondPassGroupingCollector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -706,13 +707,14 @@ public class Grouping {
     OrdinalFirstPassGroupingCollector firstPassOrdinal;
     TermFirstPassGroupingCollector firstPassTerm;
     // TermFirstPassGroupingCollector firstPass;
-    TermSecondPassGroupingCollector secondPass;
+    OrdinalSecondPassGroupingCollector secondPassOrdinal;
+    TermSecondPassGroupingCollector secondPassTerm;
 
     TermAllGroupsCollector allGroupsCollector;
 
     // If offset falls outside the number of documents a group can provide use this collector instead of secondPass
     TotalHitCountCollector fallBackCollector;
-    Collection<SearchGroup<BytesRef>> topGroups;
+
 
     /**
      * {@inheritDoc}
@@ -735,9 +737,13 @@ public class Grouping {
 
       groupSort = groupSort == null ? Sort.RELEVANCE : groupSort;
 
-      return lazyGrouping ?
-          new OrdinalFirstPassGroupingCollector(searcher, groupBy, groupSort, actualGroupsToFind) :
-          new TermFirstPassGroupingCollector(groupBy, groupSort, actualGroupsToFind);
+      if (lazyGrouping) {
+        firstPassOrdinal = new OrdinalFirstPassGroupingCollector(searcher, groupBy, groupSort, actualGroupsToFind);
+        return firstPassOrdinal;
+      } else {
+        firstPassTerm = new TermFirstPassGroupingCollector(groupBy, groupSort, actualGroupsToFind);
+        return firstPassTerm;
+      }
     }
 
     /**
@@ -750,10 +756,18 @@ public class Grouping {
         return totalCount == TotalCount.grouped ? allGroupsCollector : null;
       }
 
-      topGroups = format == Format.grouped ?
-          (lazyGrouping ? firstPassOrdinal.getTopGroupsTerms(offset, false) : firstPassTerm.getTopGroups(offset, false)) :
-          (lazyGrouping ? firstPassOrdinal.getTopGroupsTerms(0, false) : firstPassTerm.getTopGroups(0, false));
-      if (topGroups == null) {
+      Collection<SearchGroup<Long>> topGroupsOrdinals = null;
+      Collection<SearchGroup<BytesRef>> topGroupsTerms = null;
+      if (lazyGrouping) {
+        topGroupsOrdinals = format == Format.grouped ?
+            firstPassOrdinal.getTopGroups(offset, false) :
+            firstPassOrdinal.getTopGroups(0, false);
+      } else {
+        topGroupsTerms = format == Format.grouped ?
+            firstPassTerm.getTopGroups(offset, false) :
+            firstPassTerm.getTopGroups(0, false);
+      }
+      if (topGroupsOrdinals == null && topGroupsTerms == null) {
         if (totalCount == TotalCount.grouped) {
           allGroupsCollector = new TermAllGroupsCollector(groupBy);
           fallBackCollector = new TotalHitCountCollector();
@@ -766,15 +780,20 @@ public class Grouping {
 
       int groupedDocsToCollect = getMax(groupOffset, docsPerGroup, maxDoc);
       groupedDocsToCollect = Math.max(groupedDocsToCollect, 1);
-      secondPass = new TermSecondPassGroupingCollector(
-          groupBy, topGroups, groupSort, withinGroupSort, groupedDocsToCollect, needScores, needScores, false
-      );
+      if (lazyGrouping) {
+        secondPassOrdinal = new OrdinalSecondPassGroupingCollector(
+            searcher, groupBy, topGroupsOrdinals, groupSort, withinGroupSort, groupedDocsToCollect,
+            needScores, needScores, false);
+      } else {
+        secondPassTerm = new TermSecondPassGroupingCollector(
+            groupBy, topGroupsTerms, groupSort, withinGroupSort, groupedDocsToCollect, needScores, needScores, false);
+      }
 
       if (totalCount == TotalCount.grouped) {
         allGroupsCollector = new TermAllGroupsCollector(groupBy);
-        return MultiCollector.wrap(secondPass, allGroupsCollector);
+        return MultiCollector.wrap(lazyGrouping ? secondPassOrdinal : secondPassTerm, allGroupsCollector);
       } else {
-        return secondPass;
+        return lazyGrouping ? secondPassOrdinal : secondPassTerm;
       }
     }
 
@@ -792,7 +811,11 @@ public class Grouping {
      */
     @Override
     protected void finish() throws IOException {
-      result = secondPass != null ? secondPass.getTopGroups(0) : null;
+      if (lazyGrouping) {
+        result = secondPassOrdinal != null ? secondPassOrdinal.getTopGroupsBytesRef(0) : null;
+      } else {
+        result = secondPassTerm != null ? secondPassTerm.getTopGroups(0) : null;
+      }
       if (main) {
         mainResult = createSimpleResponse();
         return;

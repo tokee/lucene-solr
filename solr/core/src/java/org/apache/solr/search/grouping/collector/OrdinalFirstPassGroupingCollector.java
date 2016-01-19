@@ -1,4 +1,4 @@
-package org.apache.solr.search.grouping;
+package org.apache.solr.search.grouping.collector;
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -117,9 +117,9 @@ public class OrdinalFirstPassGroupingCollector extends AbstractFirstPassGrouping
 
   @Override
   protected void doSetNextReader(LeafReaderContext readerContext) throws IOException {
-    segmentIndex = readerContext.ord;
     super.doSetNextReader(readerContext);
     indexDV = DocValues.getSorted(readerContext.reader(), groupField);
+    segmentIndex = readerContext.ord;
   }
   
   @Override
