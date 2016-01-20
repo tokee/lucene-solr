@@ -18,6 +18,7 @@ package org.apache.solr.search.grouping.collector;
  */
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collection;
 
@@ -32,6 +33,8 @@ import org.apache.lucene.search.grouping.SearchGroup;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.solr.search.SolrIndexSearcher;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Concrete implementation of {@link AbstractFirstPassGroupingCollector} that groups based on
@@ -41,6 +44,7 @@ import org.apache.solr.search.SolrIndexSearcher;
  * @lucene.experimental
  */
 public class OrdinalFirstPassGroupingCollector extends AbstractFirstPassGroupingCollector<Long> {
+  private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
   private SortedDocValues globalDV;
   private SortedSetDocValues globalSI; // for term lookups only
@@ -71,12 +75,15 @@ public class OrdinalFirstPassGroupingCollector extends AbstractFirstPassGrouping
     super(groupSort, topNGroups);
     this.groupField = groupField;
 
+    long initStart = System.currentTimeMillis();
     // Look at DocValuesFacets for inspiration
     globalDV = searcher.getLeafReader().getSortedDocValues(groupField);
     globalSI = globalDV == null ? null : DocValues.singleton(globalDV);
     if (globalDV instanceof MultiDocValues.MultiSortedDocValues) {
       ordinalMap = ((MultiDocValues.MultiSortedDocValues) globalDV).mapping;
     }
+    log.info("Timing lazy=true. Initialized ordinal lookup structures in "
+        + (System.nanoTime()-initStart)/1000000 + "ms");
   }
 
   // TODO: Development code. Remove when working

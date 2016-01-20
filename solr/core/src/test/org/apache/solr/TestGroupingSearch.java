@@ -288,6 +288,35 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
   }
 
   @Test
+  public void testLazyGrouping() throws Exception {
+    testLazyGrouping(false);
+    testLazyGrouping(true);
+  }
+
+  private void testLazyGrouping(boolean lazy) throws Exception {
+    assertU(add(doc("id", "1","name", "author1", "title", "a book title", "group_i", "1")));
+    assertU(add(doc("id", "2","name", "author1", "title", "the title", "group_i", "2")));
+    assertU(add(doc("id", "3","name", "author2", "title", "a book title", "group_i", "1")));
+    assertU(commit());
+    assertU(add(doc("id", "4","name", "author2", "title", "title", "group_i", "2")));
+    assertU(add(doc("id", "5","name", "author3", "title", "the title of a title", "group_i", "1")));
+    assertU(commit());
+    assertU(add(doc("id", "6","name", "author3", "title", "title the third title of the title", "group_i", "1")));
+    assertU(commit());
+
+    assertJQ(
+        req("q", "*:*", "rows", "3", "group", "true", "group.field", "name", "fl", "id",
+            GroupParams.GROUP_LAZY, Boolean.toString(lazy)),
+        "/grouped=={'name':{'matches':6,'groups':[" +
+            "{'groupValue':'author1','doclist':{'numFound':2,'start':0,'docs':[{'id':'1'}]}}," +
+            "{'groupValue':'author2','doclist':{'numFound':2,'start':0,'docs':[{'id':'3'}]}}," +
+            "{'groupValue':'author3','doclist':{'numFound':2,'start':0,'docs':[{'id':'5'}]}}" +
+            "]}}"
+        //"/grouped=={'name':{'matches':5,'groups':[{'groupValue':'author1','doclist':{'numFound':2,'start':0,'docs':[{'id':'1'}]}}]}}"
+    );
+  }
+
+  @Test
   public void testGroupingSortByFunction() throws Exception {
     assertU(add(doc("id", "1", "value1_i", "1", "value2_i", "1", "store", "45.18014,-93.87742")));
     assertU(add(doc("id", "2", "value1_i", "1", "value2_i", "2", "store", "45.18014,-93.87743")));
@@ -657,7 +686,6 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
 
 
   }
-
 
 
   @Test
