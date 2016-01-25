@@ -75,7 +75,7 @@ public class OrdinalSecondPassGroupingCollector extends AbstractSecondPassGroupi
       ordinalMap = ((MultiDocValues.MultiSortedDocValues) globalDV).mapping;
     }
     log.info("Timing lazy=true. Initialized ordinal lookup structures in "
-        + (System.nanoTime()-initStart)/1000000 + "ms");
+        + (System.currentTimeMillis()-initStart) + "ms");
   }
 
   /*
@@ -129,14 +129,13 @@ public class OrdinalSecondPassGroupingCollector extends AbstractSecondPassGroupi
   @Override
   protected SearchGroupDocs<Long> retrieveGroup(int doc) throws IOException {
     final int segOrd = index.getOrd(doc);
-    final long globOrd = ordinalMap == null ? segOrd : ordinalMap.getGlobalOrds(segmentIndex).get(segOrd);
+      final long globOrd = ordinalMap == null || segOrd == -1 ? segOrd : ordinalMap.getGlobalOrds(segmentIndex).get(segOrd);
+      int slot = ordSet.find((int) globOrd);
 
-    int slot = ordSet.find((int) globOrd);
-
-    if (slot >= 0) {
-      return groupDocs[slot];
-    }
-    return null;
+      if (slot >= 0) {
+        return groupDocs[slot];
+      }
+      return null;
   }
   
   @Override

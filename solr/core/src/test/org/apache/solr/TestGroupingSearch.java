@@ -289,11 +289,12 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
 
   @Test
   public void testLazyGrouping() throws Exception {
-    testLazyGrouping(false);
-    testLazyGrouping(true);
+    testLazyGrouping(false, false);
+    testLazyGrouping(true, false);
+    testLazyGrouping(true, true);
   }
 
-  private void testLazyGrouping(boolean lazy) throws Exception {
+  private void testLazyGrouping(boolean lazyFirst, boolean lazySecond) throws Exception {
     assertU(add(doc("id", "1","name", "author1", "title", "a book title", "group_i", "1")));
     assertU(add(doc("id", "2","name", "author1", "title", "the title", "group_i", "2")));
     assertU(add(doc("id", "3","name", "author2", "title", "a book title", "group_i", "1")));
@@ -306,7 +307,8 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
 
     assertJQ(
         req("q", "*:*", "rows", "3", "group", "true", "group.field", "name", "fl", "id",
-            GroupParams.GROUP_LAZY, Boolean.toString(lazy)),
+            GroupParams.GROUP_LAZY_FIRST, Boolean.toString(lazyFirst),
+            GroupParams.GROUP_LAZY_SECOND, Boolean.toString(lazySecond)),
         "/grouped=={'name':{'matches':6,'groups':[" +
             "{'groupValue':'author1','doclist':{'numFound':2,'start':0,'docs':[{'id':'1'}]}}," +
             "{'groupValue':'author2','doclist':{'numFound':2,'start':0,'docs':[{'id':'3'}]}}," +

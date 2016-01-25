@@ -26,8 +26,6 @@ import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
-import org.apache.lucene.search.BooleanClause.Occur;
-import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.Filter;
 import org.apache.lucene.search.FilterCollector;
@@ -266,7 +264,8 @@ public class SimpleFacets {
     DocSet base = searcher.getDocSet(qlist);
     if (rb.grouping() && rb.getGroupingSpec().isTruncateGroups()) {
       Grouping grouping = new Grouping(searcher, null, rb.getQueryCommand(), false, 0, false);
-      grouping.setGetlazyGrouping(rb.getGroupingSpec().isLazy());
+      grouping.setLazyFirstGrouping(rb.getGroupingSpec().isLazyFirst());
+      grouping.setLazySecondGrouping(rb.getGroupingSpec().isLazySecond());
       grouping.setWithinGroupSort(rb.getGroupingSpec().getSortWithinGroup());
       if (rb.getGroupingSpec().getFields().length > 0) {
         grouping.addFieldCommand(rb.getGroupingSpec().getFields()[0], req);

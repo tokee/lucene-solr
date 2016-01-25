@@ -27,7 +27,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.configuration.SystemConfiguration;
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.ExitableDirectoryReader;
@@ -117,7 +116,8 @@ public class Grouping {
   private boolean signalCacheWarning = false;
   private TimeLimitingCollector timeLimitingCollector;
 
-  private boolean isLazy = true;
+  private boolean isLazyFirst = true;
+  private boolean isLazySecond = true;
 
   public DocList mainResult;  // output if one of the grouping commands should be used as the main result.
 
@@ -296,8 +296,13 @@ public class Grouping {
     return this;
   }
 
-  public Grouping setGetlazyGrouping(boolean lazyGrouping) {
-    this.isLazy = lazyGrouping;
+  public Grouping setLazyFirstGrouping(boolean lazyGrouping) {
+    this.isLazyFirst = lazyGrouping;
+    return this;
+  }
+
+  public Grouping setLazySecondGrouping(boolean lazyGrouping) {
+    this.isLazySecond = lazyGrouping;
     return this;
   }
 
@@ -743,15 +748,15 @@ public class Grouping {
       groupSort = groupSort == null ? Sort.RELEVANCE : groupSort;
 
       // TODO: Remove this when lazy is no longer experimental
-      logger.info("Performing grouping on '" + groupBy + "' with lazy term resolving = " + isLazy);
+      logger.info("Performing grouping on '" + groupBy + "' with lazy term resolving = " + isLazyFirst + "/" + isLazySecond);
       long createTime = System.nanoTime();
-      if (isLazy) {
+      if (isLazyFirst) {
         firstPassOrdinal = new OrdinalFirstPassGroupingCollector(searcher, groupBy, groupSort, actualGroupsToFind);
-        logger.info("Timing lazy=" + isLazy + ": Created first pass collector in " + (System.nanoTime()-createTime)/1000000 + "ms");
+        logger.info("Timing lazy=" + isLazyFirst + ": Created first pass collector in " + (System.nanoTime()-createTime)/1000000 + "ms");
         return firstPassOrdinal;
       } else {
         firstPassTerm = new TermFirstPassGroupingCollector(groupBy, groupSort, actualGroupsToFind);
-        logger.info("Timing lazy=" + isLazy + ": Created first pass collector in " + (System.nanoTime()-createTime)/1000000 + "ms");
+        logger.info("Timing lazy=" + isLazyFirst + ": Created first pass collector in " + (System.nanoTime()-createTime)/1000000 + "ms");
         return firstPassTerm;
       }
     }
@@ -769,16 +774,25 @@ public class Grouping {
       Collection<SearchGroup<Long>> topGroupsOrdinals = null;
       Collection<SearchGroup<BytesRef>> topGroupsTerms = null;
       long getTopStart = System.nanoTime();
-      if (isLazy) {
-        topGroupsOrdinals = format == Format.grouped ?
-            firstPassOrdinal.getTopGroups(offset, false) :
-            firstPassOrdinal.getTopGroups(0, false);
+      if (isLazyFirst) {
+        if (isLazySecond) {
+          topGroupsOrdinals = format == Format.grouped ?
+              firstPassOrdinal.getTopGroups(offset, false) :
+              firstPassOrdinal.getTopGroups(0, false);
+        } else {
+          topGroupsTerms = format == Format.grouped ?
+              firstPassOrdinal.getTopGroupsTerms(offset, false) :
+              firstPassOrdinal.getTopGroupsTerms(0, false);
+        }
       } else {
+        if (isLazySecond) {
+          throw new UnsupportedOperationException("non-lazy first and lazy second not supported yet");
+        }
         topGroupsTerms = format == Format.grouped ?
             firstPassTerm.getTopGroups(offset, false) :
             firstPassTerm.getTopGroups(0, false);
       }
-      logger.info("Timing lazy=" + isLazy + ": got top groups in " + (System.nanoTime()-getTopStart)/1000000 + "ms");
+      logger.info("Timing lazy=" + isLazyFirst + ": got top groups in " + (System.nanoTime()-getTopStart)/1000000 + "ms");
 
       if (topGroupsOrdinals == null && topGroupsTerms == null) {
         if (totalCount == TotalCount.grouped) {
@@ -794,7 +808,7 @@ public class Grouping {
       int groupedDocsToCollect = getMax(groupOffset, docsPerGroup, maxDoc);
       groupedDocsToCollect = Math.max(groupedDocsToCollect, 1);
       long createSecond = System.nanoTime();
-      if (isLazy) {
+      if (isLazySecond) {
         secondPassOrdinal = new OrdinalSecondPassGroupingCollector(
             searcher, groupBy, topGroupsOrdinals, groupSort, withinGroupSort, groupedDocsToCollect,
             needScores, needScores, false);
@@ -802,14 +816,14 @@ public class Grouping {
         secondPassTerm = new TermSecondPassGroupingCollector(
             groupBy, topGroupsTerms, groupSort, withinGroupSort, groupedDocsToCollect, needScores, needScores, false);
       }
-      logger.info("Timing lazy=" + isLazy + ": Created second pass collector in "
+      logger.info("Timing lazy=" + isLazySecond + ": Created second pass collector in "
           + (System.nanoTime()-createSecond)/1000000 + "ms");
 
       if (totalCount == TotalCount.grouped) {
         allGroupsCollector = new TermAllGroupsCollector(groupBy);
-        return MultiCollector.wrap(isLazy ? secondPassOrdinal : secondPassTerm, allGroupsCollector);
+        return MultiCollector.wrap(isLazySecond ? secondPassOrdinal : secondPassTerm, allGroupsCollector);
       } else {
-        return isLazy ? secondPassOrdinal : secondPassTerm;
+        return isLazySecond ? secondPassOrdinal : secondPassTerm;
       }
     }
 
@@ -828,12 +842,12 @@ public class Grouping {
     @Override
     protected void finish() throws IOException {
       long finStart = System.nanoTime();
-      if (isLazy) {
+      if (isLazySecond) {
         result = secondPassOrdinal != null ? secondPassOrdinal.getTopGroupsBytesRef(0) : null;
       } else {
         result = secondPassTerm != null ? secondPassTerm.getTopGroups(0) : null;
       }
-      logger.info("Timing lazy=" + isLazy + ": Got top groups from secondary in "
+      logger.info("Timing lazy=" + isLazySecond + ": Got top groups from secondary in "
           + (System.nanoTime()-finStart)/1000000 + "ms");
 
       if (main) {

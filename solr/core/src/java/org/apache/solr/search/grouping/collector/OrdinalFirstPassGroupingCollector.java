@@ -83,7 +83,7 @@ public class OrdinalFirstPassGroupingCollector extends AbstractFirstPassGrouping
       ordinalMap = ((MultiDocValues.MultiSortedDocValues) globalDV).mapping;
     }
     log.info("Timing lazy=true. Initialized ordinal lookup structures in "
-        + (System.nanoTime()-initStart)/1000000 + "ms");
+        + (System.currentTimeMillis()-initStart) + "ms");
   }
 
   // TODO: Development code. Remove when working

@@ -69,9 +69,17 @@ public interface GroupParams {
   public static final String GROUP_DISTRIBUTED_TOPGROUPS_PREFIX = GROUP + ".topgroups.";
 
   /**
-   * If true, grouping terms are resolved lazily and global ordinals used as long as possible.
+   * If true, grouping terms are resolved lazily and global ordinals used for first pass.
    * Using lazy term resolving introduces a first-call overhead, but speeds up subsequent grouping calls until the index is updated.
    */
-  public static final String GROUP_LAZY = GROUP + ".lazy";
+  public static final String GROUP_LAZY_FIRST = GROUP + ".lazy.first";
+
+  /**
+   * If true, grouping terms are resolved lazily and global ordinals used for second pass.
+   * Using lazy term resolving introduces a first-call overhead, but speeds up subsequent grouping calls until the index is updated.
+   *
+   *  Note: Currently lazy second pass requires first pass to be lazy too.
+   */
+  public static final String GROUP_LAZY_SECOND = GROUP + ".lazy.second";
 }
 

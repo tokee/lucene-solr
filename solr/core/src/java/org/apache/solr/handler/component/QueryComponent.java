@@ -37,7 +37,6 @@ import org.apache.lucene.index.IndexReaderContext;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.ReaderUtil;
 import org.apache.lucene.index.Term;
-import org.apache.lucene.search.BooleanQuery;
 import org.apache.lucene.search.FieldComparator;
 import org.apache.lucene.search.LeafFieldComparator;
 import org.apache.lucene.search.MatchNoDocsQuery;
@@ -266,7 +265,8 @@ public class QueryComponent extends SearchComponent
 
     groupingSpec.setSortWithinGroup(sortWithinGroup);
     groupingSpec.setGroupSort(groupSort);
-    groupingSpec.setLazy(params.getBool(GroupParams.GROUP_LAZY, groupingSpec.isLazy()));
+    groupingSpec.setLazyFirst(params.getBool(GroupParams.GROUP_LAZY_FIRST, groupingSpec.isLazyFirst()));
+    groupingSpec.setLazySecond(params.getBool(GroupParams.GROUP_LAZY_SECOND, groupingSpec.isLazySecond()));
 
     String formatStr = params.get(GroupParams.GROUP_FORMAT, Grouping.Format.grouped.name());
     Grouping.Format responseFormat;
@@ -472,7 +472,8 @@ public class QueryComponent extends SearchComponent
             .setDefaultTotalCount(defaultTotalCount)
             .setDocsPerGroupDefault(groupingSpec.getGroupLimit())
             .setGroupOffsetDefault(groupingSpec.getGroupOffset())
-            .setGetlazyGrouping(groupingSpec.isLazy())
+            .setLazyFirstGrouping(groupingSpec.isLazyFirst())
+            .setLazySecondGrouping(groupingSpec.isLazySecond())
             .setGetGroupedDocSet(groupingSpec.isTruncateGroups());
 
         if (groupingSpec.getFields() != null) {
