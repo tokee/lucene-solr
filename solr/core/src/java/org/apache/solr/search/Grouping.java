@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -27,8 +28,15 @@ import java.util.Map;
 import java.util.Set;
 
 import org.apache.commons.lang.ArrayUtils;
+import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang.SystemUtils;
+import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.ExitableDirectoryReader;
+import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.MultiDocValues;
+import org.apache.lucene.index.SortedDocValues;
+import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.queries.function.FunctionQuery;
 import org.apache.lucene.queries.function.ValueSource;
 import org.apache.lucene.queries.function.valuesource.QueryValueSource;
@@ -57,9 +65,12 @@ import org.apache.lucene.search.grouping.function.FunctionSecondPassGroupingColl
 import org.apache.lucene.search.grouping.term.TermAllGroupHeadsCollector;
 import org.apache.lucene.search.grouping.term.TermAllGroupsCollector;
 import org.apache.lucene.search.grouping.term.TermFirstPassGroupingCollector;
+import org.apache.lucene.search.grouping.term.TermMemCollector;
 import org.apache.lucene.search.grouping.term.TermSecondPassGroupingCollector;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.LongValues;
 import org.apache.lucene.util.mutable.MutableValue;
+import org.apache.lucene.util.packed.PackedInts;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.util.NamedList;
 import org.apache.solr.common.util.SimpleOrderedMap;
@@ -156,9 +167,21 @@ public class Grouping {
       return;
     }
 
-    Grouping.CommandField gc = new CommandField();
+    Grouping.Command gc;
+    // TODO: Make this a proper option
+    // TODO: Relax the requirement of only relevance sorting
+    if (request.getParams().getFieldBool(field, "group.memcache") &&
+        groupSort == Sort.RELEVANCE && withinGroupSort == Sort.RELEVANCE) {
+      Grouping.CommandMemField gcm = new CommandMemField();
+      gcm.groupBy = field;
+      gc = gcm;
+    } else {
+      Grouping.CommandField gcf = new CommandField();
+      gcf.groupBy = field;
+      gc = gcf;
+    }
+
     gc.withinGroupSort = withinGroupSort;
-    gc.groupBy = field;
     gc.key = field;
     gc.numGroups = limitDefault;
     gc.docsPerGroup = docsPerGroupDefault;
@@ -295,6 +318,11 @@ public class Grouping {
   }
 
   public void execute() throws IOException {
+
+  }
+
+  // Unmodified (except for the method name) execute from Solr 5.5 (2016-03-09)
+  public void vanillaExecute() throws IOException {
     if (commands.isEmpty()) {
       throw new SolrException(SolrException.ErrorCode.BAD_REQUEST, "Specify at least one field, function or query to group by.");
     }
@@ -846,6 +874,228 @@ public class Grouping {
       return allGroupsCollector == null ? null : allGroupsCollector.getGroupCount();
     }
   }
+
+  /**
+   * Groups on field and attempts to achieve better speed than {@link CommandField}
+   * at the cost of up-front initialization cost and (much) larger memory overhead.
+   *
+   * The core of the speed-optimization is a map from top-level docID to top-level Term-ordinal.
+   * When the group size is > 1, an explicit cache of the scores is also used.
+   */
+  public class CommandMemField extends Command<BytesRef> {
+
+    public String groupBy;
+    private TermMemCollector onlyPass;
+
+    private Doc2OrdMap docID2ordinal;
+    private TermAllGroupsCollector allGroupsCollector;
+
+    // If offset falls outside the number of documents a group can provide use this collector instead of secondPass
+    TotalHitCountCollector fallBackCollector;
+    Collection<SearchGroup<BytesRef>> topGroups;
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    protected void prepare() throws IOException {
+      actualGroupsToFind = getMax(offset, numGroups, maxDoc);
+      docID2ordinal = createDoc2OrdinalMap(groupBy);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    protected Collector createFirstPassCollector() throws IOException {
+      // Ok we don't want groups, but do want a total count
+      if (actualGroupsToFind <= 0) {
+        fallBackCollector = new TotalHitCountCollector();
+        return fallBackCollector;
+      }
+
+      groupSort = groupSort == null ? Sort.RELEVANCE : groupSort;
+      onlyPass = new TermMemCollector(groupBy, actualGroupsToFind, docID2ordinal.si, docID2ordinal.doc2ord);
+      return onlyPass;
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    protected Collector createSecondPassCollector() throws IOException {
+      return null; // AllGroups if free in TermMemCollector
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    protected void finish() throws IOException {
+      int groupedDocsToCollect = Math.max(1, getMax(groupOffset, docsPerGroup, maxDoc));
+
+      result = secondPass != null ? secondPass.getTopGroups(0) : null;
+      if (main) {
+        mainResult = createSimpleResponse();
+        return;
+      }
+
+      NamedList groupResult = commonResponse();
+
+      if (format == Format.simple) {
+        groupResult.add("doclist", createSimpleResponse());
+        return;
+      }
+
+      List groupList = new ArrayList();
+      groupResult.add("groups", groupList);        // grouped={ key={ groups=[
+
+      if (result == null) {
+        return;
+      }
+
+      // handle case of rows=0
+      if (numGroups == 0) return;
+
+      for (GroupDocs<BytesRef> group : result.groups) {
+        NamedList nl = new SimpleOrderedMap();
+        groupList.add(nl);                         // grouped={ key={ groups=[ {
+
+
+        // To keep the response format compatable with trunk.
+        // In trunk MutableValue can convert an indexed value to its native type. E.g. string to int
+        // The only option I currently see is the use the FieldType for this
+        if (group.groupValue != null) {
+          SchemaField schemaField = searcher.getSchema().getField(groupBy);
+          FieldType fieldType = schemaField.getType();
+          String readableValue = fieldType.indexedToReadable(group.groupValue.utf8ToString());
+          IndexableField field = schemaField.createField(readableValue, 1.0f);
+          nl.add("groupValue", fieldType.toObject(field));
+        } else {
+          nl.add("groupValue", null);
+        }
+
+        addDocList(nl, group);
+      }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public int getMatches() {
+      if (result == null && fallBackCollector == null) {
+        return 0;
+      }
+
+      return result != null ? result.totalHitCount : fallBackCollector.getTotalHits();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    protected Integer getNumberOfGroups() {
+      return allGroupsCollector == null ? null : allGroupsCollector.getGroupCount();
+    }
+
+  }
+
+  // TODO: Extremely hackish and fails on index update. Custom caching is needed (see searcher.cacheLookup et al)
+  private static final Map<String, Doc2OrdMap> groupCache = new HashMap<>();
+  private Doc2OrdMap createDoc2OrdinalMap(String field) throws IOException {
+    final long startTime = System.currentTimeMillis();
+    final String cacheKey = "grouping_doc2ord_field=" + field;
+
+    synchronized (Grouping.class) {
+      Doc2OrdMap doc2ord = groupCache.get(cacheKey);
+      if (doc2ord != null) {
+        return doc2ord;
+      }
+
+      logger.info("Creating top-level docID ➡ ordinal ➡ term structures for field " + field);
+
+      // Create segment-ordinal ➡ global-ordinal mapper as well as global-ordinal ➡ term mapper
+      SchemaField schemaField = searcher.getSchema().getField(field);
+      FieldType ft = schemaField.getType();
+      if (schemaField.multiValued() || ft.multiValuedFieldCache()) {
+        // TODO: Consider supporting multi-value by taking the first value
+        throw new IllegalStateException("Grouping not supported on multi valued field " + field);
+      }
+
+      final SortedSetDocValues si; // for term lookups only
+      MultiDocValues.OrdinalMap ordinalMap = null; // for mapping per-segment ords to global ones
+
+      SortedDocValues single = searcher.getLeafReader().getSortedDocValues(field);
+      si = single == null ? null : DocValues.singleton(single);
+      if (single instanceof MultiDocValues.MultiSortedDocValues) {
+        ordinalMap = ((MultiDocValues.MultiSortedDocValues) single).mapping;
+      }
+      if (si == null) {
+        throw new UnsupportedOperationException("Unable to determine SortedSetDocValues");
+      }
+      if (si.getValueCount() >= Integer.MAX_VALUE) {
+        throw new UnsupportedOperationException("Cannot group on more than 2 billion unique values, sorry");
+      }
+      final SortedDocValues singleton = DocValues.unwrapSingleton(si);
+
+      // Create global-docID ➡ global-ordinal mapper
+      int leaveCount = searcher.getIndexReader().leaves().size();
+      if (ordinalMap == null && leaveCount != 1) {
+        throw new IllegalStateException( // TODO: What about 0 leaves?
+            "Logic error: top-level ordinal map is null, but there are " + leaveCount + " leaves. Expected 1 leaf");
+      }
+
+      PackedInts.Mutable d2o = ordinalMap == null ?
+          PackedInts.getMutable(searcher.maxDoc(), PackedInts.bitsRequired(
+              searcher.getIndexReader().leaves().get(0).reader().maxDoc()
+          ), PackedInts.FAST) :
+          PackedInts.getMutable(searcher.maxDoc(), PackedInts.bitsRequired(ordinalMap.getValueCount()), PackedInts.FAST);
+      int leafIndex = 0;
+      for (LeafReaderContext leafContext : searcher.getIndexReader().leaves()) {
+        int segmentMaxDoc = leafContext.reader().maxDoc();
+        final LongValues segmentMap = ordinalMap == null ? null : ordinalMap.getGlobalOrds(leafIndex++);
+        SortedDocValues segmentDV = leafContext.reader().getSortedDocValues(field);
+        if (segmentDV == null) {
+          segmentDV = DocValues.emptySorted();
+        }
+
+        for (int segmentDocID = 0; segmentDocID < segmentMaxDoc; segmentDocID++) {
+
+          final int globalDocID = leafContext.docBase + segmentDocID;
+          int segmentOrd = segmentDV.getOrd(segmentDocID);
+          if (segmentMap != null && segmentOrd >= 0) {
+            d2o.set(globalDocID, segmentMap.get(segmentOrd));
+          } else if (ordinalMap == null && segmentOrd >= 0) {
+            d2o.set(globalDocID, segmentOrd); // TODO: Single segment mapper could be created a lot faster
+          }
+        }
+      }
+      Doc2OrdMap d2om = new Doc2OrdMap(singleton, d2o);
+      groupCache.put(cacheKey, d2om);
+      logger.info("Created top-level docID ➡ ordinal ➡ term structures for field " + field
+          + " in " + (System.currentTimeMillis() - startTime) + "ms");
+      return d2om;
+    }
+  }
+  public class Doc2OrdMap {
+    private final SortedDocValues si; // global ord -> term
+    private final PackedInts.Reader doc2ord; // global docID -> global ord
+
+    public Doc2OrdMap(SortedDocValues si, PackedInts.Reader doc2ord) {
+      this.si = si;
+      this.doc2ord = doc2ord;
+    }
+
+    public BytesRef getTermFromDoc(int globalDocID) {
+      return si.get(globalDocID);
+    }
+
+    public BytesRef getTermFromOrd(int globalOrdinal) {
+      return si.lookupOrd(globalOrdinal);
+    }
+  }
+
 
   /**
    * A group command for grouping on a query.
