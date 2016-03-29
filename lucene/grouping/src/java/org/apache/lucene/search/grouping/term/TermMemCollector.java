@@ -21,13 +21,17 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.SortedDocValues;
+import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.SimpleCollector;
+import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.grouping.GroupDocs;
 import org.apache.lucene.search.grouping.SearchGroup;
@@ -50,6 +54,7 @@ public class TermMemCollector extends SimpleCollector {
   private final PackedInts.Reader doc2ord; // global docID -> global ord
   private final float[] scores;
   private final CollapsingPriorityQueue<Long, Float, Integer> topGroups;
+  int totalHitCount = 0;
 
   private Scorer scorer = null;
   private int docBase = 0;
@@ -71,6 +76,7 @@ public class TermMemCollector extends SimpleCollector {
     if (topGroups.isCandidate(scores[docID])) {
       topGroups.add(doc2ord.get(segmentDocID), scores[docID], docID);
     }
+    totalHitCount++;
   }
 
   /**
@@ -166,12 +172,40 @@ public class TermMemCollector extends SimpleCollector {
     @SuppressWarnings({"unchecked","rawtypes"})
     final GroupDocs<BytesRef>[] groupDocsResult = (GroupDocs<BytesRef>[]) new GroupDocs[groupsWithDocs.size()];
 
+    int totalGroupedHitCount = 0;
+    float totalMaxScore = Float.MIN_VALUE;
     int groupIDX = 0;
-    float maxScore = Float.MIN_VALUE;
     for (Map.Entry<Long, ScoreDocPQ> topEntry: groupsWithDocs.entrySet()) {
-      final BytesRef group = si.lookupOrd(topEntry.getKey().intValue());
+      final BytesRef groupName = si.lookupOrd(topEntry.getKey().intValue());
+      ScoreDocPQ pq = topEntry.getValue();
+      if (pq.isEmpty()) {
+        throw new IllegalStateException(
+            "Coding error: ScoreDocPQ is empty, which should never happen. It should always have size 1 or more");
+      }
 
+      final ScoreDoc[] scoreDocs = new ScoreDoc[pq.size()];
+      final Float[] sortValues = new Float[pq.size()];
+      totalGroupedHitCount += pq.getInserted();
+
+      Iterator<FloatInt> entries = pq.getFlushingIterator(false, true);
+      int scoreDocIDX = 0;
+      float maxScore = Float.MIN_VALUE;
+      while (entries.hasNext()) {
+        FloatInt entry = entries.next();
+        sortValues[scoreDocIDX] = entry.floatVal;
+        scoreDocs[scoreDocIDX++] = new ScoreDoc(entry.intVal, entry.floatVal); // What about shardIndex?
+        if (entry.floatVal > maxScore) {
+          if ((maxScore = entry.floatVal) > totalMaxScore) {
+            totalMaxScore = maxScore;
+          }
+        }
+      }
+      groupDocsResult[groupIDX++] = new GroupDocs<>(
+          maxScore, maxScore, (int) pq.getInserted(), scoreDocs, groupName, sortValues);
     }
+    SortField[] sortFields = new SortField[1];
+    sortFields[0] = SortField.FIELD_SCORE;
+    return new TopGroups<>(sortFields, sortFields, totalHitCount, totalGroupedHitCount, groupDocsResult, totalMaxScore);
     /**
     for(SearchGroup<?> group : groups) {
       final SearchGroupDocs<GROUP_VALUE_TYPE> groupDocs = groupMap.get(group.groupValue);
@@ -190,7 +224,6 @@ public class TermMemCollector extends SimpleCollector {
                                            totalHitCount, totalGroupedHitCount, groupDocsResult,
                                            maxScore);
        */
-    throw new UnsupportedOperationException("Not implemented yet");
   }
 
   @Override

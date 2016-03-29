@@ -424,6 +424,16 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
   }
 
   @Test
+  public void testMemTermGrouping() throws Exception {
+    createIndex();
+    String filt = f + ":[* TO *]";
+
+    assertQ(req("fq", filt, "q", "{!func}" + f2, "group", "true", "group.field", f)
+        , "/response/lst[@name='grouped']/lst[@name='" + f + "']/arr[@name='groups']"
+    );
+  }
+
+  @Test
   public void testGroupAPI() throws Exception {
     createIndex();
     String filt = f + ":[* TO *]";
@@ -547,7 +557,7 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
     // group.query that matches nothing
     assertJQ(req("fq",filt,  
                  "q","{!func}"+f2, 
-                 "group","true", 
+                 "group","true",
                  "group.query","id:[2 TO 5]", 
                  "group.query","id:1000", 
                  "fl","id", 
@@ -657,7 +667,53 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
 
   }
 
+  @Test
+  public void testMemCachedGrouping() throws Exception {
+    final int INDEX_SIZE = 100;
 
+    List<FldType> types = new ArrayList<>();
+    types.add(new FldType("id",ONE_ONE, new SVal('A','Z',4,4)));
+    types.add(new FldType("score_f",ONE_ONE, new FVal(1,100)));  // field used to score
+    types.add(new FldType("foo_i",ZERO_ONE, new IRange(0,INDEX_SIZE)));
+    types.add(new FldType(FOO_STRING_FIELD,ONE_ONE, new SVal('a','z',1,2)));
+    types.add(new FldType(SMALL_STRING_FIELD,ZERO_ONE, new SVal('a',(char)('c'+INDEX_SIZE/10),1,1)));
+    types.add(new FldType(SMALL_INT_FIELD,ZERO_ONE, new IRange(0,5+INDEX_SIZE/10)));
+
+//    clearIndex();
+//    Map<Comparable, Doc> model = indexDocs(types, null, INDEX_SIZE);
+
+    { // Specific docs
+      Map<Comparable, Doc> model = indexDocs(types, null, 1);
+      clearIndex();
+      model.clear();
+
+      for (String[] fields: new String[][]{
+          {"doc1", "groupA", "1.1"},
+          {"doc2", "groupA", "2.0"},
+          {"doc3", "groupA", "3.0"},
+          {"doc4", "groupB", "3.2"},
+          {"doc5", "groupB", "3.1"},
+          {"doc6", "groupC", "6.0"},
+      }) {
+        Doc d1 = createDoc(types);
+        d1.getValues("id").set(0, fields[0]);
+        d1.getValues(FOO_STRING_FIELD).set(0, fields[1]);
+        d1.getValues("score_f").set(0, Float.parseFloat(fields[2]));
+        d1.order = 0;
+        updateJ(toJSON(d1), params("commit", "true"));
+        model.put(d1.id, d1);
+      }
+
+      SolrQueryRequest req = req(
+          "group","true","wt","json","indent","true", "echoParams","all", "q","{!func}score_f", "rows", "2",
+          "group.field", FOO_STRING_FIELD,
+          "group.limit", "2",
+          "group.memcache", "true");
+      String strResponse = h.query(req);
+
+      System.out.println(strResponse);
+    }
+  }
 
   @Test
   public void testRandomGrouping() throws Exception {
@@ -820,6 +876,7 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
         int randomPercentage = random().nextInt(101);
         // TODO: create a random filter too
         SolrQueryRequest req = req("group","true","wt","json","indent","true", "echoParams","all", "q","{!func}score_f", "group.field",groupField
+            , "group.memcache", Boolean.toString(random().nextBoolean())
             ,sortStr==null ? "nosort":"sort", sortStr ==null ? "": sortStr
             ,(groupSortStr == null || groupSortStr == sortStr) ? "noGroupsort":"group.sort", groupSortStr==null ? "": groupSortStr
             ,"rows",""+rows, "start",""+start, "group.offset",""+group_offset, "group.limit",""+group_limit,

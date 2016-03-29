@@ -28,8 +28,6 @@ import java.util.Map;
 import java.util.Set;
 
 import org.apache.commons.lang.ArrayUtils;
-import org.apache.commons.lang.NotImplementedException;
-import org.apache.commons.lang.SystemUtils;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.ExitableDirectoryReader;
@@ -318,7 +316,7 @@ public class Grouping {
   }
 
   public void execute() throws IOException {
-
+    vanillaExecute(); // TODO: Enable mem term here
   }
 
   // Unmodified (except for the method name) execute from Solr 5.5 (2016-03-09)
