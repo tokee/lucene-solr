@@ -170,7 +170,7 @@ public class Grouping {
     Grouping.Command gc;
     // TODO: Make this a proper option
     // TODO: Relax the requirement of only relevance sorting
-    if (request.getParams().getFieldBool(field, "group.memcache") &&
+    if (request.getParams().getFieldBool(field, "group.memcache", false) &&
         groupSort == Sort.RELEVANCE && withinGroupSort == Sort.RELEVANCE) {
       Grouping.CommandMemField gcm = new CommandMemField();
       gcm.groupBy = field;
@@ -934,7 +934,6 @@ public class Grouping {
     protected void finish() throws IOException {
       int groupedDocsToCollect = Math.max(1, getMax(groupOffset, docsPerGroup, maxDoc));
 
-      result = secondPass != null ? secondPass.getTopGroups(0) : null;
       if (main) {
         mainResult = createSimpleResponse();
         return;
@@ -950,6 +949,7 @@ public class Grouping {
       List groupList = new ArrayList();
       groupResult.add("groups", groupList);        // grouped={ key={ groups=[
 
+      TopGroups<BytesRef> result = onlyPass.collectGroupDocs(groupedDocsToCollect, docsPerGroup);
       if (result == null) {
         return;
       }
