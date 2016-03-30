@@ -160,7 +160,7 @@ public class TermMemCollector extends SimpleCollector {
       if (groupPQ == null) {
         continue;
       }
-      groupPQ.insert(new FloatInt(scores[docID], (int)groupOrd)); // Maybe reuse the FloatInt?
+      groupPQ.insert(new FloatInt(scores[docID], docID)); // Maybe reuse the FloatInt?
     }
     return groupsWithDocs;
   }

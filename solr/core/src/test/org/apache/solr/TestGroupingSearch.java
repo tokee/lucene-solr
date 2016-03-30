@@ -706,14 +706,20 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
         model.put(d1.id, d1);
       }
 
-      SolrQueryRequest req = req(
+      String memResponse = h.query(req(
           "group","true","wt","json","indent","true", "echoParams","all", "q","{!func}score_f", "rows", "2",
           "group.field", FOO_STRING_FIELD,
           "group.limit", "2",
-          "group.memcache", "true");
-      String strResponse = h.query(req);
+          "group.memcache", "true"));
 
-      System.out.println(strResponse);
+      String vanillaResponse = h.query(req(
+          "group","true","wt","json","indent","true", "echoParams","all", "q","{!func}score_f", "rows", "2",
+          "group.field", FOO_STRING_FIELD,
+          "group.limit", "2",
+          "group.memcache", "true"));
+
+      assertEquals("Simple relevance ranked StrField grouping should not differe between vanilla and mem cached",
+          vanillaResponse.replaceAll("\"QTime\":[0-9]*", ""), memResponse.replaceAll("\"QTime\":[0-9]*", ""));
     }
   }
 
