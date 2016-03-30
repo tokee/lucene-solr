@@ -687,13 +687,15 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
       clearIndex();
       model.clear();
 
+      // First pass collection should give CollapsingPriorityQueue structure
+      // [Entry(key=2, value=5.0, payload=5), Entry(key=1, value=3.3, payload=3)]
       for (String[] fields: new String[][]{
-          {"doc1", "groupA", "1.1"},
-          {"doc2", "groupA", "2.0"},
-          {"doc3", "groupA", "3.0"},
-          {"doc4", "groupB", "3.2"},
-          {"doc5", "groupB", "3.1"},
-          {"doc6", "groupC", "6.0"},
+          {"doc0", "groupA", "0.1"},
+          {"doc1", "groupA", "1.2"},
+          {"doc2", "groupA", "2.3"},
+          {"doc3", "groupB", "3.3"},
+          {"doc4", "groupB", "3.1"},
+          {"doc5", "groupC", "5.0"},
       }) {
         Doc d1 = createDoc(types);
         d1.getValues("id").set(0, fields[0]);

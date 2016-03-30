@@ -71,10 +71,10 @@ public class TermMemCollector extends SimpleCollector {
 
   @Override
   public void collect(int segmentDocID) throws IOException {
-    final int docID = docBase+segmentDocID;
-    scores[docID] = scorer.score();
-    if (topGroups.isCandidate(scores[docID])) {
-      topGroups.add(doc2ord.get(segmentDocID), scores[docID], docID);
+    final int globalDocID = docBase+segmentDocID;
+    scores[globalDocID] = scorer.score();
+    if (topGroups.isCandidate(scores[globalDocID])) {
+      topGroups.add(doc2ord.get(globalDocID), scores[globalDocID], globalDocID);
     }
     totalHitCount++;
   }

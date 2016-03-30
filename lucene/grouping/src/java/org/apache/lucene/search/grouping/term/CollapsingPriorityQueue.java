@@ -75,8 +75,10 @@ public class CollapsingPriorityQueue<K extends Comparable<K>, V extends Comparab
     Entry existing = existence.get(key);
     if (existing == null) {
       addNew(key, value, payload);
+//      System.out.println("New: k=" + key + ", v=" + value + ", p=" + payload + ": " + ordered);
     } else {
       updateExisting(existing, value, payload);
+//      System.out.println("Upd: k=" + key + ", v=" + value + ", p=" + payload + ": " + ordered);
     }
     return true;
   }
@@ -98,10 +100,13 @@ public class CollapsingPriorityQueue<K extends Comparable<K>, V extends Comparab
 
   // Key is present
   protected void updateExisting(Entry existing, V newValue, P newPayload) {
+    if (existing.value.compareTo(newValue) > 0) { // TODO: Should we compare payloads here?
+      return;
+    }
     boolean wasPresent = ordered.remove(existing);
     assert wasPresent;
-    existing.setValue(newValue);
-    existing.setPayload(newPayload);
+      existing.setValue(newValue);
+      existing.setPayload(newPayload);
     ordered.add(existing);
     last = ordered.last();
   }
@@ -179,8 +184,13 @@ public class CollapsingPriorityQueue<K extends Comparable<K>, V extends Comparab
 
     @Override
     public int compareTo(Entry o) {
-      int primary = value.compareTo(o.getValue());
+      int primary = -value.compareTo(o.getValue()); // Highest before lowest
       return primary != 0 ? primary : key.compareTo(key);
+    }
+
+    @Override
+    public String toString() {
+      return "Entry(key=" + key + ", value=" + value + ", payload=" + payload + ')';
     }
   }
 }
