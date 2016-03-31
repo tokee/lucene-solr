@@ -270,6 +270,10 @@ public class TermMemCollector extends SimpleCollector {
     }
   }
 
+  public int getTotalHitCount() {
+    return totalHitCount;
+  }
+
   public class FloatInt implements Comparable<FloatInt> {
     private float floatVal;
     private int intVal;

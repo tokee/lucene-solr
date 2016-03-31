@@ -947,7 +947,7 @@ public class Grouping {
       List groupList = new ArrayList();
       groupResult.add("groups", groupList);        // grouped={ key={ groups=[
 
-      TopGroups<BytesRef> result = onlyPass.collectGroupDocs(groupedDocsToCollect, docsPerGroup);
+      result = onlyPass.collectGroupDocs(groupedDocsToCollect, docsPerGroup);
       if (result == null) {
         return;
       }
@@ -982,11 +982,11 @@ public class Grouping {
      */
     @Override
     public int getMatches() {
-      if (result == null && fallBackCollector == null) {
+      if (onlyPass == null && fallBackCollector == null) {
         return 0;
       }
 
-      return result != null ? result.totalHitCount : fallBackCollector.getTotalHits();
+      return onlyPass != null ? onlyPass.getTotalHitCount() : fallBackCollector.getTotalHits();
     }
 
     /**

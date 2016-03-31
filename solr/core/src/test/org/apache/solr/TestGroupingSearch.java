@@ -719,8 +719,11 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
           "group.memcache", "false"));
 
       assertEquals("Simple relevance ranked StrField grouping should not differece between vanilla and mem cached",
-          vanillaResponse.replaceAll("\"QTime\":[0-9]*", ""), memResponse.replaceAll("\"QTime\":[0-9]*", ""));
+          comparify(vanillaResponse), comparify(memResponse));
     }
+  }
+  private String comparify(String response) {
+    return response.replaceAll("\"group.memcache\":\"[a-z]*\"", "").replaceAll("\"QTime\":[0-9]*", "");
   }
 
   @Test
