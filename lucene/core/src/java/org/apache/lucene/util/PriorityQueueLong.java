@@ -24,12 +24,12 @@ import java.util.Iterator;
  * which ensures near-zero memory overhead if the queue is full, compared to an array of arrays.
  * This also helps with memory access locality, although the basic scattered memory access problem
  * of using heaps still remains.
- * </p><p>
+ *
  * Intended use for this implementation is to act as a backing queue for Java Objects that can be mapped
  * to and from long without too much overhead.
- * </p><p>
+ *
  * Note: This heap is lazy: Until the heap is full, inserts are done without ordering the heap.
- * </p><p>
+ *
  * Besides the abstract methods, it is <em>highly</em> recommended to override and optimize
  * {@link #lessThan(long, long)} and {@link #lessThan(Object, long)} as those methods are
  * used extensively at the core of most heap operations.

@@ -878,7 +878,7 @@ public class Grouping {
    * at the cost of up-front initialization cost and (much) larger memory overhead.
    *
    * The core of the speed-optimization is a map from top-level docID to top-level Term-ordinal.
-   * When the group size is > 1, an explicit cache of the scores is also used.
+   * When the group size is above 1, an explicit cache of the scores is also used.
    */
   public class CommandMemField extends Command<BytesRef> {
 

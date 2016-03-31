@@ -154,7 +154,7 @@ public class ArrayCache {
   }
   
   /**
-   * Setting neededLength iterates all arrays and discards those with length < neededLength.
+   * Setting neededLength iterates all arrays and discards those with length less than neededLength.
    * @param neededLength the currently length needed when requesting an array.
    */
   public synchronized void setNeededLength(int neededLength) {

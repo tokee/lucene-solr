@@ -716,9 +716,9 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
           "group","true","wt","json","indent","true", "echoParams","all", "q","{!func}score_f", "rows", "2",
           "group.field", FOO_STRING_FIELD,
           "group.limit", "2",
-          "group.memcache", "true"));
+          "group.memcache", "false"));
 
-      assertEquals("Simple relevance ranked StrField grouping should not differe between vanilla and mem cached",
+      assertEquals("Simple relevance ranked StrField grouping should not differece between vanilla and mem cached",
           vanillaResponse.replaceAll("\"QTime\":[0-9]*", ""), memResponse.replaceAll("\"QTime\":[0-9]*", ""));
     }
   }

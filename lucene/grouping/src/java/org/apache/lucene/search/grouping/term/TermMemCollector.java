@@ -242,7 +242,7 @@ public class TermMemCollector extends SimpleCollector {
   }
 
   /**
-   * Frees resources. Optional, but helps very much with GC when maxDocs is > 10M.
+   * Frees resources. Optional, but helps very much with GC when maxDocs is above 10M.
    */
   public void close() {
     arrayCache.release(scores);
