@@ -120,7 +120,7 @@ public class Grouping {
   private float maxScore = Float.NaN;  // max score seen in any doclist
   private boolean signalCacheWarning = false;
   private TimeLimitingCollector timeLimitingCollector;
-
+  private final long startTime = System.nanoTime();
 
   public DocList mainResult;  // output if one of the grouping commands should be used as the main result.
 
@@ -170,10 +170,12 @@ public class Grouping {
     // TODO: Relax the requirement of only relevance sorting
     if (request.getParams().getFieldBool(field, "group.memcache", false) &&
         groupSort == Sort.RELEVANCE && withinGroupSort == Sort.RELEVANCE) {
+      logger.info("MemCache: Activated");
       Grouping.CommandMemField gcm = new CommandMemField();
       gcm.groupBy = field;
       gc = gcm;
     } else {
+      logger.info("MemCache: Not activated");
       Grouping.CommandField gcf = new CommandField();
       gcf.groupBy = field;
       gc = gcf;
@@ -444,6 +446,7 @@ public class Grouping {
       }
       qr.setDocList(new DocSlice(0, sz, ids, null, maxMatches, maxScore));
     }
+    logger.info("Grouping finished in " + ((System.nanoTime()-startTime)/1000000L) + "ms");
   }
 
   /**
@@ -897,8 +900,11 @@ public class Grouping {
      */
     @Override
     protected void prepare() throws IOException {
+
+      long prepareStart = System.nanoTime();
       actualGroupsToFind = getMax(offset, numGroups, maxDoc);
-      docID2ordinal = createDoc2OrdinalMap(groupBy);
+      docID2ordinal = getDoc2OrdinalMap(groupBy);
+      logger.info("MemCache: Prepared CommandMemField in " + ((System.nanoTime()-prepareStart)/1000000) + "ms");
     }
 
     /**
@@ -913,7 +919,9 @@ public class Grouping {
       }
 
       groupSort = groupSort == null ? Sort.RELEVANCE : groupSort;
+      long allocateStart = System.nanoTime();
       onlyPass = new TermMemCollector(groupBy, actualGroupsToFind, docID2ordinal.si, docID2ordinal.doc2ord);
+      logger.info("MemCache: Created TermMemCollector in " + ((System.nanoTime()-allocateStart)/1000000) + "ms");
       return onlyPass;
     }
 
@@ -930,7 +938,8 @@ public class Grouping {
      */
     @Override
     protected void finish() throws IOException {
-      int groupedDocsToCollect = Math.max(1, getMax(groupOffset, docsPerGroup, maxDoc));
+      long finishStart = System.nanoTime();
+      //int groupedDocsToCollect = Math.max(1, getMax(groupOffset, docsPerGroup, maxDoc));
 
       if (main) {
         mainResult = createSimpleResponse();
@@ -947,7 +956,7 @@ public class Grouping {
       List groupList = new ArrayList();
       groupResult.add("groups", groupList);        // grouped={ key={ groups=[
 
-      result = onlyPass.collectGroupDocs(groupedDocsToCollect, docsPerGroup);
+      result = onlyPass.collectGroupDocs(groupOffset, docsPerGroup);
       if (result == null) {
         return;
       }
@@ -975,6 +984,11 @@ public class Grouping {
 
         addDocList(nl, group);
       }
+      long closeTime = -System.nanoTime();
+      onlyPass.close();
+      closeTime += System.nanoTime();
+      logger.info("MemCache: Finish-method finished in " + ((System.nanoTime()-finishStart)/1000000) +
+          "ms (" + closeTime/1000000 + "ms for array release)");
     }
 
     /**
@@ -1001,7 +1015,7 @@ public class Grouping {
 
   // TODO: Extremely hackish and fails on index update. Custom caching is needed (see searcher.cacheLookup et al)
   private static final Map<String, Doc2OrdMap> groupCache = new HashMap<>();
-  private Doc2OrdMap createDoc2OrdinalMap(String field) throws IOException {
+  private Doc2OrdMap getDoc2OrdinalMap(String field) throws IOException {
     final long startTime = System.currentTimeMillis();
     final String cacheKey = "grouping_doc2ord_field=" + field;
 

@@ -220,6 +220,13 @@ public abstract class PriorityQueueLong<T> {
     return inserted;
   }
 
+  public void setInserted(long inserted) {
+    this.inserted = inserted;
+  }
+  public void incInserted() {
+    inserted++;
+  }
+
   // Assumes the heap is ordered
   private class HeapIterator implements Iterator<T> {
     private final T iteratorCache;

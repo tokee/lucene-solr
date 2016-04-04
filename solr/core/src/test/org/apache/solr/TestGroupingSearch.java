@@ -706,20 +706,39 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
         model.put(d1.id, d1);
       }
 
-      String memResponse = h.query(req(
-          "group","true","wt","json","indent","true", "echoParams","all", "q","{!func}score_f", "rows", "2",
-          "group.field", FOO_STRING_FIELD,
-          "group.limit", "2",
-          "group.memcache", "true"));
+      {
+        String memResponse = h.query(req(
+            "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
+            "group.field", FOO_STRING_FIELD,
+            "group.limit", "2",
+            "group.memcache", "true"));
 
-      String vanillaResponse = h.query(req(
-          "group","true","wt","json","indent","true", "echoParams","all", "q","{!func}score_f", "rows", "2",
-          "group.field", FOO_STRING_FIELD,
-          "group.limit", "2",
-          "group.memcache", "false"));
+        String vanillaResponse = h.query(req(
+            "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
+            "group.field", FOO_STRING_FIELD,
+            "group.limit", "2",
+            "group.memcache", "false"));
 
-      assertEquals("Simple relevance ranked StrField grouping should not differece between vanilla and mem cached",
-          comparify(vanillaResponse), comparify(memResponse));
+        assertEquals("Simple relevance ranked StrField grouping should not differece between vanilla and mem cached",
+            comparify(vanillaResponse), comparify(memResponse));
+      }
+
+      {
+        String memResponse = h.query(req(
+            "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
+            "group.field", FOO_STRING_FIELD,
+            "group.limit", "1",
+            "group.memcache", "true"));
+
+        String vanillaResponse = h.query(req(
+            "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
+            "group.field", FOO_STRING_FIELD,
+            "group.limit", "1",
+            "group.memcache", "false"));
+
+        assertEquals("Simple relevance ranked StrField grouping with limit=1 should have equal vanilla and mem cached",
+            comparify(vanillaResponse), comparify(memResponse));
+      }
     }
   }
   private String comparify(String response) {

@@ -18,6 +18,7 @@ package org.apache.lucene.search.grouping.term;
  */
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -66,6 +67,7 @@ public class TermMemCollector extends SimpleCollector {
     this.doc2ord = doc2ord;
     arrayCache.setNeededLength(doc2ord.size());
     scores = arrayCache.getFloats();
+
     topGroups = new CollapsingPriorityQueue<>(numGroups);
   }
 
@@ -135,9 +137,27 @@ public class TermMemCollector extends SimpleCollector {
     for (CollapsingPriorityQueue<Long, Float, Integer>.Entry entry: topGroups.getEntries()) {
       ScoreDocPQ pq = new ScoreDocPQ(1);
       pq.insert(new FloatInt(entry.getValue(), entry.getPayload())); // We already have the top-1 docs with scores
+      pq.setInserted(0);
       groupsWithDocs.put(entry.getKey(), pq);
     }
+    countGroupEntries(groupsWithDocs);
     return toTopGroups(groupsWithDocs, 0, 1);
+  }
+
+  // Needs another run-through of all scores & groups. Slightly faster than getFilledTopGroups
+  // If we could skip this, the limit=1 case would be a lot faster
+  private void countGroupEntries(Map<Long, ScoreDocPQ> groupsWithDocs) {
+    for (int docID = 0 ; docID < scores.length ; docID++) {
+      if (scores[docID] == 0.0f) {
+        continue;
+      }
+      long groupOrd = doc2ord.get(docID);
+      ScoreDocPQ groupPQ = groupsWithDocs.get(groupOrd);
+      if (groupPQ == null) {
+        continue;
+      }
+      groupPQ.incInserted();
+    }
   }
 
   /**
@@ -150,6 +170,7 @@ public class TermMemCollector extends SimpleCollector {
       groupsWithDocs.put(entry.getKey(), new ScoreDocPQ(withinGroupOffset + maxDocsPerGroup));
     }
 
+    FloatInt filler = new FloatInt(0.0f, 0);
     // Fill the buckets
     for (int docID = 0 ; docID < scores.length ; docID++) {
       if (scores[docID] == 0.0f) {
@@ -160,7 +181,9 @@ public class TermMemCollector extends SimpleCollector {
       if (groupPQ == null) {
         continue;
       }
-      groupPQ.insert(new FloatInt(scores[docID], docID)); // Maybe reuse the FloatInt?
+      filler.floatVal = scores[docID];
+      filler.intVal = docID;
+      groupPQ.insert(filler);
     }
     return groupsWithDocs;
   }
