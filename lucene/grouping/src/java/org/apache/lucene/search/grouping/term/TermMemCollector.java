@@ -18,26 +18,24 @@ package org.apache.lucene.search.grouping.term;
  */
 
 import java.io.IOException;
-import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.SortedDocValues;
+import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.SimpleCollector;
 import org.apache.lucene.search.SortField;
-import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.grouping.GroupDocs;
 import org.apache.lucene.search.grouping.SearchGroup;
 import org.apache.lucene.search.grouping.TopGroups;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.PriorityQueueLong;
 import org.apache.lucene.util.packed.PackedInts;
 
@@ -47,15 +45,20 @@ import org.apache.lucene.util.packed.PackedInts;
  */
 public class TermMemCollector extends SimpleCollector {
   // Very conservative cache
-  private final static ArrayCache arrayCache = new ArrayCache(2, 0);
+  private final static ArrayCache scoreCache = new ArrayCache(2, 0);
+  private final static ArrayCache trackerCache = new ArrayCache(2, 0);
+  private static final double SPARSE_ITERATE_RATIO = 0.1; // If < 10% of the scoreCache is filled, use sparse iteration
+  private static final double SPARSE_CLEAR_RATIO = 0.01; //  If <  1% of the scoreCache is filled, use sparse clear
 
   private final String groupField;
   private final int numGroups;
   private final SortedDocValues si; // global ord -> term
   private final PackedInts.Reader doc2ord; // global docID -> global ord
   private final float[] scores;
+  private final FixedBitSet tracker;
   private final CollapsingPriorityQueue<Long, Float, Integer> topGroups;
   int totalHitCount = 0;
+  final int maxDoc;
 
   private Scorer scorer = null;
   private int docBase = 0;
@@ -65,8 +68,12 @@ public class TermMemCollector extends SimpleCollector {
     this.numGroups = numGroups;
     this.si = si;
     this.doc2ord = doc2ord;
-    arrayCache.setNeededLength(doc2ord.size());
-    scores = arrayCache.getFloats();
+
+    maxDoc = doc2ord.size();
+    scoreCache.setNeededLength(maxDoc);
+    scores = scoreCache.getFloats();
+    trackerCache.setNeededLength((maxDoc+65)/64); // +64 might also work. +65 is "just to make sure"
+    tracker = new FixedBitSet(trackerCache.getLongs(), maxDoc+1);
 
     topGroups = new CollapsingPriorityQueue<>(numGroups);
   }
@@ -75,6 +82,7 @@ public class TermMemCollector extends SimpleCollector {
   public void collect(int segmentDocID) throws IOException {
     final int globalDocID = docBase+segmentDocID;
     scores[globalDocID] = scorer.score();
+    tracker.set(globalDocID);
     if (topGroups.isCandidate(scores[globalDocID])) {
       topGroups.add(doc2ord.get(globalDocID), scores[globalDocID], globalDocID);
     }
@@ -144,19 +152,24 @@ public class TermMemCollector extends SimpleCollector {
     return toTopGroups(groupsWithDocs, 0, 1);
   }
 
-  // Needs another run-through of all scores & groups. Slightly faster than getFilledTopGroups
-  // If we could skip this, the limit=1 case would be a lot faster
+  // Performs another run-through of matched groups using the tracker. A fair deal faster than getFilledTopGroups.
+  // If we could skip this, the limit=1 case would be even faster
   private void countGroupEntries(Map<Long, ScoreDocPQ> groupsWithDocs) {
-    for (int docID = 0 ; docID < scores.length ; docID++) {
-      if (scores[docID] == 0.0f) {
-        continue;
+    ScoreDocPQ groupPQ;
+    if (totalHitCount < maxDoc*SPARSE_ITERATE_RATIO) { // Use sparse iteration
+      int docID = -1;
+      while ((docID = tracker.nextSetBit(++docID)) != DocIdSetIterator.NO_MORE_DOCS) {
+        if ((groupPQ = groupsWithDocs.get(doc2ord.get(docID))) != null) {
+          groupPQ.incInserted();
+        }
       }
-      long groupOrd = doc2ord.get(docID);
-      ScoreDocPQ groupPQ = groupsWithDocs.get(groupOrd);
-      if (groupPQ == null) {
-        continue;
+      return;
+    }
+    // Not sparse
+    for (int docID = 0 ; docID < maxDoc ; docID++) {
+      if (scores[docID] != 0.0f && (groupPQ = groupsWithDocs.get(doc2ord.get(docID))) != null) {
+        groupPQ.incInserted();
       }
-      groupPQ.incInserted();
     }
   }
 
@@ -170,20 +183,28 @@ public class TermMemCollector extends SimpleCollector {
       groupsWithDocs.put(entry.getKey(), new ScoreDocPQ(withinGroupOffset + maxDocsPerGroup));
     }
 
+    ScoreDocPQ groupPQ;
     FloatInt filler = new FloatInt(0.0f, 0);
-    // Fill the buckets
-    for (int docID = 0 ; docID < scores.length ; docID++) {
-      if (scores[docID] == 0.0f) {
-        continue;
+
+    if (totalHitCount < maxDoc*SPARSE_ITERATE_RATIO) { // Use sparse iteration
+      int docID = -1;
+      while ((docID = tracker.nextSetBit(++docID)) != DocIdSetIterator.NO_MORE_DOCS) {
+        if ((groupPQ = groupsWithDocs.get(doc2ord.get(docID))) != null) {
+          filler.floatVal = scores[docID];
+          filler.intVal = docID;
+          groupPQ.insert(filler);
+        }
       }
-      long groupOrd = doc2ord.get(docID);
-      ScoreDocPQ groupPQ = groupsWithDocs.get(groupOrd);
-      if (groupPQ == null) {
-        continue;
+      return groupsWithDocs;
+    }
+    // Not sparse
+    for (int docID = 0 ; docID < maxDoc ; docID++) {
+      final float score = scores[docID];
+      if (score != 0.0f && (groupPQ = groupsWithDocs.get(doc2ord.get(docID))) != null) {
+        filler.floatVal = scores[docID];
+        filler.intVal = docID;
+        groupPQ.insert(filler);
       }
-      filler.floatVal = scores[docID];
-      filler.intVal = docID;
-      groupPQ.insert(filler);
     }
     return groupsWithDocs;
   }
@@ -266,9 +287,22 @@ public class TermMemCollector extends SimpleCollector {
 
   /**
    * Frees resources. Optional, but helps very much with GC when maxDocs is above 10M.
+   * @return true if the clear was sparse, false if it was full.
    */
-  public void close() {
-    arrayCache.release(scores);
+  public boolean close() {
+    final boolean sparse = totalHitCount < maxDoc*SPARSE_CLEAR_RATIO;
+    if (sparse) {
+      int docID = -1;
+      while ((docID = tracker.nextSetBit(++docID)) != DocIdSetIterator.NO_MORE_DOCS) {
+        scores[docID] = 0.0f;
+      }
+      scoreCache.release(scores, true);
+    } else {
+      scoreCache.release(scores);
+    }
+    // Always fill-clear the tracker bits as it is a relatively small structure (1/8 * maxDoc bytes)
+    trackerCache.release(tracker.getBits());
+    return sparse;
   }
 
   public class ScoreDocPQ extends PriorityQueueLong<FloatInt> {

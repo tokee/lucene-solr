@@ -985,10 +985,10 @@ public class Grouping {
         addDocList(nl, group);
       }
       long closeTime = -System.nanoTime();
-      onlyPass.close();
+      boolean sparseClear = onlyPass.close();
       closeTime += System.nanoTime();
       logger.info("MemCache: Finish-method finished in " + ((System.nanoTime()-finishStart)/1000000) +
-          "ms (" + closeTime/1000000 + "ms for array release)");
+          "ms (" + closeTime/1000000 + "ms for " + (sparseClear ? "sparse" : "dense") + " array release)");
     }
 
     /**
