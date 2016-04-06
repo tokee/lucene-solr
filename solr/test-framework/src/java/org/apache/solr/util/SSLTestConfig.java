@@ -81,7 +81,8 @@ public class SSLTestConfig extends SSLConfig {
   
   protected static KeyStore buildKeyStore(String keyStoreLocation, String password) {
     try {
-      return CertificateUtils.getKeyStore(null, keyStoreLocation, "JKS", null, password);
+      throw new UnsupportedOperationException("GitHub code checkout does not compile");
+      //return CertificateUtils.getKeyStore(null, keyStoreLocation, "JKS", null, password);
     } catch (Exception ex) {
       throw new IllegalStateException("Unable to build KeyStore from file: " + keyStoreLocation, ex);
     }
