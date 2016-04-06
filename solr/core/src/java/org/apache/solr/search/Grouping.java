@@ -171,7 +171,7 @@ public class Grouping {
     if (request.getParams().getFieldBool(field, "group.memcache", false) &&
         groupSort == Sort.RELEVANCE && withinGroupSort == Sort.RELEVANCE) {
       logger.info("MemCache: Activated");
-      Grouping.CommandMemField gcm = new CommandMemField();
+      Grouping.CommandMemField gcm = new CommandMemField(request);
       gcm.groupBy = field;
       gc = gcm;
     } else {
@@ -884,6 +884,7 @@ public class Grouping {
    * When the group size is above 1, an explicit cache of the scores is also used.
    */
   public class CommandMemField extends Command<BytesRef> {
+    private final SolrQueryRequest request;
 
     public String groupBy;
     private TermMemCollector onlyPass;
@@ -895,12 +896,15 @@ public class Grouping {
     TotalHitCountCollector fallBackCollector;
     Collection<SearchGroup<BytesRef>> topGroups;
 
+    public CommandMemField(SolrQueryRequest request) {
+      this.request = request;
+    }
+
     /**
      * {@inheritDoc}
      */
     @Override
     protected void prepare() throws IOException {
-
       long prepareStart = System.nanoTime();
       actualGroupsToFind = getMax(offset, numGroups, maxDoc);
       docID2ordinal = getDoc2OrdinalMap(groupBy);
@@ -920,7 +924,11 @@ public class Grouping {
 
       groupSort = groupSort == null ? Sort.RELEVANCE : groupSort;
       long allocateStart = System.nanoTime();
-      onlyPass = new TermMemCollector(groupBy, actualGroupsToFind, docID2ordinal.si, docID2ordinal.doc2ord);
+      double iterateFraction = request.getParams().getDouble("group.memcache.sparsefraction.iterate",
+          TermMemCollector.DEFAULT_SPARSE_ITERATE_RATIO);
+      double clearFraction = request.getParams().getDouble("group.memcache.sparsefraction.clear", iterateFraction);
+      onlyPass = new TermMemCollector(groupBy, actualGroupsToFind, docID2ordinal.si, docID2ordinal.doc2ord,
+          iterateFraction, clearFraction);
       logger.info("MemCache: Created TermMemCollector in " + ((System.nanoTime()-allocateStart)/1000000) + "ms");
       return onlyPass;
     }

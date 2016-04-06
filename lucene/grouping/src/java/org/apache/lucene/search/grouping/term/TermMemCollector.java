@@ -47,9 +47,11 @@ public class TermMemCollector extends SimpleCollector {
   // Very conservative cache
   private final static ArrayCache scoreCache = new ArrayCache(2, 0);
   private final static ArrayCache trackerCache = new ArrayCache(2, 0);
-  private static final double SPARSE_ITERATE_RATIO = 0.1; // If < 10% of the scoreCache is filled, use sparse iteration
-  private static final double SPARSE_CLEAR_RATIO = 0.01; //  If <  1% of the scoreCache is filled, use sparse clear
+  // If hits < ratio*maxDoc of the scoreCache is filled, use sparse iteration
+  public static final double DEFAULT_SPARSE_ITERATE_RATIO = 0.1;
 
+  private final double sparseIterateRatio;
+  private final double sparseClearRatio;
   private final String groupField;
   private final int numGroups;
   private final SortedDocValues si; // global ord -> term
@@ -64,6 +66,16 @@ public class TermMemCollector extends SimpleCollector {
   private int docBase = 0;
 
   public TermMemCollector(String groupField, int numGroups, SortedDocValues si, PackedInts.Reader doc2ord) {
+    this(groupField, numGroups, si, doc2ord, DEFAULT_SPARSE_ITERATE_RATIO);
+  }
+
+  public TermMemCollector(String groupField, int numGroups, SortedDocValues si, PackedInts.Reader doc2ord,
+                          double sparseRatio) {
+    this(groupField, numGroups, si, doc2ord, sparseRatio, sparseRatio);
+  }
+
+  public TermMemCollector(String groupField, int numGroups, SortedDocValues si, PackedInts.Reader doc2ord,
+                          double sparseIterateRatio, double sparseClearRatio) {
     this.groupField = groupField;
     this.numGroups = numGroups;
     this.si = si;
@@ -76,6 +88,8 @@ public class TermMemCollector extends SimpleCollector {
     tracker = new FixedBitSet(trackerCache.getLongs(), maxDoc+1);
 
     topGroups = new CollapsingPriorityQueue<>(numGroups);
+    this.sparseIterateRatio = sparseIterateRatio;
+    this.sparseClearRatio = sparseClearRatio;
   }
 
   @Override
@@ -156,7 +170,7 @@ public class TermMemCollector extends SimpleCollector {
   // If we could skip this, the limit=1 case would be even faster
   private void countGroupEntries(Map<Long, ScoreDocPQ> groupsWithDocs) {
     ScoreDocPQ groupPQ;
-    if (totalHitCount < maxDoc*SPARSE_ITERATE_RATIO) { // Use sparse iteration
+    if (totalHitCount < maxDoc*sparseIterateRatio) { // Use sparse iteration
       int docID = -1;
       while ((docID = tracker.nextSetBit(++docID)) != DocIdSetIterator.NO_MORE_DOCS) {
         if ((groupPQ = groupsWithDocs.get(doc2ord.get(docID))) != null) {
@@ -186,7 +200,7 @@ public class TermMemCollector extends SimpleCollector {
     ScoreDocPQ groupPQ;
     FloatInt filler = new FloatInt(0.0f, 0);
 
-    if (totalHitCount < maxDoc*SPARSE_ITERATE_RATIO) { // Use sparse iteration
+    if (totalHitCount < maxDoc*sparseIterateRatio) { // Use sparse iteration
       int docID = -1;
       while ((docID = tracker.nextSetBit(++docID)) != DocIdSetIterator.NO_MORE_DOCS) {
         if ((groupPQ = groupsWithDocs.get(doc2ord.get(docID))) != null) {
@@ -290,7 +304,7 @@ public class TermMemCollector extends SimpleCollector {
    * @return true if the clear was sparse, false if it was full.
    */
   public boolean close() {
-    final boolean sparse = totalHitCount < maxDoc*SPARSE_CLEAR_RATIO;
+    final boolean sparse = totalHitCount < maxDoc*sparseClearRatio;
     if (sparse) {
       int docID = -1;
       while ((docID = tracker.nextSetBit(++docID)) != DocIdSetIterator.NO_MORE_DOCS) {
