@@ -964,7 +964,8 @@ public class Grouping {
       List groupList = new ArrayList();
       groupResult.add("groups", groupList);        // grouped={ key={ groups=[
 
-      result = onlyPass.collectGroupDocs(groupOffset, docsPerGroup);
+      result = onlyPass.collectGroupDocs(
+          groupOffset, docsPerGroup, !request.getParams().getBool("group.memcache.skipdoccount", false));
       if (result == null) {
         return;
       }

@@ -663,12 +663,68 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
              ,"/grouped/id:1000=={'matches':0,'doclist':{'numFound':0,'start':0,'docs':[]}}"
     );
 
-
-
   }
 
   @Test
   public void testMemCachedGrouping() throws Exception {
+    createMemCacheTestIndex();
+    String memResponse = h.query(req(
+        "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
+        "group.field", FOO_STRING_FIELD,
+        "group.limit", "2",
+        "group.memcache", "true"));
+
+    String vanillaResponse = h.query(req(
+        "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
+        "group.field", FOO_STRING_FIELD,
+        "group.limit", "2",
+        "group.memcache", "false"));
+
+    assertEquals("Simple relevance ranked StrField grouping should not differece between vanilla and mem cached",
+        comparify(vanillaResponse), comparify(memResponse));
+  }
+
+  @Test
+  public void testMemCachedGroupingSingleCount() throws Exception {
+    createMemCacheTestIndex();
+    String memResponse = h.query(req(
+        "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
+        "group.field", FOO_STRING_FIELD,
+        "group.limit", "1",
+        "group.memcache", "true"));
+
+    String vanillaResponse = h.query(req(
+        "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
+        "group.field", FOO_STRING_FIELD,
+        "group.limit", "1",
+        "group.memcache", "false"));
+
+    assertEquals("Simple relevance ranked StrField grouping with limit=1 should have equal vanilla and mem cached",
+        comparify(vanillaResponse), comparify(memResponse));
+  }
+
+  @Test
+  public void testMemCachedGroupingSingleNoCount() throws Exception {
+    createMemCacheTestIndex();
+    String memResponse = h.query(req(
+        "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
+        "group.field", FOO_STRING_FIELD,
+        "group.limit", "1",
+        "group.memcache.skipdoccount", "true",
+        "group.memcache", "true"));
+
+    String vanillaResponse = h.query(req(
+        "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
+        "group.field", FOO_STRING_FIELD,
+        "group.limit", "1",
+        "group.memcache.skipdoccount", "true",
+        "group.memcache", "false"));
+
+    assertEquals("Simple relevance ranked StrField grouping with limit=1 and no doc count should be correct",
+        comparify(vanillaResponse).replaceAll("\"numFound\":[0-9]*", "\"numFound\":1"), comparify(memResponse));
+  }
+
+  private void createMemCacheTestIndex() throws Exception {
     final int INDEX_SIZE = 100;
 
     List<FldType> types = new ArrayList<>();
@@ -682,65 +738,30 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
 //    clearIndex();
 //    Map<Comparable, Doc> model = indexDocs(types, null, INDEX_SIZE);
 
-    { // Specific docs
-      Map<Comparable, Doc> model = indexDocs(types, null, 1);
-      clearIndex();
-      model.clear();
+    Map<Comparable, Doc> model = indexDocs(types, null, 1);
+    clearIndex();
+    model.clear();
 
-      // First pass collection should give CollapsingPriorityQueue structure
-      // [Entry(key=2, value=5.0, payload=5), Entry(key=1, value=3.3, payload=3)]
-      for (String[] fields: new String[][]{
-          {"doc0", "groupA", "0.1"},
-          {"doc1", "groupA", "1.2"},
-          {"doc2", "groupA", "2.3"},
-          {"doc3", "groupB", "3.3"},
-          {"doc4", "groupB", "3.1"},
-          {"doc5", "groupC", "5.0"},
-      }) {
-        Doc d1 = createDoc(types);
-        d1.getValues("id").set(0, fields[0]);
-        d1.getValues(FOO_STRING_FIELD).set(0, fields[1]);
-        d1.getValues("score_f").set(0, Float.parseFloat(fields[2]));
-        d1.order = 0;
-        updateJ(toJSON(d1), params("commit", "true"));
-        model.put(d1.id, d1);
-      }
-
-      {
-        String memResponse = h.query(req(
-            "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
-            "group.field", FOO_STRING_FIELD,
-            "group.limit", "2",
-            "group.memcache", "true"));
-
-        String vanillaResponse = h.query(req(
-            "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
-            "group.field", FOO_STRING_FIELD,
-            "group.limit", "2",
-            "group.memcache", "false"));
-
-        assertEquals("Simple relevance ranked StrField grouping should not differece between vanilla and mem cached",
-            comparify(vanillaResponse), comparify(memResponse));
-      }
-
-      {
-        String memResponse = h.query(req(
-            "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
-            "group.field", FOO_STRING_FIELD,
-            "group.limit", "1",
-            "group.memcache", "true"));
-
-        String vanillaResponse = h.query(req(
-            "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
-            "group.field", FOO_STRING_FIELD,
-            "group.limit", "1",
-            "group.memcache", "false"));
-
-        assertEquals("Simple relevance ranked StrField grouping with limit=1 should have equal vanilla and mem cached",
-            comparify(vanillaResponse), comparify(memResponse));
-      }
+    // First pass collection should give CollapsingPriorityQueue structure
+    // [Entry(key=2, value=5.0, payload=5), Entry(key=1, value=3.3, payload=3)]
+    for (String[] fields: new String[][]{
+        {"doc0", "groupA", "0.1"},
+        {"doc1", "groupA", "1.2"},
+        {"doc2", "groupA", "2.3"},
+        {"doc3", "groupB", "3.3"},
+        {"doc4", "groupB", "3.1"},
+        {"doc5", "groupC", "5.0"},
+    }) {
+      Doc d1 = createDoc(types);
+      d1.getValues("id").set(0, fields[0]);
+      d1.getValues(FOO_STRING_FIELD).set(0, fields[1]);
+      d1.getValues("score_f").set(0, Float.parseFloat(fields[2]));
+      d1.order = 0;
+      updateJ(toJSON(d1), params("commit", "true"));
+      model.put(d1.id, d1);
     }
   }
+
   private String comparify(String response) {
     return response.replaceAll("\"group.memcache\":\"[a-z]*\"", "").replaceAll("\"QTime\":[0-9]*", "");
   }

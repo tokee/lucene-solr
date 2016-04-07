@@ -142,9 +142,9 @@ public class TermMemCollector extends SimpleCollector {
     return result;
   }
 
-  public TopGroups<BytesRef> collectGroupDocs(int withinGroupOffset, int maxDocsPerGroup) {
+  public TopGroups<BytesRef> collectGroupDocs(int withinGroupOffset, int maxDocsPerGroup, boolean countGroupDocs) {
     if (withinGroupOffset == 0 && maxDocsPerGroup == 1) {
-      return fillGroupsSingleDoc();
+      return fillGroupsSingleDoc(countGroupDocs);
     }
     return fillGroupsMultiDoc(withinGroupOffset, maxDocsPerGroup);
   }
@@ -154,20 +154,24 @@ public class TermMemCollector extends SimpleCollector {
     return toTopGroups(groupsWithDocs, withinGroupOffset, maxDocsPerGroup);
   }
 
-  private TopGroups<BytesRef> fillGroupsSingleDoc() {
+  private TopGroups<BytesRef> fillGroupsSingleDoc(boolean countGroupDocs) {
     Map<Long, ScoreDocPQ> groupsWithDocs = new LinkedHashMap<>(topGroups.size()); // group_ordinal -> topDocs
     for (CollapsingPriorityQueue<Long, Float, Integer>.Entry entry: topGroups.getEntries()) {
       ScoreDocPQ pq = new ScoreDocPQ(1);
       pq.insert(new FloatInt(entry.getValue(), entry.getPayload())); // We already have the top-1 docs with scores
-      pq.setInserted(0);
+      if (countGroupDocs) {
+        pq.setInserted(0);
+      }
       groupsWithDocs.put(entry.getKey(), pq);
     }
-    countGroupEntries(groupsWithDocs);
+    if (countGroupDocs) {
+      countGroupEntries(groupsWithDocs);
+    }
     return toTopGroups(groupsWithDocs, 0, 1);
   }
 
   // Performs another run-through of matched groups using the tracker. A fair deal faster than getFilledTopGroups.
-  // If we could skip this, the limit=1 case would be even faster
+  // If we skip this, the limit=1 case is even faster
   private void countGroupEntries(Map<Long, ScoreDocPQ> groupsWithDocs) {
     ScoreDocPQ groupPQ;
     if (totalHitCount < maxDoc*sparseIterateRatio) { // Use sparse iteration
