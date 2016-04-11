@@ -89,6 +89,7 @@ public class CollapsingPriorityQueue<K extends Comparable<K>, V extends Comparab
     if (size >= maxSize) { // Not enough room: Push out the least fitting
       Entry lastEntry = ordered.last();
       ordered.remove(lastEntry);
+      existence.remove(lastEntry.getKey());
     } else {
       size++;
     }
@@ -104,9 +105,11 @@ public class CollapsingPriorityQueue<K extends Comparable<K>, V extends Comparab
       return;
     }
     boolean wasPresent = ordered.remove(existing);
-    assert wasPresent;
-      existing.setValue(newValue);
-      existing.setPayload(newPayload);
+    if (!wasPresent) {
+      throw new IllegalStateException("Unable to locate and remove " + existing + " from ordered structure");
+    }
+    existing.setValue(newValue);
+    existing.setPayload(newPayload);
     ordered.add(existing);
     last = ordered.last();
   }
@@ -169,16 +172,10 @@ public class CollapsingPriorityQueue<K extends Comparable<K>, V extends Comparab
     @SuppressWarnings("unchecked")
     @Override
     public boolean equals(Object o) {
-      if (this == o) {
-        return true;
-      }
-      if (o == null || getClass() != o.getClass()) {
-        return false;
-      }
-
-      Entry entry = (Entry) o;
+      return this == o || (o != null && getClass() == o.getClass() && hashCode() == o.hashCode());
+/*      Entry entry = (Entry) o;
       return !((key != null ? !key.equals(entry.key) : entry.key != null) ||
-          (value != null ? !value.equals(entry.value) : entry.value != null));
+          (value != null ? !value.equals(entry.value) : entry.value != null));*/
 
     }
 

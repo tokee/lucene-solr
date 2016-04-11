@@ -63,13 +63,30 @@ public abstract class PriorityQueueLong<T> {
       elements[++size] = serialize(element);
       dirty = true;
       return null;
-    } else if (size > 0 && !lessThan(element, elements[1])) {
+    } else if (!lessThan(element, elements[1])) {
       orderHeap();
       elements[1] = serialize(element);
       downHeap();
       return deserialize(elements[1], element);
     } else {
       return element;
+    }
+  }
+
+  /**
+   * Insert a new element into the queue, removing the lowest existing element if the queue is full.
+   * Slightly faster version of {@link #insert(Object)} as no return value is created.
+   * @param element the element to insert. This object can be safely re-used by the caller.
+   */
+  public void fastInsert(T element) {
+    inserted++;
+    if (size < maxSize-1) {
+      elements[++size] = serialize(element);
+      dirty = true;
+    } else if (size > 0 && !lessThan(element, elements[1])) {
+      orderHeap();
+      elements[1] = serialize(element);
+      downHeap();
     }
   }
 

@@ -221,7 +221,17 @@ public class TermMemCollector extends SimpleCollector {
       if (score != 0.0f && (groupPQ = groupsWithDocs.get(doc2ord.get(docID))) != null) {
         filler.floatVal = scores[docID];
         filler.intVal = docID;
-        groupPQ.insert(filler);
+        // TODO: Use fastInsert when all relevant unit tests passes
+        FloatInt removed = groupPQ.insert(filler);
+        if (removed != null) {
+          if (scores[docID] < removed.floatVal) {
+            System.out.println("Error: Inserting(" + docID + ", " + scores[docID] + ") pushed out (" + removed.intVal + ", " + removed.floatVal + ")");
+          } else {
+            System.out.println("Error: Inserting(" + docID + ", " + scores[docID] + ") pushed out (" + removed.intVal + ", " + removed.floatVal + ")");
+          }
+        } else {
+          System.out.println("Inserting(" + docID + ", " + scores[docID] + ")");
+        }
       }
     }
     return groupsWithDocs;
@@ -238,7 +248,8 @@ public class TermMemCollector extends SimpleCollector {
     float totalMaxScore = Float.MIN_VALUE;
     int groupIDX = 0;
     for (Map.Entry<Long, ScoreDocPQ> topEntry: groupsWithDocs.entrySet()) {
-      final BytesRef groupName = si.lookupOrd(topEntry.getKey().intValue());
+      final BytesRef groupName = BytesRef.deepCopyOf(si.lookupOrd(topEntry.getKey().intValue()));
+      System.out.println("Resolved group " + groupName.utf8ToString() + " from ordinal " + topEntry.getKey().intValue());
       ScoreDocPQ pq = topEntry.getValue();
       if (pq.isEmpty()) {
         throw new IllegalStateException(
@@ -255,7 +266,7 @@ public class TermMemCollector extends SimpleCollector {
       while (entries.hasNext()) {
         FloatInt entry = entries.next();
         sortValues[scoreDocIDX] = entry.floatVal;
-        scoreDocs[scoreDocIDX++] = new ScoreDoc(entry.intVal, entry.floatVal); // What about shardIndex?
+        scoreDocs[scoreDocs.length-1-scoreDocIDX++] = new ScoreDoc(entry.intVal, entry.floatVal); // What about shardIndex?
         if (entry.floatVal > maxScore) {
           if ((maxScore = entry.floatVal) > totalMaxScore) {
             totalMaxScore = maxScore;
@@ -323,7 +334,7 @@ public class TermMemCollector extends SimpleCollector {
     return sparse;
   }
 
-  public class ScoreDocPQ extends PriorityQueueLong<FloatInt> {
+  public static class ScoreDocPQ extends PriorityQueueLong<FloatInt> {
 
     public ScoreDocPQ(int elementCount) {
       super(elementCount);
@@ -343,13 +354,18 @@ public class TermMemCollector extends SimpleCollector {
     public boolean lessThan(FloatInt elementA, FloatInt elementB) {
       return elementA.compareTo(elementB) < 0;
     }
+    // TODO: Optimize the last lessThan
+    @Override
+    public boolean lessThan(long elementA, long elementB) {
+      return elementA-elementB > 0;
+    }
   }
 
   public int getTotalHitCount() {
     return totalHitCount;
   }
 
-  public class FloatInt implements Comparable<FloatInt> {
+  public static class FloatInt implements Comparable<FloatInt> {
     private float floatVal;
     private int intVal;
 
@@ -373,10 +389,24 @@ public class TermMemCollector extends SimpleCollector {
       return this;
     }
 
+    public void setValues(float floatVal, int intVal) {
+      this.floatVal = floatVal;
+      this.intVal = intVal;
+    }
+
+    public float getFloatVal() {
+      return floatVal;
+    }
+
+    public int getIntVal() {
+      return intVal;
+    }
+
     @SuppressWarnings("FloatingPointEquality")
     @Override
     public int compareTo(FloatInt o) {
-      return floatVal == o.floatVal ? intVal-o.intVal : floatVal-o.floatVal < 0 ? -1 : 1;
+      // > 0 as higher scores wins
+      return floatVal == o.floatVal ? intVal-o.intVal : floatVal-o.floatVal > 0 ? -1 : 1;
     }
   }
 }
