@@ -208,8 +208,7 @@ public class TermMemCollector extends SimpleCollector {
       int docID = -1;
       while ((docID = tracker.nextSetBit(++docID)) != DocIdSetIterator.NO_MORE_DOCS) {
         if ((groupPQ = groupsWithDocs.get(doc2ord.get(docID))) != null) {
-          filler.floatVal = scores[docID];
-          filler.intVal = docID;
+          filler.setValues(scores[docID], docID);
           groupPQ.insert(filler);
         }
       }
@@ -219,18 +218,19 @@ public class TermMemCollector extends SimpleCollector {
     for (int docID = 0 ; docID < maxDoc ; docID++) {
       final float score = scores[docID];
       if (score != 0.0f && (groupPQ = groupsWithDocs.get(doc2ord.get(docID))) != null) {
-        filler.floatVal = scores[docID];
-        filler.intVal = docID;
+        filler.setValues(scores[docID], docID);
         // TODO: Use fastInsert when all relevant unit tests passes
         FloatInt removed = groupPQ.insert(filler);
         if (removed != null) {
-          if (scores[docID] < removed.floatVal) {
-            System.out.println("Error: Inserting(" + docID + ", " + scores[docID] + ") pushed out (" + removed.intVal + ", " + removed.floatVal + ")");
+          if (scores[docID] < removed.getFloatVal()) {
+            System.out.println("Error: Inserting(" + doc2ord.get(docID) + ", " + docID + ", " + scores[docID] + ") pushed out " + removed);
+          } else if (scores[docID] != removed.getFloatVal()) {
+            System.out.println("Inserting(" + doc2ord.get(docID) + ", " + docID + ", " + scores[docID] + ") pushed out " + removed);
           } else {
-            System.out.println("Error: Inserting(" + docID + ", " + scores[docID] + ") pushed out (" + removed.intVal + ", " + removed.floatVal + ")");
+            System.out.println("Inserting(" + doc2ord.get(docID) + ", " + docID + ", " + scores[docID] + ") skipped");
           }
         } else {
-          System.out.println("Inserting(" + docID + ", " + scores[docID] + ")");
+          System.out.println("Inserting(" + doc2ord.get(docID) + ", " + docID + ", " + scores[docID] + ")");
         }
       }
     }
@@ -265,10 +265,11 @@ public class TermMemCollector extends SimpleCollector {
       float maxScore = Float.MIN_VALUE;
       while (entries.hasNext()) {
         FloatInt entry = entries.next();
-        sortValues[scoreDocIDX] = entry.floatVal;
-        scoreDocs[scoreDocs.length-1-scoreDocIDX++] = new ScoreDoc(entry.intVal, entry.floatVal); // What about shardIndex?
-        if (entry.floatVal > maxScore) {
-          if ((maxScore = entry.floatVal) > totalMaxScore) {
+        sortValues[scoreDocIDX] = entry.getFloatVal();
+        // What about shardIndex? Is it not needed here?
+        scoreDocs[scoreDocs.length-1-scoreDocIDX++] = new ScoreDoc(entry.getIntVal(), entry.getFloatVal());
+        if (entry.getFloatVal() > maxScore) {
+          if ((maxScore = entry.getFloatVal()) > totalMaxScore) {
             totalMaxScore = maxScore;
           }
         }
@@ -354,11 +355,11 @@ public class TermMemCollector extends SimpleCollector {
     public boolean lessThan(FloatInt elementA, FloatInt elementB) {
       return elementA.compareTo(elementB) < 0;
     }
-    // TODO: Optimize the last lessThan
+/*    // TODO: Optimize the last lessThan
     @Override
     public boolean lessThan(long elementA, long elementB) {
       return elementA-elementB > 0;
-    }
+    }*/
   }
 
   public int getTotalHitCount() {
@@ -366,47 +367,47 @@ public class TermMemCollector extends SimpleCollector {
   }
 
   public static class FloatInt implements Comparable<FloatInt> {
-    private float floatVal;
-    private int intVal;
+    private long compound;
 
     public FloatInt(float floatVal, int intVal) {
-      this.intVal = intVal;
-      this.floatVal = floatVal;
+      this.compound = (((long)Float.floatToRawIntBits(floatVal)) << 32) | intVal;
     }
 
     public FloatInt(long compound) {
-      this.floatVal = Float.intBitsToFloat((int)(compound >>> 32));
-      this.intVal = (int)compound;
+      this.compound = compound;
     }
 
     public long getCompound() {
-      return (((long)Float.floatToRawIntBits(floatVal)) << 32) | intVal;
+      return compound;
     }
 
     public FloatInt setCompound(long compound) {
-      this.floatVal = Float.intBitsToFloat((int)(compound >>> 32));
-      this.intVal = (int)compound;
+      this.compound = compound;
       return this;
     }
 
     public void setValues(float floatVal, int intVal) {
-      this.floatVal = floatVal;
-      this.intVal = intVal;
+      this.compound = (((long)Float.floatToRawIntBits(floatVal)) << 32) | intVal;
     }
 
     public float getFloatVal() {
-      return floatVal;
+      return Float.intBitsToFloat((int)(compound >>> 32));
     }
 
     public int getIntVal() {
-      return intVal;
+      return (int)compound;
     }
 
     @SuppressWarnings("FloatingPointEquality")
     @Override
     public int compareTo(FloatInt o) {
-      // > 0 as higher scores wins
-      return floatVal == o.floatVal ? intVal-o.intVal : floatVal-o.floatVal > 0 ? -1 : 1;
+      // Unfortunately compareTo return an int, so we cannot just subtract the longs
+      return compound < o.compound ? -1 : compound == o.compound ? 0 : 1;
+    }
+
+    @Override
+    public String toString() {
+      return "FloatInt(" + getFloatVal() + ", " + getIntVal() + ")";
     }
   }
 }

@@ -57,20 +57,38 @@ public abstract class PriorityQueueLong<T> {
    * @return null if the queue is not qet full, else the previously lowest element. This object is not independent
    * of the queue and must not be modified by the caller.
    */
-  public T insert(T element) {
+  public T inssert(T element) {
     inserted++;
     if (size < maxSize-1) {
       elements[++size] = serialize(element);
       dirty = true;
       return null;
-    } else if (!lessThan(element, elements[1])) {
+    } else {
       orderHeap();
+      if (lessThan(element, elements[1])) {
+        return element;
+      }
       elements[1] = serialize(element);
       downHeap();
       return deserialize(elements[1], element);
-    } else {
+    }
+  }
+
+  public T insert(T element) {
+    inserted++;
+    if (size < maxSize-1) {
+      size++;
+      elements[size] = serialize(element);
+      upHeap(size);
+      return deserialize(elements[1], element);
+    }
+    if (lessThan(element, elements[1])) {
       return element;
     }
+    T returnValue = deserialize(elements[1], element);
+    elements[1] = serialize(element);
+    downHeap();
+    return returnValue;
   }
 
   /**
@@ -95,20 +113,33 @@ public abstract class PriorityQueueLong<T> {
 
   protected abstract long serialize(T element);
 
+  private boolean upHeap(int origPos) {
+    int i = origPos;
+    long upHeapOld = elements[i];          // save bottom node
+    int j = i >>> 1;
+    while (j > 0 && lessThan(upHeapOld, elements[j])) {
+      elements[i] = elements[j];       // shift parents down
+      i = j;
+      j = j >>> 1;
+    }
+    elements[i] = upHeapOld;            // install saved node
+    return i != origPos;
+  }
+
   protected void downHeap() {
     int i = 1;
     final long downHeapOld = elements[i]; // save top node
     int j = i << 1;            // find smaller child
     int k = j + 1;
-    if (k <= size && lessThan(k, j)) {
+    if (k <= size && lessThan(elements[k], elements[j])) {
       j = k;
     }
-    while (j <= size && lessThan(j, downHeapOld)) {
+    while (j <= size && lessThan(elements[j], downHeapOld)) {
       elements[i] = elements[j]; // shift up child
       i = j;
       j = i << 1;
       k = j + 1;
-      if (k <= size && lessThan(k, j)) {
+      if (k <= size && lessThan(elements[k], elements[j])) {
         j = k;
       }
     }
@@ -163,7 +194,7 @@ public abstract class PriorityQueueLong<T> {
     if (!dirty) {
       return;
     }
-    heapSort(1, size-1);
+    heapSort(1, size);
     dirty = false;
   }
 
@@ -187,15 +218,15 @@ public abstract class PriorityQueueLong<T> {
   private void siftDown(int i, int from, int to) {
     for (int leftChild = heapChild(from, i); leftChild < to; leftChild = heapChild(from, i)) {
       final int rightChild = leftChild + 1;
-      if (lessThan(i, leftChild)) {
-        if (rightChild < to && lessThan(leftChild, rightChild)) {
+      if (lessThan(elements[i], elements[leftChild])) {
+        if (rightChild < to && lessThan(elements[leftChild], elements[rightChild])) {
           swap(i, rightChild);
           i = rightChild;
         } else {
           swap(i, leftChild);
           i = leftChild;
         }
-      } else if (rightChild < to && lessThan(i, rightChild)) {
+      } else if (rightChild < to && lessThan(elements[i], elements[rightChild])) {
         swap(i, rightChild);
         i = rightChild;
       } else {
@@ -226,7 +257,7 @@ public abstract class PriorityQueueLong<T> {
     return lessThan(deserialize(elementA, null), deserialize(elementB, null));
   }
 
-  protected boolean lessThan(T element, long block) {
+  public boolean lessThan(T element, long block) {
     return lessThan(serialize(element), block);
   }
 
@@ -285,4 +316,11 @@ public abstract class PriorityQueueLong<T> {
     }
   }
 
+  /**
+   * Direct access to backing elements. Use with care!
+   * @return the elements backing the priority queue.
+   */
+  public long[] getElements() {
+    return elements;
+  }
 }

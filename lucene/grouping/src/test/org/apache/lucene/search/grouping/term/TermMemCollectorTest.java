@@ -2,6 +2,7 @@ package org.apache.lucene.search.grouping.term;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -36,6 +37,7 @@ import org.apache.lucene.search.grouping.function.FunctionDistinctValuesCollecto
 import org.apache.lucene.search.grouping.function.FunctionFirstPassGroupingCollector;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.BytesRef;
+import org.apache.lucene.util.PriorityQueueLong;
 import org.apache.lucene.util.TestUtil;
 import org.apache.lucene.util.mutable.MutableValue;
 import org.apache.lucene.util.mutable.MutableValueStr;
@@ -58,22 +60,98 @@ import org.apache.lucene.util.mutable.MutableValueStr;
  * limitations under the License.
  */
 
+@SuppressWarnings("ConstantConditions")
 public class TermMemCollectorTest extends AbstractGroupingTestCase {
+
+  public void testPriorityQueueLong() {
+    PriorityQueueLong<Long> pql = new PriorityQueueLong<Long>(3) {
+      @Override
+      protected Long deserialize(long block, Long reuse) {
+        return block;
+      }
+
+      @Override
+      protected long serialize(Long element) {
+        return element;
+      }
+
+      @Override
+      public boolean lessThan(Long elementA, Long elementB) {
+        return elementA < elementB;
+      }
+    };
+    pql.insert(3L);
+    System.out.println("Inserted 3: " + Arrays.toString(pql.getElements()));
+    pql.insert(2L);
+    System.out.println("Inserted 2: " + Arrays.toString(pql.getElements()));
+    pql.insert(1L);
+    System.out.println("Inserted 1: " + Arrays.toString(pql.getElements()));
+    pql.insert(4L);
+    System.out.println("Inserted 4: " + Arrays.toString(pql.getElements()));
+    List<Long> extracted = new ArrayList<>(3);
+    while (!pql.isEmpty()) {
+      extracted.add(pql.pop(null));
+    }
+    assertEquals("The pq elemements should be ordered", Arrays.asList(new Long[]{2L, 3L, 4L}), extracted);
+  }
+
+  public void testFloatInt() {
+    final int RUNS = 100;
+    for (int i = 0 ; i < RUNS ; i++) {
+      float f1 = random().nextFloat()*100;
+      float f2 = random().nextFloat()*100;
+      int doc1 = random().nextInt(100);
+      int doc2 = random().nextInt(100);
+      TermMemCollector.FloatInt fi1 = new TermMemCollector.FloatInt(f1, doc1);
+      TermMemCollector.FloatInt fi2 = new TermMemCollector.FloatInt(f2, doc2);
+      long c1 = fi1.getCompound();
+      long c2 = fi2.getCompound();
+      if (f1 < f2) {
+        assertTrue("Expected f1(" + f1 + ") < f2 (" + f2 + ") for " + fi1 + " and " + fi2, fi1.compareTo(fi2) < 0);
+        assertTrue("Expected f1(" + f1 + ") < f2 (" + f2 + ") for compound " + fi1 + " and " + fi2, c1 < c2);
+      } else if (f1 > f2) {
+        assertTrue("Expected f1(" + f1 + ") > f2 (" + f2 + ") for " + fi1 + " and " + fi2, fi1.compareTo(fi2) > 0);
+        assertTrue("Expected f1(" + f1 + ") > f2 (" + f2 + ") for compound " + fi1 + " and " + fi2, c1 > c2);
+      } else {
+        assertTrue("Expected f1(" + f1 + ") == f2 (" + f2 + ") for " + fi1 + " and " + fi2, fi1.compareTo(fi2) == 0);
+        assertTrue("Expected f1(" + f1 + ") == f2 (" + f2 + ") for compound " + fi1 + " and " + fi2, c1 == c2);
+      }
+    }
+  }
 
   public void testPriorityQueue() {
     final int RUNS = 100;
+    final int SIZE = 5;
+    Random random = new Random(2); // Fairly fast fail
 
-    TermMemCollector.ScoreDocPQ pq = new TermMemCollector.ScoreDocPQ(5);
+    List<Float> control = new ArrayList<>(RUNS);
+
+    TermMemCollector.ScoreDocPQ pq = new TermMemCollector.ScoreDocPQ(SIZE);
     TermMemCollector.FloatInt reuse = new TermMemCollector.FloatInt(1.0f, 0);
     for (int i = 0 ; i < RUNS ; i++) {
-      final float score = random().nextFloat()*100;
-      final int docID = random().nextInt(RUNS);
+      final float score = random.nextFloat()*100;
+      final int docID = random.nextInt(RUNS);
       reuse.setValues(score, docID);
+
+      if (docID == 31) {
+        System.out.println("Expecting fail now");
+      }
+      System.out.print("Inserting " + reuse + " -> ");
       TermMemCollector.FloatInt returned = pq.insert(reuse);
-      if (returned != null && score < reuse.getFloatVal()) {
+      System.out.println(returned);
+      if (returned != null && score < returned.getFloatVal()) {
         fail("Inserted [score=" + score + ", docID=" + docID + "] which pushed out [score=" + returned.getFloatVal()
             + ", docID=" + returned.getIntVal() + "]");
       }
+      control.add(score);
     }
+    Collections.sort(control);
+
+    control = control.subList(control.size()-1-SIZE, control.size());
+    List<Float> actual = new ArrayList<>(SIZE);
+    for (int i = 0 ; i < SIZE ; i++) {
+      actual.add(pq.pop(null).getFloatVal());
+    }
+    assertEquals("The top-" + SIZE + " floats should be correct", control.toString(), actual.toString());
   }
 }
