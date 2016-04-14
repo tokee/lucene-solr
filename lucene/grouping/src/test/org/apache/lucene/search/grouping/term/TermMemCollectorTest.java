@@ -80,14 +80,14 @@ public class TermMemCollectorTest extends AbstractGroupingTestCase {
         return elementA < elementB;
       }
     };
-    pql.insert(3L);
-//    System.out.println("Inserted 3: " + Arrays.toString(pql.getElements()));
-    pql.insert(2L);
-//    System.out.println("Inserted 2: " + Arrays.toString(pql.getElements()));
-    pql.insert(1L);
-//    System.out.println("Inserted 1: " + Arrays.toString(pql.getElements()));
-    pql.insert(4L);
-//    System.out.println("Inserted 4: " + Arrays.toString(pql.getElements()));
+    pql.fastInsert(3L);
+    //System.out.println("Inserted 3: " + Arrays.toString(pql.getElements()));
+    pql.fastInsert(2L);
+    //System.out.println("Inserted 2: " + Arrays.toString(pql.getElements()));
+    pql.fastInsert(1L);
+    //System.out.println("Inserted 1: " + Arrays.toString(pql.getElements()));
+    pql.fastInsert(4L);
+    //System.out.println("Inserted 4: " + Arrays.toString(pql.getElements()));
     List<Long> extracted = new ArrayList<>(3);
     while (!pql.isEmpty()) {
       extracted.add(pql.pop(null));
@@ -127,8 +127,8 @@ public class TermMemCollectorTest extends AbstractGroupingTestCase {
     }
     pq.insert(new TermMemCollector.FloatInt(MISSING, 87));
     boolean found = false;
-    for (int i = 1 ; i < pq.size() ; i++) {
-      if (Math.abs(new TermMemCollector.FloatInt(pq.getElements()[i]).getFloatVal() - MISSING) < 0.0001f) {
+    for (int i = 1 ; i <= pq.size() ; i++) {
+      if (Math.abs(new TermMemCollector.FloatInt(pq.getElements()[i]).getFloatVal() - MISSING) < 0.001f) {
         found = true;
         break;
       }

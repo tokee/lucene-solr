@@ -927,8 +927,12 @@ public class Grouping {
       double iterateFraction = request.getParams().getDouble("group.memcache.sparsefraction.iterate",
           TermMemCollector.DEFAULT_SPARSE_ITERATE_RATIO);
       double clearFraction = request.getParams().getDouble("group.memcache.sparsefraction.clear", iterateFraction);
+      double fillThreadRatio = request.getParams().getDouble("group.memcache.fillthreads.fraction",
+          TermMemCollector.DEFAULT_FILL_THREAD_RATIO);
+      int fillThreads = request.getParams().getInt("group.memcache.fillthreads.count",
+          TermMemCollector.DEFAULT_FILL_THREAD_COUNT);
       onlyPass = new TermMemCollector(groupBy, actualGroupsToFind, docID2ordinal.si, docID2ordinal.doc2ord,
-          iterateFraction, clearFraction);
+          iterateFraction, clearFraction, fillThreadRatio, fillThreads);
       logger.info("MemCache: Created TermMemCollector in " + ((System.nanoTime()-allocateStart)/1000000) + "ms");
       return onlyPass;
     }

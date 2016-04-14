@@ -706,6 +706,30 @@ public class TestGroupingSearch extends SolrTestCaseJ4 {
   }
 
   @Test
+  public void testMemCachedGroupingRandomThreaded() throws Exception {
+    createMemCacheTestIndex(500);
+
+    String vanillaResponse = h.query(req(
+        "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
+        "group.field", FOO_STRING_FIELD,
+        "group.limit", "2",
+        "group.memcache.fillthreads.fraction", "0.1",
+        "group.memcache.fillthreads.count", "3",
+        "group.memcache", "false"));
+
+    String memResponse = h.query(req(
+        "group", "true", "wt", "json", "indent", "true", "echoParams", "all", "q", "{!func}score_f", "rows", "2",
+        "group.field", FOO_STRING_FIELD,
+        "group.limit", "2",
+        "group.memcache.fillthreads.fraction", "0.1",
+        "group.memcache.fillthreads.count", "3",
+        "group.memcache", "true"));
+
+    assertEquals("Simple relevance ranked StrField grouping should not differece between vanilla and mem cached",
+        comparify(vanillaResponse), comparify(memResponse));
+  }
+
+  @Test
   public void testMemCachedGroupingSingleCount() throws Exception {
     createMemCacheTestIndex();
 

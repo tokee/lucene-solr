@@ -52,6 +52,19 @@ public abstract class PriorityQueueLong<T> {
   }
 
   /**
+   * Add the content of the other queue, summing the inserted counts from both.
+   * This is non-destructive towards other.
+   * @param other another priority queue of longs, with the same serialization contract as this.
+   */
+  public void add(PriorityQueueLong<T> other) {
+    long oldInserted = inserted;
+    for (int i = 1 ; i <= other.size ; i++) {
+      insertDirect(other.elements[i]);
+    }
+    inserted = oldInserted + other.inserted;
+  }
+
+  /**
    * Insert a new element into the queue, removing the lowest existing element if the queue is full.
    * @param element the element to insert. This object can be safely re-used by the caller.
    * @return null if the queue is not qet full, else the previously lowest element. This object is not independent
@@ -71,6 +84,21 @@ public abstract class PriorityQueueLong<T> {
       elements[1] = serialize(element);
       downHeap();
       return deserialize(elements[1], element);
+    }
+  }
+
+  private void insertDirect(long element) {
+    inserted++;
+    if (size < maxSize-1) {
+      elements[++size] = element;
+      dirty = true;
+    } else {
+      orderHeap();
+      if (lessThan(element, elements[1])) {
+        return;
+      }
+      elements[1] = element;
+      downHeap();
     }
   }
 

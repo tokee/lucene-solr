@@ -22,7 +22,17 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.SortedDocValues;
@@ -50,6 +60,22 @@ public class TermMemCollector extends SimpleCollector {
   // If hits < ratio*maxDoc of the scoreCache is filled, use sparse iteration
   public static final double DEFAULT_SPARSE_ITERATE_RATIO = 0.1;
 
+  // If hits > ratio*maxDoc and group.limit>1, use threaded group fill
+  public static final double DEFAULT_FILL_THREAD_RATIO = 0.1;
+  public static final int DEFAULT_FILL_THREAD_COUNT = 1; // Threading disabled
+
+  private static final ExecutorService executor = new ThreadPoolExecutor(
+      5, 10, 10L, TimeUnit.SECONDS, new LinkedBlockingQueue<Runnable>(), new ThreadFactory() {
+    private int creatorCount = 0;
+    @Override
+    public Thread newThread(Runnable r) {
+      Thread t = new Thread(r);
+      t.setName("TermMemCollector_" + creatorCount++);
+      t.setDaemon(true);
+      return t;
+    }
+  });
+
   private final double sparseIterateRatio;
   private final double sparseClearRatio;
   private final String groupField;
@@ -59,6 +85,8 @@ public class TermMemCollector extends SimpleCollector {
   private final float[] scores;
   private final FixedBitSet tracker;
   private final CollapsingPriorityQueue<Long, Float, Integer> topGroups;
+  private final double fillThreadRatio;
+  private final int fillThreadCount;
   int totalHitCount = 0;
   final int maxDoc;
 
@@ -71,20 +99,24 @@ public class TermMemCollector extends SimpleCollector {
 
   public TermMemCollector(String groupField, int numGroups, SortedDocValues si, PackedInts.Reader doc2ord,
                           double sparseRatio) {
-    this(groupField, numGroups, si, doc2ord, sparseRatio, sparseRatio);
+    this(groupField, numGroups, si, doc2ord, sparseRatio, sparseRatio, 
+        DEFAULT_FILL_THREAD_RATIO, DEFAULT_FILL_THREAD_COUNT);
   }
 
   public TermMemCollector(String groupField, int numGroups, SortedDocValues si, PackedInts.Reader doc2ord,
-                          double sparseIterateRatio, double sparseClearRatio) {
+                          double sparseIterateRatio, double sparseClearRatio, double fillThreadRatio, 
+                          int fillThreadCount) {
     this.groupField = groupField;
     this.numGroups = numGroups;
     this.si = si;
     this.doc2ord = doc2ord;
-
+    this.fillThreadRatio = fillThreadRatio;
+    this.fillThreadCount = fillThreadCount;
+    
     maxDoc = doc2ord.size();
     scoreCache.setNeededLength(maxDoc);
     scores = scoreCache.getFloats();
-    trackerCache.setNeededLength((maxDoc+65)/64); // +64 might also work. +65 is "just to make sure"
+    trackerCache.setNeededLength((maxDoc+65)/64); // +64 might also work. +65 is "just to make sure". Yes, sloppy.
     tracker = new FixedBitSet(trackerCache.getLongs(), maxDoc+1);
 
     topGroups = new CollapsingPriorityQueue<>(numGroups);
@@ -191,11 +223,85 @@ public class TermMemCollector extends SimpleCollector {
     }
   }
 
+  private Map<Long, ScoreDocPQ> getFilledTopGroups(int withinGroupOffset, int maxDocsPerGroup) {
+    // TODO: Add absolute minimum instead of just relative
+    if (totalHitCount < fillThreadRatio*maxDoc || fillThreadCount == 1) {
+      return getFilledTopGroups(withinGroupOffset, maxDocsPerGroup, 0, maxDoc+1);
+    }
+
+    List<Future<Map<Long, ScoreDocPQ>>> fillers = new ArrayList<>(fillThreadCount);
+    final int chunkSize = Math.max(1, maxDoc / fillThreadCount);
+    int startDocID = 0;
+    for (int i = 0 ; i < fillThreadCount ; i++) {
+      executor.submit(new Callable() {
+        @Override
+        public Object call() throws Exception {
+          System.out.println("Hello World");
+          return null;
+        }
+      });
+      fillers.add(executor.submit(new Filler(withinGroupOffset, maxDocsPerGroup, startDocID, startDocID+chunkSize)));
+      startDocID += chunkSize;
+    }
+    List<Map<Long, ScoreDocPQ>> topGroupss = new ArrayList<>(fillThreadCount);
+    for (Future<Map<Long, ScoreDocPQ>> filler: fillers) {
+      try {
+        topGroupss.add(filler.get());
+      } catch (InterruptedException e) {
+        throw new RuntimeException("Interrupted while waiting for threaded group fill", e);
+      } catch (ExecutionException e) {
+        throw new RuntimeException("Exception while processing threaded group fill", e);
+      }
+    }
+    return merge(topGroupss);
+  }
+
+  private Map<Long, ScoreDocPQ> merge(List<Map<Long, ScoreDocPQ>> topGroupss) {
+    Map<Long, ScoreDocPQ> merged = null;
+    for (Map<Long, ScoreDocPQ> topGroups: topGroupss) {
+      if (merged == null) {
+        merged = topGroups;
+        continue;
+      }
+      for (Map.Entry<Long, ScoreDocPQ> entry: topGroups.entrySet()) {
+        ScoreDocPQ dest = merged.get(entry.getKey());
+        if (dest == null) {
+          throw new IllegalStateException("All groups should be present in all thread results for merging. " +
+              "Missing group for ordinal " + entry.getKey() + " in one result");
+        }
+        dest.add(entry.getValue());
+      }
+    }
+    return merged;
+  }
+
+  private class Filler implements Callable<Map<Long, ScoreDocPQ>> {
+    private int withinGroupOffset;
+    private int maxDocsPerGroup;
+    private int startDocID;
+    private int endDocID;
+
+    public Filler(int withinGroupOffset, int maxDocsPerGroup, int startDocID, int endDocID) {
+      this.withinGroupOffset = withinGroupOffset;
+      this.maxDocsPerGroup = maxDocsPerGroup;
+      this.startDocID = startDocID;
+      this.endDocID = endDocID;
+    }
+
+    @Override
+    public Map<Long, ScoreDocPQ> call() throws Exception {
+      return getFilledTopGroups(withinGroupOffset, maxDocsPerGroup, startDocID, endDocID);
+    }
+  }
+
   /**
    * Takes the topGroups collected from the result set and resolves the top-X documents for each.
    * This re-uses the scores calculated from the initial collection run.
+   * @param startDocID where to start scanning for non-0 scores. Inclusive.
+   * @param endDocID where to stop scanning for non-0 scored. Exclusive
    */
-  private Map<Long, ScoreDocPQ> getFilledTopGroups(int withinGroupOffset, int maxDocsPerGroup) {
+  private Map<Long, ScoreDocPQ> getFilledTopGroups(
+      int withinGroupOffset, int maxDocsPerGroup, int startDocID, int endDocID) {
     Map<Long, ScoreDocPQ> groupsWithDocs = new LinkedHashMap<>(topGroups.size()); // group_ordinal -> topDocs
     for (CollapsingPriorityQueue<Long, Float, Integer>.Entry entry: topGroups.getEntries()) {
       groupsWithDocs.put(entry.getKey(), new ScoreDocPQ(withinGroupOffset + maxDocsPerGroup));
@@ -205,8 +311,8 @@ public class TermMemCollector extends SimpleCollector {
     FloatInt filler = new FloatInt(0.0f, 0);
 
     if (totalHitCount < maxDoc*sparseIterateRatio) { // Use sparse iteration
-      int docID = -1;
-      while ((docID = tracker.nextSetBit(++docID)) != DocIdSetIterator.NO_MORE_DOCS) {
+      int docID = startDocID-1;
+      while ((docID = tracker.nextSetBit(++docID)) < endDocID) {
         if ((groupPQ = groupsWithDocs.get(doc2ord.get(docID))) != null) {
           filler.setValues(scores[docID], docID);
           groupPQ.insert(filler);
@@ -215,7 +321,7 @@ public class TermMemCollector extends SimpleCollector {
       return groupsWithDocs;
     }
     // Not sparse
-    for (int docID = 0 ; docID < maxDoc ; docID++) {
+    for (int docID = startDocID ; docID < endDocID ; docID++) {
       final float score = scores[docID];
       if (score != 0.0f && (groupPQ = groupsWithDocs.get(doc2ord.get(docID))) != null) {
         filler.setValues(scores[docID], docID);
@@ -355,11 +461,16 @@ public class TermMemCollector extends SimpleCollector {
     public boolean lessThan(FloatInt elementA, FloatInt elementB) {
       return elementA.compareTo(elementB) < 0;
     }
-/*    // TODO: Optimize the last lessThan
+
     @Override
     public boolean lessThan(long elementA, long elementB) {
-      return elementA-elementB > 0;
-    }*/
+      return elementA < elementB;
+    }
+
+    @Override
+    public boolean lessThan(FloatInt element, long block) {
+      return element.getCompound() < block;
+    }
   }
 
   public int getTotalHitCount() {
