@@ -219,8 +219,8 @@ public class TermMemCollector extends SimpleCollector {
       final float score = scores[docID];
       if (score != 0.0f && (groupPQ = groupsWithDocs.get(doc2ord.get(docID))) != null) {
         filler.setValues(scores[docID], docID);
-        // TODO: Use fastInsert when all relevant unit tests passes
-        FloatInt removed = groupPQ.insert(filler);
+        groupPQ.fastInsert(filler);
+        /*FloatInt removed = groupPQ.insert(filler);
         if (removed != null) {
           if (scores[docID] < removed.getFloatVal()) {
             System.out.println("Error: Inserting(" + doc2ord.get(docID) + ", " + docID + ", " + scores[docID] + ") pushed out " + removed);
@@ -231,7 +231,7 @@ public class TermMemCollector extends SimpleCollector {
           }
         } else {
           System.out.println("Inserting(" + doc2ord.get(docID) + ", " + docID + ", " + scores[docID] + ")");
-        }
+        }*/
       }
     }
     return groupsWithDocs;
@@ -249,7 +249,7 @@ public class TermMemCollector extends SimpleCollector {
     int groupIDX = 0;
     for (Map.Entry<Long, ScoreDocPQ> topEntry: groupsWithDocs.entrySet()) {
       final BytesRef groupName = BytesRef.deepCopyOf(si.lookupOrd(topEntry.getKey().intValue()));
-      System.out.println("Resolved group " + groupName.utf8ToString() + " from ordinal " + topEntry.getKey().intValue());
+      //System.out.println("Resolved group " + groupName.utf8ToString() + " from ordinal " + topEntry.getKey().intValue());
       ScoreDocPQ pq = topEntry.getValue();
       if (pq.isEmpty()) {
         throw new IllegalStateException(

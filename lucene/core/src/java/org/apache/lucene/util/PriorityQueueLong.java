@@ -57,7 +57,7 @@ public abstract class PriorityQueueLong<T> {
    * @return null if the queue is not qet full, else the previously lowest element. This object is not independent
    * of the queue and must not be modified by the caller.
    */
-  public T inssert(T element) {
+  public T insert(T element) {
     inserted++;
     if (size < maxSize-1) {
       elements[++size] = serialize(element);
@@ -74,21 +74,21 @@ public abstract class PriorityQueueLong<T> {
     }
   }
 
-  public T insert(T element) {
+  public T insertWorkd(T element) {
     inserted++;
     if (size < maxSize-1) {
       size++;
       elements[size] = serialize(element);
       upHeap(size);
-      return deserialize(elements[1], element);
+      return null;
     }
     if (lessThan(element, elements[1])) {
       return element;
     }
-    T returnValue = deserialize(elements[1], element);
+    long returnLong = elements[1];
     elements[1] = serialize(element);
     downHeap();
-    return returnValue;
+    return deserialize(returnLong, element);
   }
 
   /**
@@ -101,8 +101,11 @@ public abstract class PriorityQueueLong<T> {
     if (size < maxSize-1) {
       elements[++size] = serialize(element);
       dirty = true;
-    } else if (size > 0 && !lessThan(element, elements[1])) {
+    } else {
       orderHeap();
+      if (lessThan(element, elements[1])) {
+        return;
+      }
       elements[1] = serialize(element);
       downHeap();
     }

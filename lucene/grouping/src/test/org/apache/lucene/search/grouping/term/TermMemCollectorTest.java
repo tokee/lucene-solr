@@ -81,13 +81,13 @@ public class TermMemCollectorTest extends AbstractGroupingTestCase {
       }
     };
     pql.insert(3L);
-    System.out.println("Inserted 3: " + Arrays.toString(pql.getElements()));
+//    System.out.println("Inserted 3: " + Arrays.toString(pql.getElements()));
     pql.insert(2L);
-    System.out.println("Inserted 2: " + Arrays.toString(pql.getElements()));
+//    System.out.println("Inserted 2: " + Arrays.toString(pql.getElements()));
     pql.insert(1L);
-    System.out.println("Inserted 1: " + Arrays.toString(pql.getElements()));
+//    System.out.println("Inserted 1: " + Arrays.toString(pql.getElements()));
     pql.insert(4L);
-    System.out.println("Inserted 4: " + Arrays.toString(pql.getElements()));
+//    System.out.println("Inserted 4: " + Arrays.toString(pql.getElements()));
     List<Long> extracted = new ArrayList<>(3);
     while (!pql.isEmpty()) {
       extracted.add(pql.pop(null));
@@ -119,7 +119,24 @@ public class TermMemCollectorTest extends AbstractGroupingTestCase {
     }
   }
 
-  public void testPriorityQueue() {
+  public void testPriorityQueueFixed() {
+    TermMemCollector.ScoreDocPQ pq = new TermMemCollector.ScoreDocPQ(5);
+    final float MISSING = 98.74208f;
+    for (float f: new float[]{73.11469f, 90.14476f, 49.682255f, 98.58769f, 85.7124f}) {
+      pq.insert(new TermMemCollector.FloatInt(f, 87));
+    }
+    pq.insert(new TermMemCollector.FloatInt(MISSING, 87));
+    boolean found = false;
+    for (int i = 1 ; i < pq.size() ; i++) {
+      if (Math.abs(new TermMemCollector.FloatInt(pq.getElements()[i]).getFloatVal() - MISSING) < 0.0001f) {
+        found = true;
+        break;
+      }
+    }
+    assertTrue("The value " + MISSING + " should be in the queue " + dump(pq), found);
+  }
+
+  public void testPriorityQueueMonkey() {
     final int RUNS = 100;
     final int SIZE = 5;
     Random random = new Random(2); // Fairly fast fail
@@ -133,12 +150,9 @@ public class TermMemCollectorTest extends AbstractGroupingTestCase {
       final int docID = random.nextInt(RUNS);
       reuse.setValues(score, docID);
 
-      if (docID == 31) {
-        System.out.println("Expecting fail now");
-      }
-      System.out.print("Inserting " + reuse + " -> ");
+      //System.out.print("Inserting " + reuse + " -> ");
       TermMemCollector.FloatInt returned = pq.insert(reuse);
-      System.out.println(returned);
+      //System.out.println(returned + ":\t" + dump(pq));
       if (returned != null && score < returned.getFloatVal()) {
         fail("Inserted [score=" + score + ", docID=" + docID + "] which pushed out [score=" + returned.getFloatVal()
             + ", docID=" + returned.getIntVal() + "]");
@@ -147,11 +161,26 @@ public class TermMemCollectorTest extends AbstractGroupingTestCase {
     }
     Collections.sort(control);
 
-    control = control.subList(control.size()-1-SIZE, control.size());
+    control = control.subList(control.size()-SIZE, control.size());
     List<Float> actual = new ArrayList<>(SIZE);
     for (int i = 0 ; i < SIZE ; i++) {
       actual.add(pq.pop(null).getFloatVal());
     }
     assertEquals("The top-" + SIZE + " floats should be correct", control.toString(), actual.toString());
+  }
+
+  private String dump(TermMemCollector.ScoreDocPQ pq) {
+    StringBuilder sb = new StringBuilder(100);
+    sb.append("[");
+    for (int i = 1 ; i <= pq.size() ; i++) {
+      TermMemCollector.FloatInt value = new TermMemCollector.FloatInt(pq.getElements()[i]);
+      if (i != 1) {
+        sb.append(", ");
+      }
+      sb.append(String.format("%5.2f", value.getFloatVal()));
+      //sb.append(String.format("(%5.2f, %d)", value.getFloatVal(), value.getIntVal()));
+    }
+    sb.append("]");
+    return sb.toString();
   }
 }
