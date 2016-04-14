@@ -74,7 +74,7 @@ public abstract class PriorityQueueLong<T> {
     }
   }
 
-  public T insertWorkd(T element) {
+  public T insertConstantInvariant(T element) {
     inserted++;
     if (size < maxSize-1) {
       size++;
@@ -197,7 +197,7 @@ public abstract class PriorityQueueLong<T> {
     if (!dirty) {
       return;
     }
-    heapSort(1, size);
+    heapSort(1, size+1);
     dirty = false;
   }
 
