@@ -29,6 +29,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Random;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.apache.commons.lang.ArrayUtils;
 import org.apache.commons.lang.StringUtils;
@@ -53,6 +55,7 @@ import org.apache.solr.search.QueryParsing;
 import org.apache.solr.search.DocSet;
 import org.apache.solr.search.SyntaxError;
 import org.apache.solr.search.facet.FacetDebugInfo;
+import org.apache.solr.search.sparse.SparseKeys;
 import org.apache.solr.util.RTimer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -347,6 +350,15 @@ public class FacetComponent extends SearchComponent {
       return ResponseBuilder.STAGE_DONE;
     }
 
+    // TODO: We only want to set this for distributed calls. Is this the right place?
+    // Setting the sparse faceting cache token informs the value counter pool that the filled counter might
+    // be usable for a faceting phase 2 request. This allows the pool to cache the counter without clearing it.
+    if (rb.req.getParams().get(SparseKeys.CACHE_TOKEN, null) == null) {
+      ModifiableSolrParams newParams = new ModifiableSolrParams(rb.req.getParams());
+      newParams.set(SparseKeys.CACHE_TOKEN, generateSparseCacheToken());
+      rb.req.setParams(newParams);
+    }
+
     if (rb.stage != ResponseBuilder.STAGE_GET_FIELDS) {
       return ResponseBuilder.STAGE_DONE;
     }
@@ -356,6 +368,13 @@ public class FacetComponent extends SearchComponent {
     // only other required phase).
     // We do this in distributedProcess so we can look at all of the
     // requests in the outgoing queue at once.
+
+    // Simple skip of phase 2 fine counting. This means that the counts for the returned facets will not
+    // be guaranteed to be correct.
+    if (rb.req.getParams().getBool(SparseKeys.SKIPREFINEMENTS, SparseKeys.SKIPREFINEMENTS_DEFAULT)) {
+      // Skip the second phase at the cost of count precision
+      return ResponseBuilder.STAGE_DONE;
+    }
 
     for (int shardNum = 0; shardNum < rb.shards.length; shardNum++) {
       List<String> distribFieldFacetRefinements = null;
@@ -620,6 +639,15 @@ public class FacetComponent extends SearchComponent {
     }
   }
   
+  /**
+   * @return a guaranteed unique value, intended as key for caching of value counter content for sparse phase 2.
+   */
+  private String generateSparseCacheToken() {
+    return Long.toHexString(cacheTokenCounter.incrementAndGet()); // TODO: Create a non-chance-dependent unique token
+  }
+  private final AtomicLong cacheTokenCounter = new AtomicLong(new Random().nextLong());
+
+
   private void modifyRequestForPivotFacets(ResponseBuilder rb,
                                            ShardRequest sreq, 
                                            SimpleOrderedMap<PivotFacet> pivotFacets) {

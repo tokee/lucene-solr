@@ -22,7 +22,7 @@ import java.util.Collections;
 
 import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.packed.PackedInts;
-import org.apache.solr.search.sparse.counters.Incrementable;
+import org.apache.solr.search.sparse.count.Incrementable;
 
 /**
  * Dummy class for establishing baseline speed while performance testing LongTail.

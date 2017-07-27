@@ -2088,6 +2088,226 @@ public class SimpleFacetsTest extends SolrTestCaseJ4 {
     doFacetPrefix("tt_s1", "{!threads=2}", "", "facet.method","fcs");   // specific number of threads
   }
 
+  /**
+   * Simulates distributed faceting by performing a second request for specific terms in the facet.
+   */
+  @Test
+  public void testTwoPhaseFaceting() {
+    final String pre = "//lst[@name='foo_s']";
+
+    // First phase non-sparse
+    assertQ("test plain facet request",
+             req("q", "*:*"
+                 ,"facet", "true"
+                 ,"facet.sparse", "false"
+                 ,"facet.field", "foo_s"
+                 ,"facet.mincount","1"
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=3]"
+             ,pre+"/int[1][@name='A'][.='6']"
+             ,pre+"/int[2][@name='B'][.='6']"
+             ,pre+"/int[3][@name='C'][.='2']"
+             );
+
+    // First phase sparse
+    assertQ("test plain facet request",
+             req("q", "*:*"
+                 ,"facet", "true"
+                 ,"facet.sparse", "true"
+                 ,"facet.sparse.mintags", "1" // Force sparse
+                 ,"facet.sparse.cutoff", "99999" // Force sparse
+                 ,"facet.sparse.termlookup", "true" // Force sparse
+                 ,"facet.field", "foo_s"
+                 ,"facet.mincount","1"
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=3]"
+             ,pre+"/int[1][@name='A'][.='6']"
+             ,pre+"/int[2][@name='B'][.='6']"
+             ,pre+"/int[3][@name='C'][.='2']"
+             );
+
+    // Second phase non-sparse (we only want A here)
+    assertQ("test plain facet request",
+             req("q", "*:*"
+                 ,"facet", "true"
+                 ,"facet.sparse", "false"
+                 ,"facet.field", "{!terms=A}foo_s"
+                 ,"facet.mincount","1"
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=1]"
+             ,pre+"/int[1][@name='A'][.='6']"
+             );
+
+    // Second phase sparse (we only want A here)
+    assertQ("test plain facet request",
+             req("q", "*:*"
+                 ,"facet", "true"
+                 ,"facet.sparse", "true"
+                 ,"facet.sparse.mintags", "1" // Force sparse
+                 ,"facet.sparse.cutoff", "99999" // Force sparse
+                 ,"facet.sparse.termlookup", "true" // Force sparse
+                 ,"facet.field", "{!terms=A}foo_s"
+                 ,"facet.mincount","1"
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=1]"
+             ,pre+"/int[1][@name='A'][.='6']"
+             );
+  }
+
+  /** Tests whether the sparse faceting is capable of returning terms with count 0
+   */
+  public void testSparseZero() {
+    int DOCS = 1000;
+    final String FF = "distz_s";
+
+    for (int i = 0; i < DOCS; i++) {
+      // *_s = multi string, *_s1 = single string
+      assertU(adoc("id", Integer.toString(10000 + i), FF, "uniqueTerm" + i, FF, "mod10Term" + i % 10));
+    }
+    assertU(commit());
+    final String pre = "//lst[@name='" + FF + "']";
+
+    // Non-sparse with zeroes
+    assertQ("test plain facet request",
+             req("q", "id:10002"
+                 ,"facet", "true"
+                 ,"facet.sparse", "false"
+                 ,"facet.field", FF
+                 ,"facet.limit", "12"
+                 ,"facet.mincount", "0"
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=12]"
+             ,pre+"/int[1][@name='mod10Term2'][.='1']"
+             ,pre+"/int[2][@name='uniqueTerm2'][.='1']"
+             ,pre+"/int[12][@name='uniqueTerm0'][.='0']"
+             );
+    // Sparse with zeroes
+    assertQ("test plain facet request",
+             req("q", "id:10002"
+                 ,"indent", "true"
+                 ,"facet", "true"
+                 ,"facet.field", FF
+                 ,"facet.limit", "12"
+                 ,"facet.mincount", "0"
+                 ,"facet.sparse", "true"
+                 ,"facet.sparse.mintags", "1" // Force sparse
+                 ,"facet.sparse.cutoff", "99999" // Force sparse
+                 ,"facet.sparse.termlookup", "true" // Force sparse
+                 ,"facet.sparse.stats", "true" // Check if sparse really is enabled
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=13]"
+             ,pre+"/int[1][@name='mod10Term2'][.='1']"
+             ,pre+"/int[2][@name='uniqueTerm2'][.='1']"
+             ,pre+"/int[12][@name='uniqueTerm0'][.='0']"
+             );
+    // TODO: Add proper check for sparse run
+    // TODO: Also make unit test for sililar call with DoCValues
+  }
+
+  @Test
+  /**
+   * As we can only semi-reliably measure faceting performance on a large corpus, this test takes quite a while
+   * to run.
+   */
+  public void testSparseSpeed() {
+    int DOCS = 1000;
+    for (int i = 0 ; i < DOCS ; i++) {
+      // *_s = multi string, *_s1 = single string
+      assertU(adoc("id", Integer.toString(10000 + i), "dist_s", "uniqueTerm" + i, "dist_s", "mod10Term" + i % 10));
+    }
+    assertU(commit());
+    final String pre = "//lst[@name='dist_s']";
+    // First phase non-sparse
+    assertQ("test plain facet request",
+             req("q", "*:*"
+                 ,"facet", "true"
+                 ,"facet.sparse", "false"
+                 ,"facet.field", "dist_s"
+                 ,"facet.mincount","1"
+                 )
+             ,pre+"/int[4][@name='mod10Term3'][.='" + DOCS/10 + "']"
+             ,pre+"/int[12][@name='uniqueTerm1'][.='1']"
+             );
+
+    // First phase sparse
+    assertQ("test plain facet request",
+             req("q", "*:*"
+                 ,"facet", "true"
+                 ,"facet.sparse", "true"
+                 ,"facet.sparse.mintags", "1" // Force sparse
+                 ,"facet.sparse.cutoff", "99999" // Force sparse
+                 ,"facet.sparse.termlookup", "true" // Force sparse
+                 ,"facet.field", "dist_s"
+                 ,"facet.mincount","1"
+                 )
+             ,pre+"/int[4][@name='mod10Term3'][.='" + DOCS/10 + "']"
+             ,pre+"/int[12][@name='uniqueTerm1'][.='1']"
+             );
+
+    // Second phase non-sparse
+    assertQ("test plain facet request",
+             req("q", "*:*"
+                 ,"facet", "true"
+                 ,"facet.sparse", "false"
+                 ,"facet.field", "{!terms=uniqueTerm" + (DOCS-1) + ",uniqueTerm0}dist_s"
+                 ,"facet.mincount","1"
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=2]"
+             ,pre+"/int[1][@name='uniqueTerm" + (DOCS-1) + "'][.='1']"
+             ,pre+"/int[2][@name='uniqueTerm0'][.='1']"
+             );
+
+    // Second phase sparse (we only want A here)
+    assertQ("test plain facet request",
+             req("q", "*:*"
+                 ,"facet", "true"
+                 ,"facet.sparse", "true"
+                 ,"facet.sparse.mintags", "1" // Force sparse
+                 ,"facet.sparse.cutoff", "99999" // Force sparse
+                 ,"facet.sparse.termlookup", "true" // Force sparse
+                 ,"facet.field", "{!terms=uniqueTerm" + (DOCS-1) + ",uniqueTerm0}dist_s"
+                 ,"facet.mincount","1"
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=2]"
+             ,pre+"/int[1][@name='uniqueTerm" + (DOCS-1) + "'][.='1']"
+             ,pre+"/int[2][@name='uniqueTerm0'][.='1']"
+             );
+
+    // Second phase sparse tiny
+    assertQ("test plain facet request",
+             req("q", "id:10010"
+                 ,"facet", "true"
+                 ,"facet.sparse", "true"
+                 ,"facet.sparse.mintags", "1" // Force sparse
+                 ,"facet.sparse.cutoff", "99999" // Force sparse
+                 ,"facet.sparse.termlookup", "true" // Force sparse
+                 ,"facet.field", "{!terms=uniqueTerm10,mod10Term0}dist_s"
+                 ,"facet.mincount","1"
+                 )
+             ,"*[count(//lst[@name='facet_fields']/lst/int)=2]"
+             ,pre+"/int[1][@name='uniqueTerm10'][.='1']"
+             ,pre+"/int[2][@name='mod10Term0'][.='1']"
+             );
+
+  }
+
+  static void indexFacetPrefix(String idPrefix, String f) {
+    add_doc("id", idPrefix+"1",  f, "AAA");
+    add_doc("id", idPrefix+"2",  f, "B");
+    add_doc("id", idPrefix+"3",  f, "BB");
+    add_doc("id", idPrefix+"4",  f, "BB");
+    add_doc("id", idPrefix+"5",  f, "BBB");
+    add_doc("id", idPrefix+"6",  f, "BBB");
+    add_doc("id", idPrefix+"7",  f, "BBB");
+    add_doc("id", idPrefix+"8",  f, "CC");
+    add_doc("id", idPrefix+"9",  f, "CC");
+    add_doc("id", idPrefix+"10", f, "CCC");
+    add_doc("id", idPrefix+"11", f, "CCC");
+    add_doc("id", idPrefix+"12", f, "CCC");
+    assertU(commit());
+  }
+
+
   @Test
   public void testFacetExclude() {
     for (String method : new String[] {"enum", "fcs", "fc", "uif"}) {

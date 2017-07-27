@@ -126,6 +126,11 @@ public class DocTermOrds implements Accountable {
   /** Don't uninvert terms that exceed this count. */
   protected final int maxTermDocFreq;
 
+  /** The maximum termDocFreq encountered for any term during uninversion. */
+  // Used by the packed value counter in sparse faceting
+  // TODO: This seems not to be updated by any part of the code. How does packed value counters even work?
+  protected int maxEncounteredTermDocFreq = 0;
+
   /** Field we are uninverting. */
   protected final String field;
 
@@ -255,6 +260,13 @@ public class DocTermOrds implements Accountable {
     return numTermsInField;
   }
 
+  /**
+   *  @return the maximum termDocFreq encountered for any term during uninversion.
+   */
+  // Used by the packed value counter in sparse faceting
+  public int getMaxEncounteredTermDocFreq() {
+    return maxEncounteredTermDocFreq;
+  }
   /**
    * Returns {@code true} if no terms were indexed.
    */

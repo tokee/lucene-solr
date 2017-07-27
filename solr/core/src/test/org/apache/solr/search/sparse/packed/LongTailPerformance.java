@@ -19,11 +19,12 @@ package org.apache.solr.search.sparse.packed;
 
 
 import org.apache.lucene.util.packed.PackedInts;
-import org.apache.solr.search.sparse.counters.DualPlaneMutable;
-import org.apache.solr.search.sparse.counters.Incrementable;
-import org.apache.solr.search.sparse.counters.PackedOpportunistic;
-import org.apache.solr.search.sparse.counters.plane.NPlaneLayout;
-import org.apache.solr.search.sparse.counters.plane.NPlaneMutable;
+import org.apache.solr.search.sparse.BPVProvider;
+import org.apache.solr.search.sparse.count.DualPlaneMutable;
+import org.apache.solr.search.sparse.count.Incrementable;
+import org.apache.solr.search.sparse.count.PackedOpportunistic;
+import org.apache.solr.search.sparse.count.plane.NPlaneLayout;
+import org.apache.solr.search.sparse.count.plane.NPlaneMutable;
 
 import java.util.ArrayList;
 import java.util.Arrays;

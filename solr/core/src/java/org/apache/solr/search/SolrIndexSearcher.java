@@ -75,6 +75,8 @@ import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.schema.IndexSchema;
 import org.apache.solr.schema.SchemaField;
 import org.apache.solr.search.facet.UnInvertedField;
+import org.apache.solr.search.sparse.SparseKeys;
+import org.apache.solr.search.sparse.cache.SparseCounterPoolController;
 import org.apache.solr.search.stats.StatsSource;
 import org.apache.solr.uninverting.UninvertingReader;
 import org.apache.solr.update.IndexFingerprint;
@@ -294,7 +296,9 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
       if (documentCache != null) clist.add(documentCache);
 
       if (solrConfig.userCacheConfigs.isEmpty()) {
-        cacheMap = NO_GENERIC_CACHES;
+        //cacheMap = NO_GENERIC_CACHES;
+        // TODO: It seems at odds with the whole caching system to force this cache map
+        cacheMap = new HashMap<>(); // We always need the SparseCounterPoolController so we cannot use a shared map
       } else {
         cacheMap = new HashMap<>(solrConfig.userCacheConfigs.size());
         for (Map.Entry<String,CacheConfig> e : solrConfig.userCacheConfigs.entrySet()) {
@@ -311,8 +315,16 @@ public class SolrIndexSearcher extends IndexSearcher implements Closeable, SolrI
       this.filterCache = null;
       this.queryResultCache = null;
       this.fieldValueCache = null;
-      this.cacheMap = NO_GENERIC_CACHES;
+      //this.cacheMap = NO_GENERIC_CACHES;
+      cacheMap = new HashMap<>(); // We always need the SparseCounterPoolController so we cannot use a shared map
       this.cacheList = NO_CACHES;
+    }
+
+    // The SparseCounterPoolController is both a cache and a factory for SparseCounterPools, so it must always be present
+    // TODO: Split these functionalities for cleaner integration with the SolrCache framework. Consider first-classing the cache
+    if (!cacheMap.containsKey(SparseCounterPoolController.CACHE_NAME)) {
+      cacheMap.put(SparseCounterPoolController.CACHE_NAME, new SparseCounterPoolController(
+          SparseKeys.POOL_MAX_COUNT_DEFAULT, SparseKeys.POOL_CLEANUP_THREADS_DEFAULT));
     }
 
     // We already have our own filter cache

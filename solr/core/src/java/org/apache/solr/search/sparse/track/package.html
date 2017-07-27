@@ -1,0 +1,63 @@
+<!doctype html public "-//w3c//dtd html 4.0 transitional//en">
+<!--
+ Licensed to the Apache Software Foundation (ASF) under one or more
+ contributor license agreements.  See the NOTICE file distributed with
+ this work for additional information regarding copyright ownership.
+ The ASF licenses this file to You under the Apache License, Version 2.0
+ (the "License"); you may not use this file except in compliance with
+ the License.  You may obtain a copy of the License at
+
+     http://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+-->
+<html>
+<head>
+   <meta http-equiv="Content-Type" content="text/html; utf-8">
+</head>
+<body>
+<p>
+   Helper classes for sparse faceting. See <a href="https://issues.apache.org/jira/browse/SOLR-5894">SOLR-5894</a> for
+   initial JIRA issue.
+</p>
+<h2>Sparse facet counting principle</h2>
+<p>
+   Field Cache faceting with Strings and sort=count uses a counter for each unique field value. The counters are filled
+   based on the result set and the X values with the highest counts are located. With non-sparse operation all the
+   counters are iterated sequentially. With sparse operation, only the updated counters are iterated in a random
+   access manner. This is possible due to special purpose counter structures,
+   see {@link org.apache.solr.request.sparse.SparseCounterPacked} and
+   {@link org.apache.solr.request.sparse.SparseCounterInt} for the concrete implementations.
+</p><p>
+   The sparse counters holds a counter for each unique facet value together with a smaller pointer list. The pointers
+   are indexes in the counter list. When a counter is increased for the first time, its index is added to the pointer
+   list. When it is time to iterate the updated counters, only the counters referenced in the pointer list are visited.
+   After usage, the counters are cleaned by setting the updated counters to 0 and the length of the pointer list to 0.
+</p><p>
+   If the number of updated counters exceed the pointer list size, the whole counter structure is marked as non-sparse
+   and iteration will be done over all counters. The time spend maintaining the pointer structure up to that point is
+   the wasted, so sparse faceting attempts to guess if this will happen. Under the na?ve assumption that references
+   from documents to field values are of uniform distribution, the formula <code>hitcount/maxdoc*total_references</code>
+   is used to calculate the expected number of updated counters. If this exceeds the number of allocated pointers,
+   the counter structure is marked as non-sparse from the beginning.
+   See <a href="http://sbdevel.wordpress.com/2014/04/04/sparse-facet-counting-without-the-downsides/">Sparse
+   facet counting without the downsides</a> for details.
+</p>
+
+<h2>Counter caching</h2>
+<p>
+   A cache is used to hold sparse counter structures, to avoid the performance overhead of allocating large structures
+   from the heap. Measurements shows that it is markedly faster to clear large arrays than it is to free them and
+   allocate new ones. The cache holds a mix of empty counter structures and filled structures, from the first phase of
+   distributed faceting. A background thread handles clearing of counters. This lowers response time for the client.
+   See {@link org.apache.solr.request.sparse.SparseCounterPoolController} and
+   {@link org.apache.solr.request.sparse.SparseCounterPool} for the concrete implementation.
+</p>
+
+
+</body>
+</html>

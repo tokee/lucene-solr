@@ -20,8 +20,8 @@ package org.apache.solr.search.sparse.packed;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
 import org.apache.lucene.util.packed.PackedInts;
-import org.apache.solr.search.sparse.counters.DualPlaneMutable;
-import org.apache.solr.search.sparse.counters.plane.NPlaneMutable;
+import org.apache.solr.search.sparse.count.DualPlaneMutable;
+import org.apache.solr.search.sparse.count.plane.NPlaneMutable;
 import org.junit.runner.RunWith;
 
 import java.util.Locale;

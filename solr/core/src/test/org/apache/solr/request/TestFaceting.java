@@ -29,6 +29,7 @@ import org.apache.lucene.util.BytesRef;
 import org.apache.solr.SolrTestCaseJ4;
 import org.apache.solr.common.params.FacetParams;
 import org.apache.solr.search.SolrIndexSearcher;
+import org.apache.solr.search.sparse.SparseKeys;
 import org.apache.solr.uninverting.DocTermOrds;
 import org.apache.solr.util.RefCounted;
 import org.junit.After;
@@ -884,5 +885,178 @@ public class TestFaceting extends SolrTestCaseJ4 {
       currentSearcherRef.decref();
     }
   }
+
+  // TODO: Create a proper test that compares sparse results to plain faceting
+  public void testSparseFacetParams() throws Exception {
+    final int DOCS = 100;
+    for (int d = 0 ; d < DOCS ; d++) {
+      assertU(adoc("id", Integer.toString(d),
+          "many_ws", "all tag" + d + "_1 tag" + d + "_2 tag" + d + "_3" + (d % 3 == 0 ? " mod3" : "")));
+    }
+    assertU(commit());
+
+    SolrQueryRequest request = req("q", "many_ws:mod3", "indent", "true"
+        , "facet", "true", "facet.method", "fc"
+        , "facet.field", "many_ws"
+        , "facet.limit", "-1"
+        , "facet.mincount", "1"
+        , "facet.sort", "count",
+        SparseKeys.SPARSE, "false"
+    );
+    String result = h.query(request).replaceAll("<int name=\"QTime\">[0-9]+</int>", "");
+
+    SolrQueryRequest requestS = req("q", "many_ws:mod3", "indent", "true"
+        , "facet", "true", "facet.method", "fc"
+        , "facet.field", "many_ws"
+        , "facet.limit", "-1"
+        , "facet.mincount", "1"
+        , "facet.sort", "count",
+        SparseKeys.SPARSE, "true",
+        SparseKeys.MINTAGS, "0",
+//        SparseKeys.STATS, "true",
+        SparseKeys.COUNTER, SparseKeys.COUNTER_IMPL.array.toString()
+    );
+    String resultS = h.query(requestS).replaceAll("<int name=\"QTime\">[0-9]+</int>", "");
+
+    assertEquals("The response for sparse should match plain", result, resultS);
+
+/*    assertQ("Sparse params",
+        request
+        , "//lst[@name='many_ws']/int[@name='tag0_1'][.='1']"
+        , "//lst[@name='many_ws']/int[@name='all'][.='" + 34 + "']"
+    );*/
+  }
+
+  @Test
+  public void testSparseFacets() throws Exception {
+    final int DOCS = 100;
+    for (int d = 0 ; d < DOCS ; d++) {
+      assertU(adoc("id", Integer.toString(d),
+          "many_ws", "tag" + d + "_1 tag" + d + "_2 tag" + d + "_3"));
+    }
+    assertU(commit());
+
+    assertQ("Sparse",
+            req("q", "id:1","indent","true"
+                ,"facet", "true", "facet.method","fc"
+                ,"facet.field", "many_ws"
+                ,"facet.limit", "-1"
+                ,"facet.mincount", "1",
+                SparseKeys.SPARSE, "true",
+                SparseKeys.MINTAGS, "0",
+                SparseKeys.STATS, "true"
+                )
+            ,"//lst[@name='many_ws']/int[@name='tag1_1'][.='1']"
+            );
+
+    assertQ("Standard Solr faceting",
+            req("q", "id:1","indent","true"
+                ,"facet", "true", "facet.method","fc"
+                ,"facet.field", "many_ws"
+                ,"facet.limit", "-1"
+                ,"facet.mincount", "1"
+                )
+            ,"//lst[@name='many_ws']/int[@name='tag1_1'][.='1']"
+            );
+
+    assertQ("Standard Solr faceting, take 2",
+            req("q", "id:2","indent","true"
+                ,"facet", "true", "facet.method","fc"
+                ,"facet.field", "many_ws"
+                ,"facet.limit", "-1"
+                ,"facet.mincount", "1"
+                )
+            ,"//lst[@name='many_ws']/int[@name='tag2_1'][.='1']"
+            );
+
+    assertQ("Sparse, take 2",
+            req("q", "id:2","indent","true"
+                ,"facet", "true", "facet.method","fc"
+                ,"facet.field", "many_ws"
+                ,"facet.limit", "-1"
+                ,"facet.mincount", "1",
+                SparseKeys.SPARSE, "true",
+                SparseKeys.MINTAGS, "0",
+                SparseKeys.STATS, "true"
+                )
+            ,"//lst[@name='many_ws']/int[@name='tag2_1'][.='1']"
+            );
+
+  }
+
+  @Test
+  public void testSparseCutoff() throws Exception {
+    final int DOCS = 100;
+    for (int d = 0 ; d < DOCS ; d++) {
+      assertU(adoc("id", Integer.toString(d),
+          "many_ws", "tag" + d + "_1 tag" + d + "_2 tag" + d + "_3 " + (d%2==0 ? "even" : "odd")));
+    }
+    assertU(commit());
+
+    assertQ("Sparse",
+            req("q", "many_ws:even","indent","true"
+                ,"facet", "true", "facet.method","fc"
+                ,"facet.field", "many_ws"
+                ,"facet.limit", "-1"
+                ,"facet.mincount", "1"
+                ,"facet.sort", "count",
+                SparseKeys.SPARSE, "true",
+                SparseKeys.MINTAGS, "0",
+                SparseKeys.POOL_SIZE, "3",
+                SparseKeys.STATS, "true"
+                )
+            ,"//lst[@name='many_ws']/int[@name='tag2_1'][.='1']"
+            );
+  }
+
+  public void testMultiThreadedSparseFacets() throws Exception {
+    add50ocs();
+    SparseKeys.COUNTER_IMPL[] COUNTERS = new SparseKeys.COUNTER_IMPL[] {
+        SparseKeys.COUNTER_IMPL.array,
+        SparseKeys.COUNTER_IMPL.packed,
+        SparseKeys.COUNTER_IMPL.nplanez
+    };
+    for (SparseKeys.COUNTER_IMPL counter: COUNTERS) {
+      String vanilla = h.query(req("q", "id:*", "indent", "true", "fl", "id", "rows", "1"
+          , "facet", "true"
+          , "facet.field", "f0_ws"
+          , "facet.field", "f1_ws"
+          , "facet.field", "f2_ws"
+          , "facet.field", "f3_ws"
+          , "facet.field", "f4_ws"
+          , "facet.field", "f5_ws"
+          , "facet.field", "f6_ws"
+          , "facet.field", "f7_ws"
+          , "facet.field", "f8_ws"
+          , "facet.field", "f9_ws"
+          , "facet.threads", "0"
+          , "facet.limit", "-1",
+          SparseKeys.SPARSE, "false"
+      ));
+      String sparse = h.query(req("q", "id:*", "indent", "true", "fl", "id", "rows", "1"
+          , "facet", "true"
+          , "facet.field", "f0_ws"
+          , "facet.field", "f1_ws"
+          , "facet.field", "f2_ws"
+          , "facet.field", "f3_ws"
+          , "facet.field", "f4_ws"
+          , "facet.field", "f5_ws"
+          , "facet.field", "f6_ws"
+          , "facet.field", "f7_ws"
+          , "facet.field", "f8_ws"
+          , "facet.field", "f9_ws"
+          , "facet.threads", "0"
+          , "facet.limit", "-1",
+          SparseKeys.SPARSE, "true",
+          SparseKeys.COUNTER, counter.toString()
+      ));
+
+      assertEquals("The sparse result should match vanilla for counter implementation " + counter,
+          vanilla.replaceAll("<int name=\"QTime\">[0-9]+</int>", ""),
+          sparse.replaceAll("<int name=\"QTime\">[0-9]+</int>", ""));
+    }
+  }
+
+
 }
 

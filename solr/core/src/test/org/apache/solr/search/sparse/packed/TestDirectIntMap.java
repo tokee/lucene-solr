@@ -19,7 +19,7 @@ package org.apache.solr.search.sparse.packed;
 
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.LuceneTestCase.Slow;
-import org.apache.solr.search.sparse.counters.DirectIntMap;
+import org.apache.solr.search.sparse.count.DirectIntMap;
 
 @Slow
 public class TestDirectIntMap extends LuceneTestCase {

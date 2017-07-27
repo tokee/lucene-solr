@@ -64,6 +64,14 @@ public class TestRandomFaceting extends SolrTestCaseJ4 {
     initCore("solrconfig.xml","schema12.xml");
   }
 
+  private void toggleSparse() {
+    if (random().nextBoolean()) {
+      System.out.println("Tweaking defaults for sparse faceting to ensure usage");
+      SparseKeys.SPARSE_DEFAULT = true;
+      SparseKeys.MINTAGS_DEFAULT = 1;
+      SparseKeys.CUTOFF_DEFAULT = 9999;
+    }
+  }
 
   int indexSize;
   List<FldType> types;
@@ -99,6 +107,7 @@ public class TestRandomFaceting extends SolrTestCaseJ4 {
     types.add(new FldType("missing_s1",new IRange(0,0), new SVal('a','b',1,1)));
     types.add(new FldType("missing_ss",new IRange(0,0), new SVal('a','b',1,1)));
 
+    toggleSparse();
     // TODO: doubles, multi-floats, ints with precisionStep>0, booleans
     types.add(new FldType("small_tf",ZERO_ONE, new FVal(-4,5)));
     assert trieFields.matcher("small_tf").matches();
@@ -147,6 +156,171 @@ public class TestRandomFaceting extends SolrTestCaseJ4 {
     } else {
       assertU(commit("softCommit",""+(rand.nextInt(10)!=0)));
     }
+  }
+
+  public void testDocValuesSparseFacetingCounts() {
+    //final String UP = "uniqueTerm://";
+    final String FF = "myfaceta_i_s_dv";
+    String[] FV = new String[]{"A", "B", "A", "B", "A", "C"};
+    for (int docID = 0 ; docID < FV.length ; docID++) {
+      assertU(adoc("id", Integer.toString(20000 + docID), FF, FV[docID]));
+    }
+    assertU(commit());
+    final String pre = "//lst[@name='" + FF + "']";
+
+    // First phase non-sparse
+    assertQ("test plain facet request",
+        req("q", "*:*"
+            , "indent", "true"
+            ,"facet", "true"
+            ,"facet.sparse", "false"
+            ,"facet.field", FF
+            ,"facet.mincount","1"
+        )
+        ,"*[count(//lst[@name='facet_fields']/lst/int)=3]"
+        ,pre+"/int[1][@name='A'][.='3']"
+        ,pre+"/int[2][@name='B'][.='2']"
+        ,pre+"/int[3][@name='C'][.='1']"
+    );
+
+    // First phase sparse
+    assertQ("test plain facet request",
+        req("q", "*:*"
+            , "indent", "true"
+            ,"facet", "true"
+            , "facet.sparse", "true"
+            , "facet.sparse.mintags", "1" // Force sparse
+            , "facet.sparse.cutoff", "99999" // Force sparse
+            , "facet.sparse.termlookup", "true" // Force sparse
+            ,"facet.field", FF
+            ,"facet.mincount","1"
+        )
+        ,"*[count(//lst[@name='facet_fields']/lst/int)=3]"
+        ,pre+"/int[1][@name='A'][.='3']"
+        ,pre+"/int[2][@name='B'][.='2']"
+        ,pre+"/int[3][@name='C'][.='1']"
+    );
+
+    // Second phase non-sparse
+    assertQ("test plain facet request",
+        req("q", "*:*"
+            , "indent", "true"
+            ,"facet", "true"
+            ,"facet.sparse", "false"
+            ,"facet.field", "{!terms=A}" + FF
+            ,"facet.mincount","1"
+        )
+        ,"*[count(//lst[@name='facet_fields']/lst/int)=1]"
+        ,pre+"/int[1][@name='A'][.='3']"
+    );
+
+    // Second phase sparse
+    assertQ("test plain facet request",
+        req("q", "*:*"
+            , "indent", "true"
+            ,"facet", "true"
+            , "facet.sparse", "true"
+            , "facet.sparse.mintags", "1" // Force sparse
+            , "facet.sparse.cutoff", "99999" // Force sparse
+            , "facet.sparse.termlookup", "true" // Force sparse
+            ,"facet.field", "{!terms=A,B}" + FF
+            ,"facet.mincount","1"
+        )
+        ,"*[count(//lst[@name='facet_fields']/lst/int)=2]"
+        ,pre+"/int[1][@name='A'][.='3']"
+        ,pre+"/int[2][@name='B'][.='2']"
+    );
+  }
+
+  public void testDocValuesSparseFaceting() {
+    //final String UP = "uniqueTerm://";
+    final String UP = "uniqueTerm";
+    final String FF = "myfacetb_i_s_dv";
+    final int DOCS = 1000;
+    for (int i = 0 ; i < DOCS ; i++) {
+      // *_s = multi string, *_s1 = single string
+      assertU(adoc("id", Integer.toString(10000 + i), FF, UP + i));
+    }
+    assertU(commit());
+
+    final String pre = "//lst[@name='" + FF + "']";
+    // First phase non-sparse
+    assertQ("test plain facet request",
+        req("q", "*:*"
+            , "indent", "true"
+            ,"facet", "true"
+            ,"facet.sparse", "false"
+            ,"facet.field", FF
+            ,"facet.mincount","1"
+        )
+        ,pre+"/int[1][@name='" + UP + "0'][.='1']"
+        ,pre+"/int[2][@name='" + UP + "1'][.='1']"
+    );
+
+    // First phase sparse
+    assertQ("test plain facet request",
+        req("q", "*:*"
+            , "indent", "true"
+            , "facet", "true"
+            , "facet.sparse", "true"
+            , "facet.sparse.mintags", "1" // Force sparse
+            , "facet.sparse.cutoff", "99999" // Force sparse
+            , "facet.sparse.termlookup", "true" // Force sparse
+            , "facet.field", FF
+            , "facet.mincount", "1"
+        )
+        ,pre + "/int[1][@name='" + UP + "0'][.='1']"
+        , pre + "/int[2][@name='" + UP + "1'][.='1']"
+    );
+
+    // Second phase non-sparse
+    assertQ("test plain facet request",
+        req("q", "*:*"
+            , "indent", "true"
+            ,"facet", "true"
+            ,"facet.sparse", "false"
+            ,"facet.field", "{!terms=" + UP + "" + (DOCS-1) + "," + UP + "0}" + FF
+            ,"facet.mincount","1"
+        )
+        ,"*[count(//lst[@name='facet_fields']/lst/int)=2]"
+        ,pre+"/int[1][@name='" + UP + "999'][.='1']"
+        ,pre+"/int[2][@name='" + UP + "0'][.='1']"
+    );
+
+    // Second phase sparse
+    assertQ("test plain facet request",
+        req("q", "*:*"
+            , "indent", "true"
+            ,"facet", "true"
+            ,"facet.sparse", "true"
+            ,"facet.sparse.mintags", "1" // Force sparse
+            ,"facet.sparse.cutoff", "99999" // Force sparse
+            ,"facet.sparse.termlookup", "true" // Force sparse
+            ,"facet.field", "{!terms=" + UP + "" + (DOCS-1) + "," + UP + "0}" + FF
+            ,"facet.mincount","1"
+        )
+        ,"*[count(//lst[@name='facet_fields']/lst/int)=2]"
+        ,pre+"/int[1][@name='" + UP + "999'][.='1']"
+        ,pre+"/int[2][@name='" + UP + "0'][.='1']"
+    );
+
+    // Second phase sparse tiny
+    assertQ("test plain facet request",
+        req("q", "id:10010"
+            , "indent", "true"
+            ,"facet", "true"
+            ,"facet.sparse", "true"
+            ,"facet.sparse.mintags", "1" // Force sparse
+            ,"facet.sparse.cutoff", "99999" // Force sparse
+            ,"facet.sparse.termlookup", "true" // Force sparse
+            ,"facet.sparse.stats", "true" // Force sparse
+            ,"facet.field", "{!terms=" + UP + "10}" + FF
+            ,"facet.mincount","1"
+        )
+        ,"*[count(//lst[@name='facet_fields']/lst/int)=2]"
+        ,pre+"/int[1][@name='" + UP + "10'][.='1']"
+    );
+
   }
 
   @Test
