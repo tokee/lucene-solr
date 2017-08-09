@@ -97,8 +97,10 @@ public class UnInvertedField extends DocTermOrds {
   long memsz;
   final AtomicLong use = new AtomicLong(); // number of uses
 
+  /* The number of documents holding the term {@code maxDocs = maxTermCounts[termNum]}. */
   int[] maxTermCounts = new int[1024];
 
+  /* termNum -> docIDs for big terms. */
   final Map<Integer,TopTerm> bigTerms = new LinkedHashMap<>();
 
   private SolrIndexSearcher.DocsEnumState deState;
@@ -111,6 +113,12 @@ public class UnInvertedField extends DocTermOrds {
     searcher = null;
   }
 
+  /**
+   * Called for each term in the field being uninverted.
+   * Collects {@link #maxTermCounts} for all bigTerms as well as storing them in {@link #bigTerms}.
+   * @param te positioned at the current term.
+   * @param termNum the ID/pointer/ordinal of the current term. Monotonically increasing between calls.
+   */
   @Override
   protected void visitTerm(TermsEnum te, int termNum) throws IOException {
 

@@ -107,7 +107,6 @@ import org.apache.lucene.util.StringHelper;
  *   is stored, along with its corresponding term number, and this is used as an
  *   index to find the closest term and iterate until the desired number is hit (very
  *   much like Lucene's own internal term index).
- *
  */
 
 public class DocTermOrds implements Accountable {
@@ -152,6 +151,9 @@ public class DocTermOrds implements Accountable {
   protected long sizeOfIndexedStrings;
 
   /** Holds the indexed (by default every 128th) terms. */
+  // TODO: This seems like an obvious candidate for using BytesRefArray extended with binarySearch
+  // This would save heap space as well as avoid a lot of small Objects (BytesRefs).
+  // This would also increase data locality for binarySearch lookups, potentially making it faster.
   protected BytesRef[] indexedTermsArray = new BytesRef[0];
 
   /** If non-null, only terms matching this prefix were
@@ -170,6 +172,7 @@ public class DocTermOrds implements Accountable {
    * Normally, docValues should be used in preference to DocTermOrds. */
   protected boolean checkForDocValues = true;
 
+  // TODO: Why is indexedTermsArray not part of this?
   /** Returns total bytes used. */
   public long ramBytesUsed() {
     // can cache the mem size since it shouldn't change
@@ -184,7 +187,7 @@ public class DocTermOrds implements Accountable {
     return sz;
   }
 
-  /** Inverts all terms */
+  /** Inverts all terms. */
   public DocTermOrds(LeafReader reader, Bits liveDocs, String field) throws IOException {
     this(reader, liveDocs, field, null, Integer.MAX_VALUE);
   }
@@ -485,6 +488,20 @@ public class DocTermOrds implements Accountable {
               //System.out.println("    ptr pos=" + pos);
               index[doc] = (pos<<8)|1; // change index to point to start of array
               if ((pos & 0xff000000) != 0) {
+                // TODO: Raise the 24 bit limitation on byte[]-pointers to 31 bit
+                // The current scheme uses the special value 1 at the first byte of the integer to signal a pointer
+                // into the byte[]-array, then uses the 3 other bytes (24 bits) as pointer value.
+                //
+                // If the integer holds vInts, all bytes might be used in all ways (although byte 0 will never be 1),
+                // except for the last bit in byte 4 (bit 31), which will never be 1 as that would signal that the
+                // next byte (the non-existing byte 5 of the integer) is part of the vInt.
+                // This means that setting bit 31 to 1 can be used as a flag for pointers, thereby extending the
+                // pointer size to 31 bits.
+                //
+                // Checking for pointer can be done with: (val & 0x80000000 == 1) and getting the pointer is
+                // (val & 0x7fffffff). If the integer contains vInts, they are extracted as is, since bit 31
+                // will always be.
+
                 // we only have 24 bits for the array index
                 throw new IllegalStateException("Too many values for UnInvertedField faceting on field "+field);
               }
@@ -559,8 +576,28 @@ public class DocTermOrds implements Accountable {
     return 5;
   }
 
+  // TODO: Replace vIntSize with a combination of the intrinsic Integer.numberOfLeadingZeroes and a lookup table
+  // Tests outside of this code base shows that the conditional-based vIntSize is fairly slow until JITted and
+  // still about 1/3 slower after JIT than the vIntSizeIntrinsic below.
+  //private static int vIntSizeIntrinsic(int x) {
+  //    return BLOCK7[Integer.numberOfLeadingZeros(x)];
+  //}
+  //private final static byte[] BLOCK7 = new byte[]{
+  //        5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1};
+
+
+
   // todo: if we know the size of the vInt already, we could do
   // a single switch on the size
+
+  /**
+   * Write the x value as vInt at pos in arr, returning the new endPos. This requires arr to be capable of holding the
+   * bytes needed to represent x. Array length checking should be performed beforehand.
+   * @param x   the value to write as vInt.
+   * @param arr the array holding vInt-values.
+   * @param pos the position in arr where the vInt representation of x should be written.
+   * @return the new end position after writing x at pos.
+   */
   private static int writeInt(int x, byte[] arr, int pos) {
     int a;
     a = (x >>> (7*4));
