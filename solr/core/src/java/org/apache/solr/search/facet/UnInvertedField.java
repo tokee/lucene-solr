@@ -266,8 +266,10 @@ public class UnInvertedField extends DocTermOrds {
       if (termInstances > 0) {
         int code = index[doc];
 
-        if ((code & 0xff)==1) {
-          int pos = code>>>8;
+//        if ((code & 0xff)==1) {
+        if ((code & 0x80000000)!=0) {
+//          int pos = code>>>8;
+          int pos = code & 0x7fffffff;
           int whichArray = (doc >>> 16) & 0xff;
           byte[] arr = tnums[whichArray];
           int tnum = 0;
@@ -352,8 +354,10 @@ public class UnInvertedField extends DocTermOrds {
         int doc = iter.nextDoc();
         int code = index[doc];
 
-        if ((code & 0xff) == 1) {
-          int pos = code >>> 8;
+//        if ((code & 0xff)==1) {
+        if ((code & 0x80000000)!=0) {
+//          int pos = code>>>8;
+          int pos = code & 0x7fffffff;
           int whichArray = (doc >>> 16) & 0xff;
           byte[] arr = tnums[whichArray];
           int tnum = 0;
@@ -477,8 +481,10 @@ public class UnInvertedField extends DocTermOrds {
 
         int code = index[doc];
 
-        if ((code & 0xff)==1) {
-          int pos = code>>>8;
+//        if ((code & 0xff)==1) {
+        if ((code & 0x80000000)!=0) {
+//          int pos = code>>>8;
+          int pos = code & 0x7fffffff;
           int whichArray = (doc >>> 16) & 0xff;
           byte[] arr = tnums[whichArray];
           int tnum = 0;
