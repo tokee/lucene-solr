@@ -55,10 +55,9 @@ import org.apache.lucene.util.StringHelper;
  * int as the internal representation here cannot address
  * more than MAX_INT unique terms.  Also, typically this
  * class is used on fields with relatively few unique terms
- * vs the number of documents.  In addition, there is an
- * internal limit (16 MB) on how many bytes each chunk of
- * documents may consume.  If you trip this limit you'll hit
- * an IllegalStateException.
+ * vs the number of documents. A previous internal limit (16 MB)
+ * on how many bytes each chunk of documents may consume has been
+ * increased to 2 GB.
  *
  * Deleted documents are skipped during uninversion, and if
  * you look them up you'll get 0 ords.
@@ -69,11 +68,10 @@ import org.apache.lucene.util.StringHelper;
  * are also de-dup'd (ie if doc has same term more than once
  * in this field, you'll only get that ord back once).
  *
- * This class
- * will create its own term index internally, allowing to
- * create a wrapped TermsEnum that can handle ord.  The
- * {@link #getOrdTermsEnum} method then provides this
- * wrapped enum.
+ * This class will create its own term index internally, allowing to
+ * create a wrapped TermsEnum that can handle ord.
+ * The {@link #getOrdTermsEnum} method then provides this wrapped
+ * enum.
  *
  * The RAM consumption of this class can be high!
  *
@@ -381,11 +379,8 @@ public class DocTermOrds implements Accountable {
           lastTerm[doc] = termNum;
           int val = index[doc];
 
-//          if ((val & 0xff)==1) {
           if ((val & 0x80000000) != 0) {
-            // index into byte array (actually the end of
-            // the doc-specific byte[] when building)
-            //int pos = val >>> 8;
+            // index into byte array (actually the end of the doc-specific byte[] when building)
             int pos = val & 0x7fffffff;
             int ilen = vIntSize(delta);
             byte[] arr = bytes[doc];
@@ -404,7 +399,6 @@ public class DocTermOrds implements Accountable {
               bytes[doc] = newarr;
             }
             pos = writeInt(delta, arr, pos);
-            //index[doc] = (pos<<8) | 1;  // update pointer to end index in byte[]
             index[doc] = pos | 0x80000000;  // update pointer to end index in byte[]
           } else {
             // OK, this int has data in it... find the end (a zero starting byte - not
@@ -440,7 +434,6 @@ public class DocTermOrds implements Accountable {
                 val >>>=8;
               }
               // point at the end index in the byte[]
-//              index[doc] = (endPos<<8) | 1;
               index[doc] = endPos | 0x80000000;
               bytes[doc] = tempArr;
               tempArr = new byte[12];
@@ -491,18 +484,11 @@ public class DocTermOrds implements Accountable {
           for (int doc=docbase; doc<lim; doc++) {
             //System.out.println("  pass=" + pass + " process docID=" + doc);
             int val = index[doc];
-//            if ((val&0xff) == 1) {
             if ((val & 0x80000000) != 0) {
-              //int len = val >>> 8;
               int len = val & 0x7fffffff;
               //System.out.println("    ptr pos=" + pos);
               //index[doc] = (pos<<8)|1; // change index to point to start of array
               index[doc] = pos | 0x80000000; // change index to point to start of array
-//              New pointer limit is 2^31 (up from 2^24), which is also the Java array length limit so no check anymore
-//              if ((pos & 0xff000000) != 0) {
-//                // we only have 24 bits for the array index
-//                throw new IllegalStateException("Too many values for UnInvertedField faceting on field "+field);
-//              }
               byte[] arr = bytes[doc];
               /*
               for(byte b : arr) {
@@ -555,22 +541,9 @@ public class DocTermOrds implements Accountable {
 
   /** Number of bytes to represent an unsigned int as a vint. */
   private static int vIntSize(int x) {
-    // Tests outside of this code base shows that the conditional-based vIntSize is fairly slow until JITted and
-    // still about 1/3 slower after JIT than the numberOfLeadingZeros version below.
+    // Tests outside of this code base shows that the previous conditional-based vIntSize is fairly slow until
+    // JITted and still about 1/3 slower after JIT than the numberOfLeadingZeros version below.
     return BLOCK7[Integer.numberOfLeadingZeros(x)]; // Intrinsic on modern CPUs
-/*    if ((x & (0xffffffff << (7*1))) == 0 ) {
-      return 1;
-    }
-    if ((x & (0xffffffff << (7*2))) == 0 ) {
-      return 2;
-    }
-    if ((x & (0xffffffff << (7*3))) == 0 ) {
-      return 3;
-    }
-    if ((x & (0xffffffff << (7*4))) == 0 ) {
-      return 4;
-    }
-    return 5;*/
   }
   private final static byte[] BLOCK7 = new byte[]{
           5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1};
@@ -855,10 +828,8 @@ public class DocTermOrds implements Accountable {
     public void setDocument(int docID) {
       tnum = 0;
       final int code = index[docID];
-//      if ((code & 0xff)==1) {
       if ((code & 0x80000000) != 0) {
         // a pointer
-//        upto = code>>>8;
         upto = code & 0x7fffffff;
         //System.out.println("    pointer!  upto=" + upto);
         int whichArray = (docID >>> 16) & 0xff;
