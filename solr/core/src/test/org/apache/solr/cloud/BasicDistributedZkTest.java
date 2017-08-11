@@ -535,11 +535,8 @@ public class BasicDistributedZkTest extends AbstractFullDistribZkTestBase {
   }
 
   private void testStopAndStartCoresInOneInstance() throws Exception {
-    SolrClient client = clients.get(0);
-    String url3 = getBaseUrl(client);
-    try (final HttpSolrClient httpSolrClient = getHttpSolrClient(url3)) {
-      httpSolrClient.setConnectionTimeout(15000);
-      httpSolrClient.setSoTimeout(60000);
+    JettySolrRunner jetty = jettys.get(0);
+    try (final HttpSolrClient httpSolrClient = (HttpSolrClient) jetty.newClient(15000, 60000)) {
       ThreadPoolExecutor executor = null;
       try {
         executor = new ExecutorUtil.MDCAwareThreadPoolExecutor(0, Integer.MAX_VALUE,
@@ -548,7 +545,7 @@ public class BasicDistributedZkTest extends AbstractFullDistribZkTestBase {
         int cnt = 3;
 
         // create the cores
-        createCores(httpSolrClient, executor, "multiunload2", 1, cnt);
+        createCollectionInOneInstance(httpSolrClient, jetty.getNodeName(), executor, "multiunload2", 1, cnt);
       } finally {
         if (executor != null) {
           ExecutorUtil.shutdownAndAwaitTermination(executor);
@@ -573,8 +570,13 @@ public class BasicDistributedZkTest extends AbstractFullDistribZkTestBase {
 
   }
 
-  protected void createCores(final HttpSolrClient client,
-      ThreadPoolExecutor executor, final String collection, final int numShards, int cnt) {
+  /**
+   * Create a collection in single node
+   */
+  protected void createCollectionInOneInstance(final SolrClient client, String nodeName,
+                                               ThreadPoolExecutor executor, final String collection,
+                                               final int numShards, int numReplicas) {
+    assertNotNull(nodeName);
     try {
       assertEquals(0, CollectionAdminRequest.createCollection(collection, "conf1", numShards, 1)
           .setCreateNodeSet("")
@@ -582,22 +584,13 @@ public class BasicDistributedZkTest extends AbstractFullDistribZkTestBase {
     } catch (SolrServerException | IOException e) {
       throw new RuntimeException(e);
     }
-    String nodeName = null;
-    for (JettySolrRunner jetty : jettys) {
-      if (client.getBaseURL().contains(":"+jetty.getLocalPort())) {
-        nodeName = jetty.getNodeName();
-        break;
-      }
-    }
-    assertNotNull(nodeName);
-    for (int i = 0; i < cnt; i++) {
+    for (int i = 0; i < numReplicas; i++) {
       final int freezeI = i;
-      final String freezeNodename = nodeName;
       executor.execute(() -> {
         try {
           assertTrue(CollectionAdminRequest.addReplicaToShard(collection, "shard"+((freezeI%numShards)+1))
               .setCoreName(collection + freezeI)
-              .setNode(freezeNodename).process(client).isSuccess());
+              .setNode(nodeName).process(client).isSuccess());
         } catch (SolrServerException | IOException e) {
           throw new RuntimeException(e);
         }
@@ -656,7 +649,7 @@ public class BasicDistributedZkTest extends AbstractFullDistribZkTestBase {
   
   protected ZkCoreNodeProps getLeaderUrlFromZk(String collection, String slice) {
     ClusterState clusterState = getCommonCloudSolrClient().getZkStateReader().getClusterState();
-    ZkNodeProps leader = clusterState.getLeader(collection, slice);
+    ZkNodeProps leader = clusterState.getCollection(collection).getLeader(slice);
     if (leader == null) {
       throw new RuntimeException("Could not find leader:" + collection + " " + slice);
     }
@@ -777,9 +770,7 @@ public class BasicDistributedZkTest extends AbstractFullDistribZkTestBase {
     String collection = elements[elements.length - 1];
     String urlString = url.toString();
     urlString = urlString.substring(0, urlString.length() - collection.length() - 1);
-    try (HttpSolrClient client = getHttpSolrClient(urlString)) {
-      client.setConnectionTimeout(15000);
-      client.setSoTimeout(60000);
+    try (HttpSolrClient client = getHttpSolrClient(urlString, 15000, 60000)) {
       ModifiableSolrParams params = new ModifiableSolrParams();
       //params.set("qt", "/admin/metrics?prefix=UPDATE.updateHandler&registry=solr.core." + collection);
       params.set("qt", "/admin/metrics");
@@ -859,15 +850,14 @@ public class BasicDistributedZkTest extends AbstractFullDistribZkTestBase {
     // we added a role of none on these creates - check for it
     ZkStateReader zkStateReader = getCommonCloudSolrClient().getZkStateReader();
     zkStateReader.forceUpdateCollection(oneInstanceCollection2);
-    Map<String,Slice> slices = zkStateReader.getClusterState().getSlicesMap(oneInstanceCollection2);
+    Map<String,Slice> slices = zkStateReader.getClusterState().getCollection(oneInstanceCollection2).getSlicesMap();
     assertNotNull(slices);
     
-    ZkCoreNodeProps props = new ZkCoreNodeProps(getCommonCloudSolrClient().getZkStateReader().getClusterState().getLeader(oneInstanceCollection2, "shard1"));
+    ZkCoreNodeProps props = new ZkCoreNodeProps(getCommonCloudSolrClient().getZkStateReader().getClusterState()
+        .getCollection(oneInstanceCollection2).getLeader("shard1"));
     
     // now test that unloading a core gets us a new leader
-    try (HttpSolrClient unloadClient = getHttpSolrClient(jettys.get(0).getBaseUrl().toString())) {
-      unloadClient.setConnectionTimeout(15000);
-      unloadClient.setSoTimeout(60000);
+    try (HttpSolrClient unloadClient = getHttpSolrClient(jettys.get(0).getBaseUrl().toString(), 15000, 60000)) {
       Unload unloadCmd = new Unload(true);
       unloadCmd.setCoreName(props.getCoreName());
 
@@ -1131,6 +1121,18 @@ public class BasicDistributedZkTest extends AbstractFullDistribZkTestBase {
     try {
       // setup the server...
       HttpSolrClient client = getHttpSolrClient(baseUrl + "/" + collection);
+
+      return client;
+    }
+    catch (Exception ex) {
+      throw new RuntimeException(ex);
+    }
+  }
+  
+  protected SolrClient createNewSolrClient(String collection, String baseUrl, int connectionTimeoutMillis, int socketTimeoutMillis) {
+    try {
+      // setup the server...
+      HttpSolrClient client = getHttpSolrClient(baseUrl + "/" + collection, connectionTimeoutMillis, socketTimeoutMillis);
 
       return client;
     }

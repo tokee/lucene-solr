@@ -3,6 +3,38 @@ Lucene Change Log
 For more information on past and future Lucene versions, please see:
 http://s.apache.org/luceneversions
 
+======================= Lucene 8.0.0 =======================
+
+Changes in Runtime Behavior
+
+* LUCENE-7837: Indices that were created before the previous major version
+  will now fail to open even if they have been merged with the previous major
+  version. (Adrien Grand)
+
+
+
+======================= Lucene 7.1.0 =======================
+
+Optimizations
+
+* LUCENE-7905: Optimize how OrdinalMap (used by
+  SortedSetDocValuesFacetCounts and others) builds its map (Robert
+  Muir, Adrien Grand, Mike McCandless)
+
+* LUCENE-7655: Speed up geo-distance queries in case of dense single-valued
+  fields when most documents match. (Maciej Zasada via Adrien Grand)
+
+* LUCENE-7897: IndexOrDocValuesQuery now requires the range cost to be more
+  than 8x greater than the cost of the lead iterator in order to use doc values.
+  (Murali Krishna P via Adrien Grand)
+
+Bug Fixes
+
+* LUCENE-7916: Prevent ArrayIndexOutOfBoundsException if ICUTokenizer is used
+  with a different ICU JAR version than it is compiled against. Note, this is
+  not recommended, lucene-analyzers-icu contains binary data structures
+  specific to ICU/Unicode versions it is built against. (Chris Koenig, Robert Muir)
+
 ======================= Lucene 7.0.0 =======================
 
 New Features
@@ -27,6 +59,10 @@ New Features
 * LUCENE-7868: Multiple threads can now resolve deletes and doc values
   updates concurrently, giving sizable speedups in update-heavy
   indexing use cases (Simon Willnauer, Mike McCandless)
+
+* LUCENE-7823: Pure query based naive bayes classifier using BM25 scores (Tommaso Teofili)
+
+* LUCENE-7838: Knn classifier based on fuzzified term queries (Tommaso Teofili)
 
 API Changes
 
@@ -89,6 +125,21 @@ API Changes
 * LUCENE-7867: The deprecated Token class is now only available in the test
   framework (Alan Woodward, Adrien Grand)
 
+* LUCENE-7723: DoubleValuesSource enforces implementation of equals() and
+  hashCode() (Alan Woodward)
+
+* LUCENE-7737: The spatial-extras module no longer has a dependency on the
+  queries module.  All uses of ValueSource are either replaced with core
+  DoubleValuesSource extensions, or with the new ShapeValuesSource and
+  ShapeValuesPredicate classes (Alan Woodward, David Smiley)
+
+* LUCENE-7892: Doc-values query factory methods have been renamed so that their
+  name contains "slow" in order to cleary indicate that they would usually be a
+  bad choice. (Adrien Grand)
+
+* LUCENE-7899: FieldValueQuery is renamed to DocValuesFieldExistsQuery
+  (Adrien Grand, Mike McCandless)
+
 Bug Fixes
 
 * LUCENE-7626: IndexWriter will no longer accept broken token offsets
@@ -97,6 +148,13 @@ Bug Fixes
 * LUCENE-7859: Spatial-extras PackedQuadPrefixTree bug that only revealed itself
   with the new pointsOnly optimizations in LUCENE-7845. (David Smiley)
 
+* LUCENE-7871: fix false positive match in BlockJoinSelector when children have no value, introducing 
+  wrap methods accepting children as DISI. Extracting ToParentDocValues (Mikhail Khludnev)
+
+* LUCENE-7914: Add a maximum recursion level in automaton recursive
+  functions (Operations.isFinite and Operations.topsortState) to prevent
+  large automaton to overflow the stack (Robert Muir, Adrien Grand, Jim Ferenczi)
+
 Improvements
 
 * LUCENE-7489: Better storage of sparse doc-values fields with the default
@@ -104,6 +162,9 @@ Improvements
 
 * LUCENE-7730: More accurate encoding of the length normalization factor
   thanks to the removal of index-time boosts. (Adrien Grand)
+
+* LUCENE-7901: Original Highlighter now eagerly throws an exception if you
+  provide components that are null. (Jason Gerlowski, David Smiley)
 
 Optimizations
 
@@ -130,6 +191,8 @@ Optimizations
 * LUCENE-7874: DisjunctionMaxQuery rewrites to a BooleanQuery when tiebreaker is set to 1. (Jim Ferenczi)
 
 Other
+
+* LUCENE-7923: Removed FST.Arc.node field (unused). (Dawid Weiss)
 
 * LUCENE-7328: Remove LegacyNumericEncoding from GeoPointField. (Nick Knize)
 
@@ -158,6 +221,11 @@ Other
   resources in CustomAnalyzer or ClassPathResourceLoader. Resources are only
   resolved against Lucene's class loader by default. Please use another builder
   method to change to a custom classloader.  (Uwe Schindler)
+
+* LUCENE-5822: Convert README to Markdown (Jason Gerlowski via Mike Drob)
+
+* LUCENE-7773: Remove unused/deprecated token types from StandardTokenizer.
+  (Ahmet Arslan via Steve Rowe)
 
 ======================= Lucene 6.7.0 =======================
 

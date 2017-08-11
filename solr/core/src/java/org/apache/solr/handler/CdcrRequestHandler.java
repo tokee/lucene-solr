@@ -42,6 +42,7 @@ import org.apache.solr.client.solrj.request.UpdateRequest;
 import org.apache.solr.cloud.ZkController;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.cloud.ClusterState;
+import org.apache.solr.common.cloud.DocCollection;
 import org.apache.solr.common.cloud.Slice;
 import org.apache.solr.common.cloud.ZkCoreNodeProps;
 import org.apache.solr.common.cloud.ZkNodeProps;
@@ -397,7 +398,8 @@ public class CdcrRequestHandler extends RequestHandlerBase implements SolrCoreAw
       log.warn("Error when updating cluster state", e);
     }
     ClusterState cstate = zkController.getClusterState();
-    Collection<Slice> shards = cstate.getActiveSlices(collection);
+    DocCollection docCollection = cstate.getCollectionOrNull(collection);
+    Collection<Slice> shards = docCollection == null? null : docCollection.getActiveSlices();
 
     ExecutorService parallelExecutor = ExecutorUtil.newMDCAwareCachedThreadPool(new DefaultSolrThreadFactory("parallelCdcrExecutor"));
 
@@ -789,8 +791,9 @@ public class CdcrRequestHandler extends RequestHandlerBase implements SolrCoreAw
 
     private void commitOnLeader(String leaderUrl) throws SolrServerException,
         IOException {
-      try (HttpSolrClient client = new HttpSolrClient.Builder(leaderUrl).build()) {
-        client.setConnectionTimeout(30000);
+      try (HttpSolrClient client = new HttpSolrClient.Builder(leaderUrl)
+          .withConnectionTimeout(30000)
+          .build()) {
         UpdateRequest ureq = new UpdateRequest();
         ureq.setParams(new ModifiableSolrParams());
         ureq.getParams().set(DistributedUpdateProcessor.COMMIT_END_POINT, true);
@@ -827,9 +830,10 @@ public class CdcrRequestHandler extends RequestHandlerBase implements SolrCoreAw
 
     @Override
     public Long call() throws Exception {
-      try (HttpSolrClient server = new HttpSolrClient.Builder(baseUrl).build()) {
-        server.setConnectionTimeout(15000);
-        server.setSoTimeout(60000);
+      try (HttpSolrClient server = new HttpSolrClient.Builder(baseUrl)
+          .withConnectionTimeout(15000)
+          .withSocketTimeout(60000)
+          .build()) {
 
         ModifiableSolrParams params = new ModifiableSolrParams();
         params.set(CommonParams.ACTION, CdcrParams.CdcrAction.SHARDCHECKPOINT.toString());

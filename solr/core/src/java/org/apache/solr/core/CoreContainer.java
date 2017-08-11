@@ -22,6 +22,7 @@ import static org.apache.solr.common.params.CommonParams.AUTHZ_PATH;
 import static org.apache.solr.common.params.CommonParams.COLLECTIONS_HANDLER_PATH;
 import static org.apache.solr.common.params.CommonParams.CONFIGSETS_HANDLER_PATH;
 import static org.apache.solr.common.params.CommonParams.CORES_HANDLER_PATH;
+import static org.apache.solr.common.params.CommonParams.HEALTH_CHECK_HANDLER_PATH;
 import static org.apache.solr.common.params.CommonParams.INFO_HANDLER_PATH;
 import static org.apache.solr.common.params.CommonParams.METRICS_PATH;
 import static org.apache.solr.common.params.CommonParams.ZK_PATH;
@@ -80,6 +81,7 @@ import org.apache.solr.handler.SnapShooter;
 import org.apache.solr.handler.admin.CollectionsHandler;
 import org.apache.solr.handler.admin.ConfigSetsHandler;
 import org.apache.solr.handler.admin.CoreAdminHandler;
+import org.apache.solr.handler.admin.HealthCheckHandler;
 import org.apache.solr.handler.admin.InfoHandler;
 import org.apache.solr.handler.admin.MetricsCollectorHandler;
 import org.apache.solr.handler.admin.MetricsHandler;
@@ -135,7 +137,8 @@ public class CoreContainer {
 
   protected CoreAdminHandler coreAdminHandler = null;
   protected CollectionsHandler collectionsHandler = null;
-  protected TransientSolrCoreCache transientSolrCoreCache = null;
+  protected HealthCheckHandler healthCheckHandler = null;
+
   private InfoHandler infoHandler;
   protected ConfigSetsHandler configSetsHandler = null;
 
@@ -149,8 +152,6 @@ public class CoreContainer {
   protected ShardHandlerFactory shardHandlerFactory;
 
   private UpdateShardHandler updateShardHandler;
-
-  private TransientSolrCoreCacheFactory transientCoreCache;
 
   private ExecutorService coreContainerWorkExecutor = ExecutorUtil.newMDCAwareCachedThreadPool(
       new DefaultSolrThreadFactory("coreContainerWorkExecutor") );
@@ -507,7 +508,8 @@ public class CoreContainer {
     updateShardHandler = new UpdateShardHandler(cfg.getUpdateShardHandlerConfig());
     updateShardHandler.initializeMetrics(metricManager, SolrInfoBean.Group.node.toString(), "updateShardHandler");
 
-    transientCoreCache = TransientSolrCoreCacheFactory.newInstance(loader, this);
+    solrCores.load(loader);
+
 
     logging = LogWatcher.newRegisteredLogWatcher(cfg.getLogWatcherConfig(), loader);
 
@@ -524,6 +526,7 @@ public class CoreContainer {
 
     createHandler(ZK_PATH, ZookeeperInfoHandler.class.getName(), ZookeeperInfoHandler.class);
     collectionsHandler = createHandler(COLLECTIONS_HANDLER_PATH, cfg.getCollectionsHandlerClass(), CollectionsHandler.class);
+    healthCheckHandler = createHandler(HEALTH_CHECK_HANDLER_PATH, cfg.getHealthCheckHandlerClass(), HealthCheckHandler.class);
     infoHandler        = createHandler(INFO_HANDLER_PATH, cfg.getInfoHandlerClass(), InfoHandler.class);
     coreAdminHandler   = createHandler(CORES_HANDLER_PATH, cfg.getCoreAdminHandlerClass(), CoreAdminHandler.class);
     configSetsHandler = createHandler(CONFIGSETS_HANDLER_PATH, cfg.getConfigSetsHandlerClass(), ConfigSetsHandler.class);
@@ -558,10 +561,37 @@ public class CoreContainer {
         true, "lazy", SolrInfoBean.Category.CONTAINER.toString(), "cores");
     metricManager.registerGauge(null, registryName, () -> solrCores.getAllCoreNames().size() - solrCores.getLoadedCoreNames().size(),
         true, "unloaded", SolrInfoBean.Category.CONTAINER.toString(), "cores");
-    metricManager.registerGauge(null, registryName, () -> cfg.getCoreRootDirectory().toFile().getTotalSpace(),
+    Path dataHome = cfg.getSolrDataHome() != null ? cfg.getSolrDataHome() : cfg.getCoreRootDirectory();
+    metricManager.registerGauge(null, registryName, () -> dataHome.toFile().getTotalSpace(),
         true, "totalSpace", SolrInfoBean.Category.CONTAINER.toString(), "fs");
-    metricManager.registerGauge(null, registryName, () -> cfg.getCoreRootDirectory().toFile().getUsableSpace(),
+    metricManager.registerGauge(null, registryName, () -> dataHome.toFile().getUsableSpace(),
         true, "usableSpace", SolrInfoBean.Category.CONTAINER.toString(), "fs");
+    metricManager.registerGauge(null, registryName, () -> dataHome.toAbsolutePath().toString(),
+        true, "path", SolrInfoBean.Category.CONTAINER.toString(), "fs");
+    metricManager.registerGauge(null, registryName, () -> {
+          try {
+            return org.apache.lucene.util.IOUtils.spins(dataHome.toAbsolutePath());
+          } catch (IOException e) {
+            // default to spinning
+            return true;
+          }
+        },
+        true, "spins", SolrInfoBean.Category.CONTAINER.toString(), "fs");
+    metricManager.registerGauge(null, registryName, () -> cfg.getCoreRootDirectory().toFile().getTotalSpace(),
+        true, "totalSpace", SolrInfoBean.Category.CONTAINER.toString(), "fs", "coreRoot");
+    metricManager.registerGauge(null, registryName, () -> cfg.getCoreRootDirectory().toFile().getUsableSpace(),
+        true, "usableSpace", SolrInfoBean.Category.CONTAINER.toString(), "fs", "coreRoot");
+    metricManager.registerGauge(null, registryName, () -> cfg.getCoreRootDirectory().toAbsolutePath().toString(),
+        true, "path", SolrInfoBean.Category.CONTAINER.toString(), "fs", "coreRoot");
+    metricManager.registerGauge(null, registryName, () -> {
+          try {
+            return org.apache.lucene.util.IOUtils.spins(cfg.getCoreRootDirectory().toAbsolutePath());
+          } catch (IOException e) {
+            // default to spinning
+            return true;
+          }
+        },
+        true, "spins", SolrInfoBean.Category.CONTAINER.toString(), "fs", "coreRoot");
     // add version information
     metricManager.registerGauge(null, registryName, () -> this.getClass().getPackage().getSpecificationVersion(),
         true, "specification", SolrInfoBean.Category.CONTAINER.toString(), "version");
@@ -596,7 +626,7 @@ public class CoreContainer {
 
       for (final CoreDescriptor cd : cds) {
         if (cd.isTransient() || !cd.isLoadOnStartup()) {
-          getTransientCacheHandler().addTransientDescriptor(cd.getName(), cd);
+          solrCores.addCoreDescriptor(cd);
         } else if (asyncSolrCoreLoad) {
           solrCores.markCoreAsLoading(cd);
         }
@@ -608,7 +638,7 @@ public class CoreContainer {
                 zkSys.getZkController().throwErrorIfReplicaReplaced(cd);
               }
 
-              core = create(cd, false, false);
+              core = createFromDescriptor(cd, false, false);
             } finally {
               if (asyncSolrCoreLoad) {
                 solrCores.markCoreAsNotLoading(cd);
@@ -632,7 +662,7 @@ public class CoreContainer {
     } finally {
       if (asyncSolrCoreLoad && futures != null) {
 
-        coreContainerWorkExecutor.submit((Runnable) () -> {
+        coreContainerWorkExecutor.submit(() -> {
           try {
             for (Future<SolrCore> future : futures) {
               try {
@@ -659,16 +689,6 @@ public class CoreContainer {
     status |= LOAD_COMPLETE | INITIAL_CORE_LOAD_COMPLETE;
   }
 
-
-  public TransientSolrCoreCache getTransientCacheHandler() {
-
-    if (transientCoreCache == null) {
-      log.error("No transient handler has been defined. Check solr.xml to see if an attempt to provide a custom " +
-          "TransientSolrCoreCacheFactory was done incorrectly since the default should have been used otherwise.");
-      return null;
-    }
-    return transientCoreCache.getTransientSolrCoreCache();
-  }
 
   public void securityNodeChanged() {
     log.info("Security node changed, reloading security.json");
@@ -849,7 +869,6 @@ public class CoreContainer {
       * core, since the descriptors name is used for persisting.
       */
 
-    solrCores.addCoreDescriptor(new CoreDescriptor(cd.getName(), cd));
     core.setName(cd.getName());
 
     coreInitFailures.remove(cd.getName());
@@ -893,7 +912,8 @@ public class CoreContainer {
     CoreDescriptor cd = new CoreDescriptor(coreName, instancePath, parameters, getContainerProperties(), isZooKeeperAware());
 
     // TODO: There's a race here, isn't there?
-    if (getLoadedCoreNames().contains(coreName)) {
+    // Since the core descriptor is removed when a core is unloaded, it should never be anywhere when a core is created.
+    if (getAllCoreNames().contains(coreName)) {
       log.warn("Creating a core with existing name is not allowed");
       // TODO: Shouldn't this be a BAD_REQUEST?
       throw new SolrException(ErrorCode.SERVER_ERROR, "Core with name '" + coreName + "' already exists.");
@@ -911,14 +931,17 @@ public class CoreContainer {
         preExisitingZkEntry = getZkController().checkIfCoreNodeNameAlreadyExists(cd);
       }
 
-      SolrCore core = create(cd, true, newCollection);
-
-      // only write out the descriptor if the core is successfully created
+      // Much of the logic in core handling pre-supposes that the core.properties file already exists, so create it
+      // first and clean it up if there's an error.
       coresLocator.create(this, cd);
 
+      SolrCore core = createFromDescriptor(cd, true, newCollection);
+
       return core;
-    }
-    catch (Exception ex) {
+    } catch (Exception ex) {
+      // First clean up any core descriptor, there should never be an existing core.properties file for any core that 
+      // failed to be created on-the-fly. 
+      coresLocator.delete(this, cd);
       if (isZooKeeperAware() && !preExisitingZkEntry) {
         try {
           getZkController().unregister(coreName, cd);
@@ -958,7 +981,7 @@ public class CoreContainer {
    *
    * @return the newly created core
    */
-  private SolrCore create(CoreDescriptor dcore, boolean publishState, boolean newCollection) {
+  private SolrCore createFromDescriptor(CoreDescriptor dcore, boolean publishState, boolean newCollection) {
 
     if (isShutDown) {
       throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE, "Solr has been shutdown.");
@@ -991,6 +1014,7 @@ public class CoreContainer {
       return core;
     } catch (Exception e) {
       coreInitFailures.put(dcore.getName(), new CoreLoadFailure(dcore, e));
+      solrCores.removeCoreDescriptor(dcore);
       final SolrException solrException = new SolrException(ErrorCode.SERVER_ERROR, "Unable to create core [" + dcore.getName() + "]", e);
       if(core != null && !core.isClosed())
         IOUtils.closeQuietly(core);
@@ -998,6 +1022,7 @@ public class CoreContainer {
     } catch (Throwable t) {
       SolrException e = new SolrException(ErrorCode.SERVER_ERROR, "JVM Error creating core [" + dcore.getName() + "]: " + t.getMessage(), t);
       coreInitFailures.put(dcore.getName(), new CoreLoadFailure(dcore, e));
+      solrCores.removeCoreDescriptor(dcore);
       if(core != null && !core.isClosed())
         IOUtils.closeQuietly(core);
       throw t;
@@ -1032,7 +1057,7 @@ public class CoreContainer {
       }
     }
     
-    // If no CorruptIndexExeption, nothing we can try here
+    // If no CorruptIndexException, nothing we can try here
     if (cause == null) throw original;
     
     CoreInitFailedAction action = CoreInitFailedAction.valueOf(System.getProperty(CoreInitFailedAction.class.getSimpleName(), "none"));
@@ -1104,24 +1129,30 @@ public class CoreContainer {
   }
 
   /**
-   * @return a Collection of the names that loaded cores are mapped to
+   * Gets the cores that are currently loaded, i.e. cores that have
+   * 1: loadOnStartup=true and are either not-transient or, if transient, have been loaded and have not been aged out
+   * 2: loadOnStartup=false and have been loaded but are either non-transient or have not been aged out.
+   *
+   * Put another way, this will not return any names of cores that are lazily loaded but have not been called for yet
+   * or are transient and either not loaded or have been swapped out.
+   *
    */
   public Collection<String> getLoadedCoreNames() {
     return solrCores.getLoadedCoreNames();
   }
 
   /** This method is currently experimental.
-   * @return a Collection of the names that a specific core is mapped to.
+   *
+   * @return a Collection of the names that a specific core object is mapped to, there are more than one.
    */
-  public Collection<String> getCoreNames(SolrCore core) {
-    return solrCores.getCoreNames(core);
+  public Collection<String> getNamesForCore(SolrCore core) {
+    return solrCores.getNamesForCore(core);
   }
 
   /**
-   * get a list of all the cores that are currently loaded
-   * @return a list of al lthe available core names in either permanent or transient core lists.
+   * get a list of all the cores that are currently known, whether currently loaded or not
+   * @return a list of all the available core names in either permanent or transient cores
    *
-   * Note: this implies that the core is loaded
    */
   public Collection<String> getAllCoreNames() {
     return solrCores.getAllCoreNames();
@@ -1227,7 +1258,7 @@ public class CoreContainer {
     } else {
       CoreLoadFailure clf = coreInitFailures.get(name);
       if (clf != null) {
-        create(clf.cd, true, false);
+        createFromDescriptor(clf.cd, true, false);
       } else {
         throw new SolrException(SolrException.ErrorCode.BAD_REQUEST, "No such core: " + name );
       }
@@ -1266,6 +1297,8 @@ public class CoreContainer {
    */
   public void unload(String name, boolean deleteIndexDir, boolean deleteDataDir, boolean deleteInstanceDir) {
 
+    CoreDescriptor cd = solrCores.getCoreDescriptor(name);
+    
     if (name != null) {
       // check for core-init errors first
       CoreLoadFailure loadFailure = coreInitFailures.remove(name);
@@ -1274,11 +1307,15 @@ public class CoreContainer {
         // which we may not be able to do because of the init error.  So we just go with what we
         // can glean from the CoreDescriptor - datadir and instancedir
         SolrCore.deleteUnloadedCore(loadFailure.cd, deleteDataDir, deleteInstanceDir);
+        // If last time around we didn't successfully load, make sure that all traces of the coreDescriptor are gone.
+        if (cd != null) {
+          solrCores.removeCoreDescriptor(cd);
+          coresLocator.delete(this, cd);
+        }
         return;
       }
     }
-
-    CoreDescriptor cd = solrCores.getCoreDescriptor(name);
+      
     if (cd == null) {
       throw new SolrException(ErrorCode.BAD_REQUEST, "Cannot unload non-existent core [" + name + "]");
     }
@@ -1404,7 +1441,7 @@ public class CoreContainer {
         if (zkSys.getZkController() != null) {
           zkSys.getZkController().throwErrorIfReplicaReplaced(desc);
         }
-        core = create(desc, true, false); // This should throw an error if it fails.
+        core = createFromDescriptor(desc, true, false); // This should throw an error if it fails.
       }
       core.open();
     }
@@ -1453,6 +1490,8 @@ public class CoreContainer {
   public CollectionsHandler getCollectionsHandler() {
     return collectionsHandler;
   }
+
+  public HealthCheckHandler getHealthCheckHandler() { return healthCheckHandler; }
 
   public InfoHandler getInfoHandler() {
     return infoHandler;
@@ -1552,7 +1591,12 @@ public class CoreContainer {
   public long getStatus() {
     return status;
   }
-
+  
+  // Occasaionally we need to access the transient cache handler in places other than coreContainer.
+  public TransientSolrCoreCache getTransientCache() {
+    return solrCores.getTransientCacheHandler();
+  }
+  
 }
 
 class CloserThread extends Thread {

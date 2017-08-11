@@ -123,6 +123,7 @@ public class SolrConfig extends Config implements MapSerializable {
   private int formUploadLimitKB;
 
   private boolean enableRemoteStreams;
+  private boolean enableStreamBody;
 
   private boolean handleSelect;
 
@@ -308,9 +309,11 @@ public class SolrConfig extends Config implements MapSerializable {
     enableRemoteStreams = getBool(
         "requestDispatcher/requestParsers/@enableRemoteStreaming", false);
 
-    // Let this filter take care of /select?xxx format
+    enableStreamBody = getBool(
+        "requestDispatcher/requestParsers/@enableStreamBody", false);
+
     handleSelect = getBool(
-        "requestDispatcher/@handleSelect", true);
+        "requestDispatcher/@handleSelect", !luceneMatchVersion.onOrAfter(Version.LUCENE_7_0_0));
 
     addHttpRequestToContext = getBool(
         "requestDispatcher/requestParsers/@addHttpRequestToContext", false);
@@ -783,6 +786,10 @@ public class SolrConfig extends Config implements MapSerializable {
 
   public boolean isEnableRemoteStreams() {
     return enableRemoteStreams;
+  }
+
+  public boolean isEnableStreamBody() {
+    return enableStreamBody;
   }
 
   @Override
