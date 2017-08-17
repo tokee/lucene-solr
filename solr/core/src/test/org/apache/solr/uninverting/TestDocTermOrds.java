@@ -141,7 +141,7 @@ public class TestDocTermOrds extends LuceneTestCase {
    * With the current code, the test verifies that the old limit no longer applies.
    * New limit is 2^31, which is not very realistic to unit-test. */
   @SuppressWarnings({"ConstantConditions", "PointlessBooleanExpression"})
-  @Slow
+  @Nightly
   public void testTriggerUnInvertLimit() throws IOException {
     final boolean SHOULD_TRIGGER = false; // Set this to true to use the test with the old implementation
 

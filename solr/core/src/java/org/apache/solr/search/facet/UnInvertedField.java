@@ -172,10 +172,6 @@ public class UnInvertedField extends DocTermOrds {
     }
     if (maxTermCounts != null)
       sz += maxTermCounts.length * 4;
-    if (indexedTermsArray != null) {
-      // assume 8 byte references?
-      sz += 8+8+8+8+(indexedTermsArray.length<<3)+sizeOfIndexedStrings;
-    }
     memsz = sz;
     return sz;
   }

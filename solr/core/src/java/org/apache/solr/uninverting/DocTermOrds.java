@@ -91,10 +91,10 @@ import org.apache.lucene.util.StringHelper;
  *   in the 4 bytes of an integer. As bit 7 within each byte is used in the vInt encoding to
  *   signal overflow into the next byte, bit 7 of the highest byte (bit 31 in the full integer)
  *   will never be 1. If bit 31 in the integer is set, this signals a pointer and bit 0-30
- *  is then the value of the pointer into a byte[] where the termNumber list starts.
+ *   is then the value of the pointer into a byte[] where the termNumber list starts.
  *
- *   A single entry is thus either 0b0xxxxxxxx_xxxxxxxx_xxxxxxxx_xxxxxxxx holding 0-4 vInts or
- *   0b0xxxxxxxx_xxxxxxxx_xxxxxxxx_xxxxxxxx holding a 31-bit pointer.
+ *   A single entry is thus either 0b0xxxxxxxx_xxxxxxxx_xxxxxxxx_xxxxxxxx holding 0-4 vInts
+ *   (low byte first) or 0b1xxxxxxxx_xxxxxxxx_xxxxxxxx_xxxxxxxx holding a 31-bit pointer.
  *
  *   There are 256 byte arrays, as the previous version of DocTermOrds had a pointer limit
  *   of 24 bits / 3 bytes. The correct byte array for a document is a function of its id.
@@ -176,6 +176,7 @@ public class DocTermOrds implements Accountable {
 
   // TODO: Why is indexedTermsArray not part of this?
   /** Returns total bytes used. */
+  @Override
   public long ramBytesUsed() {
     // can cache the mem size since it shouldn't change
     if (memsz!=0) return memsz;
@@ -184,6 +185,10 @@ public class DocTermOrds implements Accountable {
     if (tnums!=null) {
       for (byte[] arr : tnums)
         if (arr != null) sz += arr.length;
+    }
+    if (indexedTermsArray != null) {
+      // assume 8 byte references?
+      sz += 8+8+8+8+(indexedTermsArray.length<<3)+sizeOfIndexedStrings;
     }
     memsz = sz;
     return sz;
