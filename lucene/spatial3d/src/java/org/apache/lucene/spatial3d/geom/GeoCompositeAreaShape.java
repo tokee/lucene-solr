@@ -27,7 +27,15 @@ public class GeoCompositeAreaShape extends GeoBaseCompositeAreaShape<GeoAreaShap
   /**
    * Constructor.
    */
-  public GeoCompositeAreaShape() {
+  public GeoCompositeAreaShape(PlanetModel planetModel) {
+    super(planetModel);
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (!(o instanceof GeoCompositeAreaShape))
+      return false;
+    return super.equals(o);
   }
 
   @Override
