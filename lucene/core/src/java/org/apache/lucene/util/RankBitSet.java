@@ -21,9 +21,12 @@ package org.apache.lucene.util;
 /**
  * Wrapper for OpenBitSet which creates and exposes a rank cache.
  * </p><p>
- * The rankCache has a long for every 2048 bits and thus has an overhead of 3.17%.
+ * A rank-cache allows for fast counting of the number of set bits up to, but not including,
+ * a the bit at a given position.
+ * </p><p>
+ * The rankCache uses a long for every 2048 bits in the underlying bitset and thus has an overhead of 3.17%.
  * Performance is O(1):
- * 1 lookup in cache,
+ * 1 lookup in the {@code long[]} that holds the rank-data,
  * a maximum of 3 sums,
  * a maximum of 8 Long.bitCounts.
  * </p>
