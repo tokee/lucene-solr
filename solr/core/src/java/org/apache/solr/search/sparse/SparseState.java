@@ -19,7 +19,9 @@ package org.apache.solr.search.sparse;
 
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 
+import org.apache.lucene.util.BytesRef;
 import org.apache.solr.common.util.NamedList;
 import org.apache.solr.schema.SchemaField;
 import org.apache.solr.search.DocSet;
@@ -42,7 +44,7 @@ public class SparseState {
   public final boolean missing;
   public final String sort;
   public final String prefix;
-  public final String termList;
+  public final Predicate<BytesRef> termFilter;
   public final SparseKeys keys;
   public final SparseCounterPool pool;
   public final TermOrdinalLookup lookup;
@@ -65,7 +67,7 @@ public class SparseState {
 
   SparseState(
       SolrIndexSearcher searcher, DocSet docs, String field, int offset, int limit, int minCount,
-      boolean missing, String sort, String prefix, String termList, SparseKeys keys, SparseCounterPool pool)
+      boolean missing, String sort, String prefix, Predicate<BytesRef> termFilter, SparseKeys keys, SparseCounterPool pool)
       throws IOException {
     this.searcher = searcher;
     this.maxDoc = searcher.maxDoc();
@@ -77,7 +79,7 @@ public class SparseState {
     this.missing = missing;
     this.sort = sort;
     this.prefix = "".equals(prefix) ? null : prefix;
-    this.termList = termList;
+    this.termFilter = termFilter;
     this.keys = keys;
     this.pool = pool;
     schemaField = searcher.getSchema().getField(field);

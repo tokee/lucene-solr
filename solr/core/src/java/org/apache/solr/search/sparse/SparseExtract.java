@@ -1,4 +1,4 @@
-package org.apache.solr.request.sparse;
+package org.apache.solr.search.sparse;
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -29,11 +29,15 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.CharsRef;
+import org.apache.lucene.util.CharsRefBuilder;
 import org.apache.solr.common.params.FacetParams;
 import org.apache.solr.common.util.NamedList;
 import org.apache.solr.common.util.StrUtils;
 import org.apache.solr.request.SimpleFacets;
 import org.apache.solr.schema.FieldType;
+import org.apache.solr.search.sparse.OrdinalUtils;
+import org.apache.solr.search.sparse.SparseState;
+import org.apache.solr.search.sparse.track.ValueCounter;
 import org.apache.solr.util.LongPriorityQueue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,11 +58,11 @@ public class SparseExtract {
     }
   }
 
-  private static void extractTopTermsIndex(SparseState state) {
+  private static void extractTopTermsIndex(SparseState state) throws IOException {
     int off=state.offset;
     int lim=state.limit>=0 ? state.limit : Integer.MAX_VALUE;
     final FieldType ft = state.schemaField.getType();
-    final CharsRef charsRef = new CharsRef(10);
+    final CharsRefBuilder builderCache = new CharsRefBuilder();
     state.extractTime = System.nanoTime();
     state.optimizedExtract = false;
     state.termResolveTime = System.nanoTime();
@@ -76,7 +80,7 @@ public class SparseExtract {
       if (c<state.minCount || --off>=0) continue;
       if (--lim<0) break;
       state.res.add(OrdinalUtils.resolveTerm(
-          state.pool, state.keys, state.lookup.si, ft, state.startTermIndex + i, charsRef), c);
+          state.pool, state.keys, state.lookup.si, ft, state.startTermIndex + i, builderCache), c);
 /*        si.lookupOrd(startTermIndex+i, br);
       ft.indexedToReadable(br, charsRef);
       res.add(charsRef.toString(), c);*/
@@ -90,7 +94,7 @@ public class SparseExtract {
     int off=state.offset;
     int lim=state.limit>=0 ? state.getOverprovisionedLimit() : Integer.MAX_VALUE;
     final FieldType ft = state.schemaField.getType();
-    final CharsRef charsRef = new CharsRef(10);
+    final CharsRefBuilder builderCache = new CharsRefBuilder();
     state.extractTime = System.nanoTime();
     int maxsize = state.limit>0 ? state.offset+state.getOverprovisionedLimit() : Integer.MAX_VALUE-1;
     maxsize = Math.min(maxsize, state.nTerms());
@@ -104,7 +108,7 @@ public class SparseExtract {
           state.keys.blacklists.isEmpty() && state.keys.whitelists.isEmpty() ?
               new ValueCounter.TopCallback(state.minCount-1, queue) :
               new PatternMatchingCallback(
-                  state.minCount-1, queue, maxsize, state.keys, state.pool, state.lookup.si, ft, charsRef));
+                  state.minCount-1, queue, maxsize, state.keys, state.pool, state.lookup.si, ft));
       if (state.optimizedExtract) {
         state.pool.incWithinCount();
       } else {
@@ -133,7 +137,7 @@ public class SparseExtract {
       int count = (int)(pair >>> 32);
       int tnum = Integer.MAX_VALUE - (int)pair;
       final String term = OrdinalUtils.resolveTerm(
-          state.pool, state.keys, state.lookup.si, ft, state.startTermIndex + tnum, charsRef);
+          state.pool, state.keys, state.lookup.si, ft, state.startTermIndex + tnum, builderCache);
       if (state.effectiveHeuristic && state.keys.heuristicFineCount) { // Need to fine-count
         // TODO: Add heuristics lookup-stats to pool
         state.res.add(term, state.searcher.numDocs(

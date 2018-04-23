@@ -1,4 +1,4 @@
-package org.apache.solr.request.sparse;
+package org.apache.solr.search.sparse;
 
 /*
  * Licensed to the Apache Software Foundation (ASF) under one or more
@@ -31,10 +31,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 @LuceneTestCase.SuppressCodecs({"Lucene3x", "Lucene40", "Lucene41", "Lucene42", "Appending"})
 public class SparseFacetTest extends SolrTestCaseJ4 {
+  private static final Logger log = LoggerFactory.getLogger(SparseFacetTest.class);
 
   // TODO: Basically everything threaded fails. This is a regression error. Culprit is the port from 4.8 to 4.10
 

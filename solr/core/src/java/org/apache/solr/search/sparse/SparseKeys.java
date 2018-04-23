@@ -489,7 +489,6 @@ public class SparseKeys {
 
   public final boolean sparse;
   public final boolean termLookup;
-  public final int termLookupMaxCache;
   public final int minTags;
   public final double fraction;
   public final double cutOff;
@@ -547,7 +546,6 @@ public class SparseKeys {
     sparse = params.getFieldBool(field, SPARSE, SPARSE_DEFAULT);
     boundary = params.getFieldParam(field, SPARSE_BOUNDARY, SPARSE_BOUNDARY_DEFAULT);
     termLookup = params.getFieldBool(field, TERMLOOKUP, TERMLOOKUP_DEFAULT);
-    termLookupMaxCache = params.getFieldInt(field, TERMLOOKUP_MAXCACHE, TERMLOOKUP_MAXCACHE_DEFAULT);
     minTags = params.getFieldInt(field, MINTAGS, MINTAGS_DEFAULT);
     fraction = params.getFieldDouble(field, FRACTION, FRACTION_DEFAULT);
     cutOff = params.getFieldDouble(field, CUTOFF, CUTOFF_DEFAULT);
@@ -706,7 +704,6 @@ public class SparseKeys {
         ", whitelists=" + whitelists +
         ", blacklists=" + blacklists +
         ", termLookup=" + termLookup +
-        ", termLookupMaxCache=" + termLookupMaxCache +
         ", minTags=" + minTags +
         ", fraction=" + fraction +
         ", cutOff=" + cutOff +

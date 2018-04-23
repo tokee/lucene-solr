@@ -23,11 +23,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.UnicodeUtil;
-import org.apache.lucene.util.packed.NPlaneMutable;
 import org.apache.lucene.util.packed.PackedInts;
 import org.apache.solr.common.util.NamedList;
 import org.apache.solr.request.DocValuesFacets;
@@ -35,7 +35,13 @@ import org.apache.solr.request.SimpleFacets;
 import org.apache.solr.schema.SchemaField;
 import org.apache.solr.search.DocSet;
 import org.apache.solr.search.SolrIndexSearcher;
+import org.apache.solr.search.facet.FacetDebugInfo;
 import org.apache.solr.search.sparse.cache.SparseCounterPool;
+import org.apache.solr.search.sparse.count.plane.NPlaneLayout;
+import org.apache.solr.search.sparse.count.plane.NPlaneMutable;
+import org.apache.solr.search.sparse.track.SparseCounterThreaded;
+import org.apache.solr.search.sparse.track.SparseNPlane;
+import org.apache.solr.search.sparse.track.ValueCounter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,19 +80,20 @@ public class SparseDocValuesFacets {
   // termLists
   public static NamedList<Integer> getCounts(
       SolrIndexSearcher searcher, DocSet docs, String fieldName, int offset, int limit, int minCount, boolean missing,
-      String sort, String prefix, String termList, SparseKeys sparseKeys, SparseCounterPool pool) throws IOException {
+      String sort, String prefix, Predicate<BytesRef> termFilter, SparseKeys sparseKeys, SparseCounterPool pool, FacetDebugInfo fdebug)
+      throws IOException {
     if (sparseKeys.logExtended) {
       log.info(sparseKeys.toString() + " q=" + sparseKeys.q);
     }
     if (!sparseKeys.sparse) { // Skip sparse part completely
-      return termList == null ?
-          DocValuesFacets.getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termList, docs);
+      return termFilter == null ?
+          DocValuesFacets.getCounts(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix, null, fdebug) :
+          SimpleFacets.fallbackGetListedTermCounts(searcher, null, fieldName, termFilter, docs);
     }
 
     final long fullStartTime = System.nanoTime();
     final SparseState state = new SparseState(searcher, docs, fieldName, offset, limit, minCount, missing, sort, prefix,
-        termList, sparseKeys, pool);
+        termFilter, sparseKeys, pool);
 
     if (state.lookup.si == null) {
       return finalize(new NamedList<Integer>(), searcher, state.schemaField, docs, -1, missing);
@@ -137,7 +144,7 @@ public class SparseDocValuesFacets {
         // the sparse tracker is disabled up front to speed up the collection phase
         state.counts.disableSparseTracking();
       }
-      org.apache.solr.request.sparse.SparseCount.collectCounts(state);
+      org.apache.solr.search.sparse.SparseCount.collectCounts(state);
       state.pool.incCollectTimeRel(state.collectTime);
       state.collectTime += System.nanoTime();
     }
@@ -199,30 +206,25 @@ public class SparseDocValuesFacets {
     return finalize(state.res, searcher, state.schemaField, docs, missingCount, missing);
   }
 
-  private static void adjustTermIndexes(SparseState state) {
+  private static void adjustTermIndexes(SparseState state) throws IOException {
     // Locate start and end-position in the ordinals if a prefix is given
     // TODO: Test this for dualplane & nplane counters
-    {
-      final BytesRef prefixRef;
-      if (state.prefix == null) {
-        prefixRef = null;
-      } else {
-        prefixRef = new BytesRef(state.prefix);
-      }
 
-      if (state.prefix!=null) {
-        state.startTermIndex = (int) state.lookup.si.lookupTerm(prefixRef);
-        if (state.startTermIndex<0) state.startTermIndex=-state.startTermIndex-1;
-        prefixRef.append(UnicodeUtil.BIG_TERM);
-        state.endTermIndex = (int) state.lookup.si.lookupTerm(prefixRef);
-        assert state.endTermIndex < 0;
-        state.endTermIndex = -state.endTermIndex-1;
-      } else {
-        //startTermIndex=-1;
-        state.startTermIndex=0; // Changed to explicit missingCount
-        state.endTermIndex=(int) state.lookup.si.getValueCount();
-      }
+    if (state.prefix == null) {
+      //startTermIndex=-1;
+      state.startTermIndex=0; // Changed to explicit missingCount
+      state.endTermIndex=(int) state.lookup.si.getValueCount();
+      return;
     }
+
+    final BytesRef prefixRef = new BytesRef(state.prefix);
+    final BytesRef prefixRefEnd = new BytesRef(state.prefix + UnicodeUtil.BIG_TERM);
+
+    state.startTermIndex = (int) state.lookup.si.lookupTerm(prefixRef);
+    if (state.startTermIndex<0) state.startTermIndex=-state.startTermIndex-1;
+    state.endTermIndex = (int) state.lookup.si.lookupTerm(prefixRefEnd);
+    assert state.endTermIndex < 0;
+    state.endTermIndex = -state.endTermIndex-1;
   }
 
   /*
@@ -262,8 +264,8 @@ public class SparseDocValuesFacets {
         if (!state.pool.isInitialized() ||
             ((vc = state.pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplane)) == null)) {
           final long allocateTime = System.nanoTime();
-          NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(state);
-          NPlaneMutable.Layout layout = NPlaneMutable.getLayout(state.pool.getHistogram(), false);
+          BPVProvider bpvs = ensureBasicAndGetBPVs(state);
+          NPlaneLayout layout = NPlaneLayout.getLayout(state.pool.getHistogram(), false);
           // TODO: Consider switching back and forth between threaded and non-threaded
           PackedInts.Mutable innerCounter = new NPlaneMutable(layout, bpvs, NPlaneMutable.IMPL.tank);
           vc = new SparseCounterThreaded(SparseKeys.COUNTER_IMPL.nplane, innerCounter, state.pool.getMaxCountForAny(),
@@ -280,12 +282,13 @@ public class SparseDocValuesFacets {
         if (!state.pool.isInitialized() ||
             ((vc = state.pool.acquire(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez)) == null)) {
           final long allocateTime = System.nanoTime();
-          NPlaneMutable.BPVProvider bpvs = ensureBasicAndGetBPVs(state);
-          NPlaneMutable.Layout layout = NPlaneMutable.getLayout(state.pool.getPlusOneHistogram(), true);
+          BPVProvider bpvs = ensureBasicAndGetBPVs(state);
+          NPlaneLayout layout = NPlaneLayout.getLayout(state.pool.getPlusOneHistogram(), true);
           NPlaneMutable innerCounter = new NPlaneMutable(layout, bpvs, NPlaneMutable.IMPL.zethra);
 //        System.out.println(innerCounter.toString(true));
-          vc = new SparseCounterBitmap(SparseKeys.COUNTER_IMPL.nplanez, innerCounter, state.pool.getMaxCountForAny(),
-              sparseKeys.minTags, sparseKeys.fraction, sparseKeys.maxCountsTracked);
+          // TODO: Is this correct? The old one was SparseCounterBitmap
+          vc = new SparseNPlane(SparseKeys.COUNTER_IMPL.nplanez, innerCounter, //state.pool.getMaxCountForAny(),
+              sparseKeys.minTags, sparseKeys.fraction); // , sparseKeys.maxCountsTracked
           state.pool.addAndReturn(sparseKeys, SparseKeys.COUNTER_IMPL.nplanez, vc, allocateTime);
         }
         return vc;
@@ -295,8 +298,8 @@ public class SparseDocValuesFacets {
   }
 
   // Not synchronized as that must be handled outside to avoid duplicate work
-  private static NPlaneMutable.BPVProvider ensureBasicAndGetBPVs(SparseState state) throws IOException {
-    NPlaneMutable.BPVProvider globOrdCount = OrdinalUtils.getBPVs(
+  private static BPVProvider ensureBasicAndGetBPVs(SparseState state) throws IOException {
+    BPVProvider globOrdCount = OrdinalUtils.getBPVs(
         state.searcher, state.lookup.si, state.lookup.ordinalMap, state.schemaField, true);
     // It would be nice to skip this extra run-through, but nplane needs its histogram
     ensureBasic(globOrdCount, state.searcher, state.lookup.si, state.schemaField, state.pool);
@@ -317,7 +320,7 @@ public class SparseDocValuesFacets {
   }
 
   @SuppressWarnings("SynchronizationOnLocalVariableOrMethodParameter") // We update the pool we synchronize on
-  private static void ensureBasic(NPlaneMutable.BPVProvider globOrdCount, SolrIndexSearcher searcher,
+  private static void ensureBasic(BPVProvider globOrdCount, SolrIndexSearcher searcher,
                                   SortedSetDocValues si, SchemaField schemaField, SparseCounterPool pool) {
     synchronized (pool) {
       if (pool.isInitialized()) {
@@ -325,8 +328,8 @@ public class SparseDocValuesFacets {
       }
     }
     final long startTime = System.nanoTime();
-    NPlaneMutable.StatCollectingBPVWrapper stats = globOrdCount instanceof NPlaneMutable.StatCollectingBPVWrapper ?
-        (NPlaneMutable.StatCollectingBPVWrapper) globOrdCount : new NPlaneMutable.StatCollectingBPVWrapper(globOrdCount);
+    BPVProvider.StatCollectingBPVWrapper stats = globOrdCount instanceof BPVProvider.StatCollectingBPVWrapper ?
+        (BPVProvider.StatCollectingBPVWrapper) globOrdCount : new BPVProvider.StatCollectingBPVWrapper(globOrdCount);
     stats.collect();
 //    System.out.println(stats);
     log.info(String.format(Locale.ENGLISH,

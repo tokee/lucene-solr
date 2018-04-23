@@ -34,6 +34,7 @@ import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefArray;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.CharsRef;
+import org.apache.lucene.util.CharsRefBuilder;
 import org.apache.lucene.util.Counter;
 import org.apache.lucene.util.LongValues;
 import org.apache.lucene.util.packed.PackedInts;
@@ -183,33 +184,17 @@ public class OrdinalUtils {
    * @param si         term provider.
    * @param ft         field type for mapping internal term representation to external.
    * @param ordinal    the ordinal for the requested term.
-   * @param charsRef   independent CharsRef to avoid object allocation.
+   * @param builderCache re-usable builder to avoid object allocation. This will be updated, so the caller should
+   *                   not use it for anything besides same-thread calls to this method.
    * @return an external String directly usable for constructing facet response.
    */
   // TODO: Remove brNotUsedAnymore
   public static String resolveTerm(SparseCounterPool pool, SparseKeys sparseKeys, SortedSetDocValues si,
-                                   FieldType ft, int ordinal, CharsRef charsRef) throws IOException {
-    // TODO: Check that the cache spans segments instead of just handling one
-    if (sparseKeys.termLookupMaxCache > 0 && sparseKeys.termLookupMaxCache >= si.getValueCount()) {
-      BytesRefArray brf = pool.getExternalTerms();
-      if (brf == null) {
-        // Fill term cache
-        brf = new BytesRefArray(Counter.newCounter()); // TODO: Incorporate this in the overall counters
-        for (int ord = 0; ord < si.getValueCount(); ord++) {
-          BytesRef br = si.lookupOrd(ord);
-          ft.indexedToReadable(br, charsRef);
-          brf.append(new BytesRef(charsRef)); // Is the object allocation avoidable?
-        }
-        pool.setExternalTerms(brf);
-      }
-      // TODO: Re-use the BytesRefBuilder
-      return brf.get(new BytesRefBuilder(), ordinal).utf8ToString();
-    }
-    pool.setExternalTerms(null); // Make sure the memory is freed
-    // No cache, so lookup directly
+                                   FieldType ft, int ordinal, CharsRefBuilder builderCache) throws IOException {
+    builderCache.clear();
     BytesRef br = si.lookupOrd(ordinal);
-    ft.indexedToReadable(br, charsRef);
-    return charsRef.toString();
+    ft.indexedToReadable(br, builderCache);
+    return builderCache.toString();
   }
 
   public static String join(long[] values) {

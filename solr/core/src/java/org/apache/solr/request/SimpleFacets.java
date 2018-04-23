@@ -577,30 +577,15 @@ public class SimpleFacets {
           SparseCounterPool pool;
           if (sf.hasDocValues()) {
             pool = poolController.acquire(field, "DocValues", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
+            // docs = old base
             counts = SparseDocValuesFacets.getCounts(
-                searcher, base, field, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
-          } else if (multiToken || TrieField.getMainValuePrefix(ft) != null) {
-            pool = poolController.acquire(field, "No DocValues, multi token", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
-            UnInvertedField uif = UnInvertedField.getUnInvertedField(field, searcher);
-            // TODO: Sparse: Add optimized termList handling to multi token field faceting
-            // FIXME: Re-enable sparse counting of non-DV when TestFaceting passes
-
-            counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
-            //counts = uif.getCounts(searcher, base, offset, limit, mincount, missing, sort, prefix);
-          } else if (termList != null) {
-            List<String> terms = StrUtils.splitSmart(termList, ",", true);
-            // TODO: Check that this is sparse optimized
-            return getListedTermCounts(field, base, terms);
+                searcher, docs, field, offset, limit, mincount, missing, sort, prefix, termFilter, sparseKeys, pool, fdebug);
+            // It is possible to add sparse faceting for uninverted fields - this is in the 4.x implementation but not ported
+            handleSparseStats(counts, pool, sparseKeys);
           } else {
-            // TODO: Sparse: Add optimized termList handling to single token field faceting
-            pool = poolController.acquire(field, "No DocValues, single token", sparseKeys.poolSize, sparseKeys.poolMinEmpty);
-            counts = getFieldCacheCounts(
-                searcher, base, field, offset,limit, mincount, missing, sort, prefix, termList, sparseKeys, pool);
+            counts = DocValuesFacets.getCounts(searcher, docs, field, offset,limit, mincount, missing, sort, prefix, termFilter, fdebug);
           }
-          handleSparseStats(counts, pool, sparseKeys);
           break;
-//          counts = DocValuesFacets.getCounts(searcher, docs, field, offset,limit, mincount, missing, sort, prefix, termFilter, fdebug);
-//          break;
         default:
           throw new AssertionError();
       }
@@ -614,11 +599,12 @@ public class SimpleFacets {
     return counts;
   }
 
+  // TODO: This should use the debug info instead
   private void handleSparseStats(NamedList<Integer> counts, SparseCounterPool pool, SparseKeys sparseKeys) {
       if (sparseKeys.legacyShowStats) {
         counts.add(pool.toString(), 9000000);
       }
-      String debug = params.get(CommonParams.DEBUG, null);
+      String debug = req.getParams().get(CommonParams.DEBUG, null);
       if (CommonParams.TIMING.equals(debug) || CommonParams.RESULTS.equals(debug) || CommonParams.TRACK.equals(debug)) {
         rb.addDebugInfo(debug, pool.getStats());
       }
@@ -848,14 +834,15 @@ public class SimpleFacets {
         Callable<NamedList> callable = () -> {
           try {
             NamedList<Object> result = new SimpleOrderedMap<>();
-            result.add(key, getTermCounts(facetValue, 0, workerBase, termList)); // 0 or 1?
-/*
+            // TODO: Enable optimized call to getTermCounts
+            //result.add(key, getTermCounts(facetValue, 0, workerBase, termList)); // 0 or 1?
+
             if(termList != null) {
               List<String> terms = StrUtils.splitSmart(termList, ",", true);
               result.add(key, getListedTermCounts(facetValue, parsed, terms));
             } else {
               result.add(key, getTermCounts(facetValue, parsed));
-            }*/
+            }
             return result;
           } catch (SolrException se) {
             throw se;

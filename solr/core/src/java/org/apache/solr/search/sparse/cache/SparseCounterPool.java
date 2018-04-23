@@ -172,9 +172,6 @@ public class SparseCounterPool {
   protected final ThreadPoolExecutor supervisor;
   public static final String NEEDS_CLEANING = "DIRTY";
 
-  // Cached terms for fast ordinal lookup
-  // TODO: Consider removing this - it is a very specialized and potentially very heavy cache
-  private BytesRefArray externalTerms = null;
   // Optionally defined histogram of the number of counters with the given maxBits
   // TODO: This should be handled by the template
   private long[] histogram = null;
@@ -526,14 +523,6 @@ public class SparseCounterPool {
     return referenceCount;
   }
 
-  public void setExternalTerms(BytesRefArray externalTerms) {
-    this.externalTerms = externalTerms;
-  }
-
-  public BytesRefArray getExternalTerms() {
-    return externalTerms;
-  }
-
   public long getMaxDoc() {
     return maxDoc;
   }
@@ -662,7 +651,7 @@ public class SparseCounterPool {
             "%s, " + // regexpMatches
             "%s, %s, " + // requestClears, backgroundClears
             "cache(hits=%d, misses=%d, %s, %s), " + // filledFrees, emptyFrees
-            "terms(%s, last#=%d, %s, %s, last=%s, cached=%s)",  // termsListLookup, termLookup, termLookupMissing
+            "terms(%s, last#=%d, %s, %s, last=%s)",  // termsListLookup, termLookup, termLookupMissing
         field, description, uniqueValues, maxDoc, referenceCount, maxCountForAny,
         simpleFacetTotal,
         collections, extractions, resolvings,
@@ -672,8 +661,8 @@ public class SparseCounterPool {
         regexpMatches,
         requestClears, backgroundClears,
         cacheHits.get(), cacheMisses.get(), filledFrees, emptyFrees,
-        termsListLookup, count(lastTermsListRequest, ','), termLookup, termLookupMissing, lastTermLookup,
-        externalTerms == null ? "no" : Integer.toString(externalTerms.size()));
+        termsListLookup, count(lastTermsListRequest, ','), termLookup, termLookupMissing, lastTermLookup
+        );
   }
 
   public int getUniqueValues() {
@@ -739,7 +728,6 @@ public class SparseCounterPool {
       termLookup.debug(terms);
       termLookupMissing.debug(terms);
       terms.add("termLookupLast", lastTermLookup);
-      terms.add("cached", externalTerms == null ? "None" : Integer.toString(externalTerms.size()));
       stats.add("termLookups", terms);
     }
 

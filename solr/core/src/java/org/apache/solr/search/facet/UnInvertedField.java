@@ -653,7 +653,7 @@ public class UnInvertedField extends DocTermOrds {
         return extractSpecificCounts(countedTerms, pool, termList, countedTerms.doNegative, baseDocs);
       }
 
-      final CharsRef charsRef = new CharsRef();
+      final CharsRefBuilder builderCache = new CharsRefBuilder();
 
       int off=offset;
       int lim=limit>=0 ? limit : Integer.MAX_VALUE;
@@ -722,7 +722,7 @@ public class UnInvertedField extends DocTermOrds {
         for (int i=sortedIdxStart; i<sortedIdxEnd; i++) {
           int idx = indirect[i];
           int tnum = (int)sorted[idx];
-          final String label = getReadableValue(getTermValue(countedTerms.te, tnum), ft, charsRef);
+          final String label = getReadableValue(getTermValue(countedTerms.te, tnum), ft, builderCache);
           //System.out.println("  label=" + label);
           res.setName(idx - sortedIdxStart, label);
         }
@@ -745,7 +745,7 @@ public class UnInvertedField extends DocTermOrds {
           if (c<mincount || --off>=0) continue;
           if (--lim<0) break;
 
-          final String label = getReadableValue(getTermValue(countedTerms.te, i), ft, charsRef);
+          final String label = getReadableValue(getTermValue(countedTerms.te, i), ft, builderCache);
           res.add(label, c);
         }
         pool.incTermResolveTimeRel(resolveTime);
@@ -791,13 +791,13 @@ public class UnInvertedField extends DocTermOrds {
 
     if (te != null && prefix != null && prefix.length() > 0) {
       final BytesRef prefixBr = new BytesRef(prefix);
+      final BytesRef prefixRefEnd = new BytesRef(prefix + UnicodeUtil.BIG_TERM);
       if (te.seekCeil(prefixBr) == TermsEnum.SeekStatus.END) {
         startTerm = numTermsInField;
       } else {
         startTerm = (int) te.ord();
       }
-      prefixBr.append(UnicodeUtil.BIG_TERM);
-      if (te.seekCeil(prefixBr) == TermsEnum.SeekStatus.END) {
+      if (te.seekCeil(prefixRefEnd) == TermsEnum.SeekStatus.END) {
         endTerm = numTermsInField;
       } else {
         endTerm = (int) te.ord();

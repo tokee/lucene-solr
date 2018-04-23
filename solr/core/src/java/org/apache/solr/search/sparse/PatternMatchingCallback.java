@@ -17,12 +17,14 @@ package org.apache.solr.search.sparse;
  * limitations under the License.
  */
 
+import java.io.IOException;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.util.CharsRef;
+import org.apache.lucene.util.CharsRefBuilder;
 import org.apache.solr.schema.FieldType;
 import org.apache.solr.search.sparse.cache.SparseCounterPool;
 import org.apache.solr.search.sparse.track.ValueCounter;
@@ -43,7 +45,7 @@ public class PatternMatchingCallback implements ValueCounter.Callback {
   private final SparseCounterPool pool;
   private final SortedSetDocValues si;
   private final FieldType ft;
-  private final CharsRef charsRef;
+  private final CharsRefBuilder builderCache = new CharsRefBuilder();
 
   private final Matcher[] whiteMatchers;
   private final Matcher[] blackMatchers;
@@ -55,7 +57,7 @@ public class PatternMatchingCallback implements ValueCounter.Callback {
    */
   public PatternMatchingCallback(
       int min, LongPriorityQueue queue, int queueMaxSize, SparseKeys sparseKeys, SparseCounterPool pool,
-      SortedSetDocValues si, FieldType ft, CharsRef charsRef) {
+      SortedSetDocValues si, FieldType ft) {
     this.maxTermCounts = null;
     this.min = min;
     this.doNegative = false;
@@ -65,7 +67,6 @@ public class PatternMatchingCallback implements ValueCounter.Callback {
     this.pool = pool;
     this.si = si;
     this.ft = ft;
-    this.charsRef = charsRef;
     // Instead of generating new matchers all the time, we create them once and re-use them
     whiteMatchers = generateMatchers(sparseKeys.whitelists);
     blackMatchers = generateMatchers(sparseKeys.blacklists);
@@ -101,7 +102,12 @@ public class PatternMatchingCallback implements ValueCounter.Callback {
         long patternStart = System.nanoTime();
         try {
           //final String term = resolveTerm(pool, sparseKeys, si, ft, counter-1, charsRef, br);
-          final String term = OrdinalUtils.resolveTerm(pool, sparseKeys, si, ft, counter, charsRef);
+          final String term;
+          try {
+            term = OrdinalUtils.resolveTerm(pool, sparseKeys, si, ft, counter, builderCache);
+          } catch (IOException e) {
+            throw new RuntimeException("Unable to resolve term with ordinal " + counter, e);
+          }
           for (Matcher whiteMatcher: whiteMatchers) {
             regexps++;
             whiteMatcher.reset(term);
