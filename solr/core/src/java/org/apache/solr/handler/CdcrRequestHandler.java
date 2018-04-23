@@ -382,7 +382,7 @@ public class CdcrRequestHandler extends RequestHandlerBase implements SolrCoreAw
   /**
    * This action is generally executed on the target cluster in order to retrieve the latest update checkpoint.
    * This checkpoint is used on the source cluster to setup the
-   * {@link org.apache.solr.update.CdcrUpdateLog.CdcrLogReader} of a shard leader. <br/>
+   * {@link org.apache.solr.update.CdcrUpdateLog.CdcrLogReader} of a shard leader.
    * This method will execute in parallel one
    * {@link org.apache.solr.handler.CdcrParams.CdcrAction#SHARDCHECKPOINT} request per shard leader. It will
    * then pick the lowest version number as checkpoint. Picking the lowest amongst all shards will ensure that we do not

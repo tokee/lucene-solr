@@ -51,7 +51,7 @@ public class PatternMatchingCallback implements ValueCounter.Callback {
   private final Matcher[] blackMatchers;
 
   /**
-   * Creates a basic callback where only the values >= min are considered.
+   * Creates a basic callback where only the values greater than or equal to min are considered.
    * @param min      the starting min value.
    * @param queue   the destination of the values of the counters.
    */

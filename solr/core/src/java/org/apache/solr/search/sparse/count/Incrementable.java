@@ -24,7 +24,7 @@ import java.io.IOException;
 
 /**
  * Allows for increments (add 1) to the underlying structure.
- * </p><p>
+ *
  * Relative adjustments of values are used for counter structures and similar.
  * As the implementations of PackedInts.Mutable tend to use complicated logic to
  * access the bits for the values, replacing the standard get-set calls with a

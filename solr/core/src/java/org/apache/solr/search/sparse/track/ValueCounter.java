@@ -20,9 +20,9 @@ import org.apache.solr.util.LongPriorityQueue;
 
 /**
  * Keeps track of a fixed amount of counters, providing iteration of counters+values.
- * </p><p>
+ *
  * Fairly similar to {@link org.apache.lucene.util.packed.PackedInts.Mutable}
- * </p>
+ *
  */
 public interface ValueCounter {
 

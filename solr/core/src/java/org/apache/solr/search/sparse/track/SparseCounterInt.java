@@ -28,9 +28,9 @@ import org.apache.solr.search.sparse.SparseKeys;
  *   speed is linear to the total counter size.
  * - Clear speed linear to the number of updated elements up to the cut-off point. After that clear is linear
  *   to the total counter size.
- * </p><p>
+ * 
  * This class is not thread safe.
- * </p><p>
+ * 
  * Tight-loop methods are final to help the compiler make optimizations.
  */
 public class SparseCounterInt implements ValueCounter {

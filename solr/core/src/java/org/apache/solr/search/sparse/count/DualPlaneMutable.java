@@ -23,7 +23,7 @@ import org.apache.lucene.util.packed.PackedInts;
  * Holds large values in {@link #head} and small values in {@link #tail}, thereby reducing overall memory
  * consumption, compared to Packed64. Performance overhead, compared to Packed64, is very small
  * and depending on the concrete values.
- * </p><p>
+ * 
  * The reduced memory consumption is possible if the value distribution is an unordered long tail.
  * Ordered long tail would allow for markedly lower memory consumption, but would imply that all values
  * appeared in sorted order.

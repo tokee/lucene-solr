@@ -34,13 +34,13 @@ import org.apache.solr.search.sparse.count.Incrementable;
  * There are 5 counters, where the max for the first counter is 10, the max for the second
  * counter is 1 and the maxima for the rest are 16, 2 and 3. The bits needed to hold the
  * first counter is 4, since {@code 2^3-1 < 10 < 2^4-1}. The bits needed for the rest of
- * the values are 1, 5, 2 and 2.<br/>
- * plane(0) holds the 2 least significant bits (bits 0+1), plane(1) holds bits 2+3, plane(2) holds bit 4.<br/>
- * plane(0) holds 5 * 2 value bits + 5 * 1 overflow-bit.<br/>
- * plane(1) holds 2 * 1 value bits + 2 * 1 overflow-bit.<br/>
- * plane(2) holds 1 * 1 value bits and no overflow bits, since it is the last one.<br/>
- * Stepping through the maxima-bits 4, 1, 5, 2 and 2, we have<br/>
- * plane(0).overflowBits = 1 0 1 0 0<br/>
+ * the values are 1, 5, 2 and 2.
+ * plane(0) holds the 2 least significant bits (bits 0+1), plane(1) holds bits 2+3, plane(2) holds bit 4.
+ * plane(0) holds 5 * 2 value bits + 5 * 1 overflow-bit.
+ * plane(1) holds 2 * 1 value bits + 2 * 1 overflow-bit.
+ * plane(2) holds 1 * 1 value bits and no overflow bits, since it is the last one.
+ * Stepping through the maxima-bits 4, 1, 5, 2 and 2, we have
+ * plane(0).overflowBits = 1 0 1 0 0
  * plane(1).overflowBits = 0 1
  */
 public abstract class Plane {

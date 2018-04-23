@@ -508,7 +508,7 @@ public class TestDualPlaneMutable extends LuceneTestCase {
    * Current optimal space solution: Keep 1 bitplane (bitmap) for every bit in the number and 1 bitplane for
    * signaling overflow. If a subsequent bitplane is more than half the size of the previous one, the two will
    * share overflow bit.
-   * </p><p>
+   *
    * As the overflow bits must be counted to infer the index of the next bit position for a given counter,
    * the raw version is extremely slow, requiring billions of bit-checks to update a single counter.
    */

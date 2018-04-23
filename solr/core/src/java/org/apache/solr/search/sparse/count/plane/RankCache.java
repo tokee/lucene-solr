@@ -58,8 +58,8 @@ public class RankCache implements Accountable {
   public static final int BASIC_OVER_SIZE = 512; // Overflow bits handled by a basic block
   public static final int BASIC_WORDS = BASIC_OVER_SIZE /Long.SIZE; // word == long
   /**
-   * Each entry is made up of 1 long<br/>
-   * Bits 63-32: 32 bit first-level absolute index.<br/>
+   * Each entry is made up of 1 long
+   * Bits 63-32: 32 bit first-level absolute index.
    * Bits 29-0: 3 * 10 bit (0-1023) second-level relative index. Only numbers 0-512 are used.
    */
   private final long[] rankCache;

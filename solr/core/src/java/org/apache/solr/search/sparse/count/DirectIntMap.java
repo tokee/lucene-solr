@@ -25,12 +25,12 @@ import java.util.Arrays;
  * An integer to integer map that uses a single long[] as backing storage.
  * Compactness and performance of the map relies on the lower bits of the
  * key-values being random.
- * </p><p>
+ * 
  * Calling get for a non-defined key returns Integer.MAX_VALUE;
- * </p><p>
+ * 
  * Putting Integer.MAX_VALUE, Integer.MAX_VALUE will result in undetermined
  * behaviour.
- * </p><p>
+ * 
  * This implementation is not Thread-safe.
  */
 public class DirectIntMap {

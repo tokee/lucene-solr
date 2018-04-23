@@ -179,15 +179,18 @@ public class SparseCount {
 
       while (sampleDocs < chunkSampleLimit && doc < chunkDocLimit && doc != DocIdSetIterator.NO_MORE_DOCS) {
         sampleDocs++;
-        int term = si.getOrd(doc);
-        if (lookup.ordinalMap != null && term >= 0) {
-          term = lookup.getGlobalOrd(subIndex, term);
-        }
-        int arrIdx = term-state.startTermIndex;
-        // TODO: As the arrays are always of full size and counted from 0, much of this could be skipped
-        if (arrIdx>=0 && arrIdx<state.counts.size()) {
-          references++;
-          state.counts.inc(arrIdx);
+        if (si.advanceExact(doc)) {
+          int term = si.ordValue();
+          //int term = si.getOrd(doc);
+          if (lookup.ordinalMap != null && term >= 0) {
+            term = lookup.getGlobalOrd(subIndex, term);
+          }
+          int arrIdx = term-state.startTermIndex;
+          // TODO: As the arrays are always of full size and counted from 0, much of this could be skipped
+          if (arrIdx>=0 && arrIdx<state.counts.size()) {
+            references++;
+            state.counts.inc(arrIdx);
+          }
         }
         doc = disi.nextDoc();
       }
@@ -241,15 +244,17 @@ public class SparseCount {
 
     while (doc != DocIdSetIterator.NO_MORE_DOCS) {
       sampleDocs++;
-      int term = si.getOrd(doc);
-      if (lookup.ordinalMap != null && term >= 0) {
-        term = lookup.getGlobalOrd(subIndex, term);
-      }
-      int arrIdx = term-state.startTermIndex;
-      // TODO: As the arrays are always of full size and counted from 0, much of this could be skipped
-      if (arrIdx>=0 && arrIdx<state.counts.size()) {
-        references++;
-        state.counts.inc(arrIdx);
+      if (si.advanceExact(doc)) {
+        int term = si.ordValue();
+        if (lookup.ordinalMap != null && term >= 0) {
+          term = lookup.getGlobalOrd(subIndex, term);
+        }
+        int arrIdx = term - state.startTermIndex;
+        // TODO: As the arrays are always of full size and counted from 0, much of this could be skipped
+        if (arrIdx >= 0 && arrIdx < state.counts.size()) {
+          references++;
+          state.counts.inc(arrIdx);
+        }
       }
       fastForwardNS -= System.nanoTime();
       for (int i = 0 ; i < every ; i++) {
@@ -345,9 +350,12 @@ public class SparseCount {
 
       while (sampleDocs < chunkSampleLimit && doc < chunkDocLimit && doc != DocIdSetIterator.NO_MORE_DOCS) {
         sampleDocs++;
-
-        ssi.setDocument(doc);
+        int oldDoc = doc;
         doc = disi.nextDoc();
+        if (!ssi.advanceExact(oldDoc)) {
+          state.counts.incMissing();
+          continue;
+        }
 
         // strange do-while to collect the missing count (first ord is NO_MORE_ORDS)
         int term = (int) ssi.nextOrd();
@@ -420,8 +428,10 @@ public class SparseCount {
     long fastForwardNS = 0;
     while (doc != DocIdSetIterator.NO_MORE_DOCS) {
       sampleDocs++;
-      ssi.setDocument(doc);
-
+      if (!ssi.advanceExact(doc)) {
+        state.counts.incMissing();
+        continue;
+      }
       // strange do-while to collect the missing count (first ord is NO_MORE_ORDS)
       int term = (int) ssi.nextOrd();
       if (term < 0) {

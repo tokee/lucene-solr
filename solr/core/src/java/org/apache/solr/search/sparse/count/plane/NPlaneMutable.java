@@ -38,7 +38,7 @@ import java.util.Locale;
  *
  * Space saving is prioritized very high, with performance being secondary.
  * Practical usage of the structure is thus limited.
- * </p><p>
+ * 
  * Warning: This representation does not support persistence yet.
  */
 // FIXME: TestNPlaneMutable.testShiftWrongValues() shows that shift is faulty
@@ -49,11 +49,11 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
   public static final double DEFAULT_COLLAPSE_FRACTION = 0.01; // If there's <= 1% counters left, pack them in 1 plane
 
   /**
-   * The different Plane implementations, each providing different trade-offs.<br/>
-   * split:  Simple implementation with separate value- and overflow-bits, using a slow rank function. Deprecated.<br/>
-   * shift: Cojoined value- and overflow-bits, slow rank function. Deprecated.<br/>
-   * spank:  Separate value- and overflow-bits, using an efficient rand-function. Not thread-safe.<br/>
-   * tank:   Same as spank but thread-safe.<br/>
+   * The different Plane implementations, each providing different trade-offs.
+   * split:  Simple implementation with separate value- and overflow-bits, using a slow rank function. Deprecated.
+   * shift: Cojoined value- and overflow-bits, slow rank function. Deprecated.
+   * spank:  Separate value- and overflow-bits, using an efficient rand-function. Not thread-safe.
+   * tank:   Same as spank but thread-safe.
    * zethra:  Same as spank/tank, but with special plane-0 that provides fast isZero bucket checks.
    */
   public enum IMPL {
@@ -74,7 +74,7 @@ public class NPlaneMutable extends PackedInts.Mutable implements Incrementable {
    *    ABCDEF
    * </pre>
    * The counter for term A needs 2 bits, B needs 1 bit, C needs 4, D 3, E 1 and F3.
-   * </p><p>
+   * 
    * Each plane represents a horizontal slice of bits, with an extra bit-set marking (using !) which values overflows
    * upto the nextBPV plane. In this sample, the planes are
    * <pre>

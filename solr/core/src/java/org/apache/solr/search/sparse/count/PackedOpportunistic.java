@@ -29,15 +29,15 @@ import org.apache.lucene.util.packed.PackedInts;
 /**
  * Space optimized random access capable array of values with a fixed number of bits/value.
  * Multiple values are packed within the same long, without crossing into neighbouring longs.
- * </p><p>
+ * 
  * This implementation uses an {@link AtomicLongArray} as backing structure.
  * It provides thread-safe {@link #incrementStatus(int)} and {@link #set(int, long)} by opportunistic updates:
  * The value is read from bits in a single long, incremented and a set is attempted. If the underlying long has been
  * changed by another thread, a new round of read, increment, attempt-set is initiated and so forth.
  * With low contention this is very effective; with high contention, performance drops quickly.
- * </p><p>
+ * 
  * Important: Only {@link #incrementStatus(int)} and {@link #set(int, long)} are thread safe.
- * </p><p>
+ * 
  * The now removed lucene class Packed64SingleBlock was used as template, as using Atomics for collision handling
  * requires update to the underlying structure to be confined to a single Atomic.
  */

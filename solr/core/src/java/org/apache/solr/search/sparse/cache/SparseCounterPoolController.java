@@ -36,7 +36,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Keeps track of all SparseCounterPools used by the Sparse faceting system.
- * </p><p>
+ *
  * This class is thread safe and with no heavy synchronized parts.
  */
 @SuppressWarnings("NullableProblems")

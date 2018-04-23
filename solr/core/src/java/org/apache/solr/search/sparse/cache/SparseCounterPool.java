@@ -44,31 +44,31 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Maintains a pool of SparseCounters, taking care of allocation, used counter clearing and re-use.
- * <br/>
+ * 
  * Motivation: Constantly allocating large counter structures taxes the garbage collector of the JVM. It is faster to
  * clear & re-use structures instead. This is especially true for sparse structures, where the clearing time is
  * proportional to the number of previously updated counters.
- * <br/>
+ * 
  * Motivation 2: With multi-shard setups, faceting is very often multi-phased, with phase 2 being fine-counting of
  * specific terms in the facet. If the pool holds a filled (aka non-cleared) counter from phase 1,   
- * <br/>
+ * 
  * The pool and/or the content of the pool is bound to the index. When the index is updated and a new facet
  * request is issued, the pool will be freed and a new one will be created.
- * <br/>
+ * 
  * The pool has a fixed maximum limit. If there are no cleaned counters available when requested, a new one
  * will be created. If the pool has reached maximum size and a counter is released, the counter is de-referenced,
  * removing it from the heap. It is advisable to set the pool size to a bit more than the number of concurrent
  * faceted searches, to avoid new allocations.
- * <br/>
+ * 
  * Setting the pool size very high has the adverse effect of a constant heap overhead, dictated by the maximum
  * number of concurrent facet requests encountered since last index (re)open.
- * <br/>
+ * 
  * The pool consists of a mix of empty (ready for any use) and filled (cached for re-use) counters. If the amount
  * of empty counters gets below the stated threshold, filled counters are cleaned and inserted af empty.
- * <br/>
+ * 
  * Default behaviour for the pool is to perform counter clearing in 1 background thread, as this makes it possible
  * to provide a facet result to the caller faster. This can be controlled with {@link #setCleaningThreads(int)}.
- * <br/>
+ * 
  * This class is thread safe and with no heavy synchronized parts.
  */
 // TODO: Make it possible to specify max pool size as memory
@@ -94,7 +94,7 @@ public class SparseCounterPool {
 
   /**
    * The maximum amount of ValueCounters to keep in the pool.
-   * <br/>
+   * 
    * If the setup is single-shard, the pool might not be fully filled if the background clearer is faster than
    * the overall request rate. If the setup is multi-shard, there is a higher chance of the pool being filled
    * as it will also contain filled counters, intended for re-use.
@@ -222,7 +222,7 @@ public class SparseCounterPool {
   /**
    * Delivers a counter ready for updates. The type of counter will be chosen based on uniqueTerms, maxCountForAny and
    * the general Sparse setup from sparseKeys. This is the recommended way to get sparse counters.
-   * <br/>
+   * 
    * Note: It is possible that this returns null. This can only happen for implementation == nplane.
    *       In that case, it is the responsibility of the caller to use {@link #addAndReturn instead}.
    * @param sparseKeys     setup for the Sparse system as well as the specific call.
@@ -432,7 +432,7 @@ public class SparseCounterPool {
 
   /**
    * Release a counter after use. This method will return immediately.
-   * <br/>
+   * 
    * @param counter a used counter.
    * @param sparseKeys the facet keys associated with the counter.
    */
@@ -749,10 +749,10 @@ public class SparseCounterPool {
   }
 
   /**
-   * Locates the best matching counter and return it. Order of priority is<br/>
-   * Filled counter matching the given contentKey (if contentKey is != null)<br/>
-   * Empty counter<br/>
-   * Counter marked {@link #NEEDS_CLEANING}<br/>
+   * Locates the best matching counter and return it. Order of priority is
+   * Filled counter matching the given contentKey (if contentKey is != null)
+   * Empty counter
+   * Counter marked {@link #NEEDS_CLEANING}
    * Filled counter not matching contentKey.
    * @param sparseKeys description of the counter needed.
    * @return a counter removed from the pool if the pool is {@code !pool.isEmpty()}.
@@ -783,10 +783,10 @@ public class SparseCounterPool {
   }
 
   /**
-   * Locates the best matching counter and return it. Order of priority is<br/>
-   * Filled counter matching the given contentKey (if contentKey is != null)<br/>
-   * Empty counter<br/>
-   * Counter marked {@link #NEEDS_CLEANING}<br/>
+   * Locates the best matching counter and return it. Order of priority is
+   * Filled counter matching the given contentKey (if contentKey is != null)
+   * Empty counter
+   * Counter marked {@link #NEEDS_CLEANING}
    * Filled counter not matching contentKey.
    * @param contentKey optional contentKey for counter re-use. Can be null.
    * @return a counter removed from the pool if the pool is {@code !pool.isEmpty()}.

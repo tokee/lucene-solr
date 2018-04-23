@@ -23,9 +23,9 @@ import org.apache.lucene.util.packed.PackedInts;
  * Re-usable sparse counter. Works on the same principle as {@link SparseCounterInt}, but uses
  * a PackedInts.Mutable instead of an int[] for counting. This means less memory overhead and in some cases a
  * performance overhead.
- * </p><p>
+ * 
  * This class is optionally thread safe with regard to increments.
- * </p><p>
+ * 
  * Tight-loop methods are final to help the compiler make optimizations.
  */
 public class SparseCounterPacked implements ValueCounter {
