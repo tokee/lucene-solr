@@ -1,6 +1,4 @@
 = BlockJoin Faceting
-:page-shortname: blockjoin-faceting
-:page-permalink: blockjoin-faceting.html
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -42,7 +40,7 @@ This example shows how you could add this search components to `solrconfig.xml` 
 
 This component can be added into any search request handler. This component work with distributed search in SolrCloud mode.
 
-Documents should be added in children-parent blocks as described in <<uploading-data-with-index-handlers.adoc#UploadingDatawithIndexHandlers-NestedChildDocuments,indexing nested child documents>>. Examples:
+Documents should be added in children-parent blocks as described in <<uploading-data-with-index-handlers.adoc#nested-child-documents,indexing nested child documents>>. Examples:
 
 .Sample document
 [source,xml]
@@ -95,7 +93,7 @@ Documents should be added in children-parent blocks as described in <<uploading-
 </add>
 ----
 
-Queries are constructed the same way as for a <<other-parsers.adoc#OtherParsers-BlockJoinQueryParsers,Parent Block Join query>>. For example:
+Queries are constructed the same way as for a <<other-parsers.adoc#block-join-query-parsers,Parent Block Join query>>. For example:
 
 [source,text]
 ----

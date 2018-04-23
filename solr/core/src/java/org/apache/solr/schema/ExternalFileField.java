@@ -22,6 +22,7 @@ import java.util.Map;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.queries.function.ValueSource;
 import org.apache.lucene.search.SortField;
+import org.apache.solr.common.SolrException;
 import org.apache.solr.response.TextResponseWriter;
 import org.apache.solr.search.QParser;
 import org.apache.solr.search.function.FileFloatSource;
@@ -53,7 +54,6 @@ import org.apache.solr.uninverting.UninvertingReader.Type;
  * @see ExternalFileFieldReloader
  */
 public class ExternalFileField extends FieldType implements SchemaAware {
-  private FieldType ftype;
   private String keyFieldName;
   private IndexSchema schema;
   private float defVal;
@@ -122,5 +122,10 @@ public class ExternalFileField extends FieldType implements SchemaAware {
   @Override
   public void inform(IndexSchema schema) {
     this.schema = schema;
+    
+    if (keyFieldName != null && schema.getFieldType(keyFieldName).isPointField()) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,
+          "keyField '" + keyFieldName + "' has a Point field type, which is not supported.");
+    }
   }
 }

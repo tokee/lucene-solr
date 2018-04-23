@@ -25,8 +25,8 @@ import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.queries.function.ValueSource;
 import org.apache.lucene.queries.function.valuesource.LongFieldSource;
 import org.apache.lucene.queries.function.valuesource.MultiValuedLongFieldSource;
+import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.search.SortField;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.solr.search.QParser;
@@ -65,6 +65,7 @@ public class LongPointField extends PointField implements LongValueFieldType {
     } else {
       actualMin = parseLongFromUser(field.getName(), min);
       if (!minInclusive) {
+        if (actualMin == Long.MAX_VALUE) return new MatchNoDocsQuery();
         actualMin++;
       }
     }
@@ -73,6 +74,7 @@ public class LongPointField extends PointField implements LongValueFieldType {
     } else {
       actualMax = parseLongFromUser(field.getName(), max);
       if (!maxInclusive) {
+        if (actualMax == Long.MIN_VALUE) return new MatchNoDocsQuery();
         actualMax--;
       }
     }
@@ -124,24 +126,6 @@ public class LongPointField extends PointField implements LongValueFieldType {
     result.grow(Long.BYTES);
     result.setLength(Long.BYTES);
     LongPoint.encodeDimension(parseLongFromUser(null, val.toString()), result.bytes(), 0);
-  }
-
-  @Override
-  public SortField getSortField(SchemaField field, boolean top) {
-    field.checkSortability();
-
-    Object missingValue = null;
-    boolean sortMissingLast = field.sortMissingLast();
-    boolean sortMissingFirst = field.sortMissingFirst();
-
-    if (sortMissingLast) {
-      missingValue = top ? Long.MIN_VALUE : Long.MAX_VALUE;
-    } else if (sortMissingFirst) {
-      missingValue = top ? Long.MAX_VALUE : Long.MIN_VALUE;
-    }
-    SortField sf = new SortField(field.getName(), SortField.Type.LONG, top);
-    sf.setMissingValue(missingValue);
-    return sf;
   }
 
   @Override

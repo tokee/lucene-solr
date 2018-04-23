@@ -50,7 +50,7 @@ import org.apache.lucene.util.Bits;
  * 
  * @since 2.9
  */
-public abstract class Weight {
+public abstract class Weight implements SegmentCacheable {
 
   protected final Query parentQuery;
 
@@ -116,7 +116,7 @@ public abstract class Weight {
     }
     return new ScorerSupplier() {
       @Override
-      public Scorer get(boolean randomAccess) {
+      public Scorer get(long leadCost) {
         return scorer;
       }
 

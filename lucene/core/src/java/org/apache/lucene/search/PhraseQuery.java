@@ -433,7 +433,12 @@ public class PhraseQuery extends Query {
                                         needsScores, totalMatchCost);
       }
     }
-    
+
+    @Override
+    public boolean isCacheable(LeafReaderContext ctx) {
+      return true;
+    }
+
     // only called from assert
     private boolean termNotInReader(LeafReader reader, Term term) throws IOException {
       return reader.docFreq(term) == 0;
@@ -445,7 +450,7 @@ public class PhraseQuery extends Query {
       if (scorer != null) {
         int newDoc = scorer.iterator().advance(doc);
         if (newDoc == doc) {
-          float freq = slop == 0 ? scorer.freq() : ((SloppyPhraseScorer)scorer).sloppyFreq();
+          float freq = slop == 0 ? ((ExactPhraseScorer)scorer).freq() : ((SloppyPhraseScorer)scorer).sloppyFreq();
           SimScorer docScorer = similarity.simScorer(stats, context);
           Explanation freqExplanation = Explanation.match(freq, "phraseFreq=" + freq);
           Explanation scoreExplanation = docScorer.explain(doc, freqExplanation);

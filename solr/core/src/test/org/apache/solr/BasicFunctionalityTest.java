@@ -57,7 +57,7 @@ import org.junit.Test;
 
 /**
  * Tests some basic functionality of Solr while demonstrating good
- * Best Practices for using AbstractSolrTestCase
+ * Best Practices for using SolrTestCaseJ4
  */
 public class BasicFunctionalityTest extends SolrTestCaseJ4 {
 
@@ -122,7 +122,7 @@ public class BasicFunctionalityTest extends SolrTestCaseJ4 {
     SolrCore core = h.getCore();
 
     // test that we got the expected config, not just hardcoded defaults
-    assertNotNull(core.getRequestHandler("mock"));
+    assertNotNull(core.getRequestHandler("/mock"));
 
     // test stats call
     SolrMetricManager manager = core.getCoreContainer().getMetricManager();
@@ -756,12 +756,12 @@ public class BasicFunctionalityTest extends SolrTestCaseJ4 {
             );
 
     assertQ("defaults handler returns fewer matches",
-            req("q", "id:[42 TO 47]",   "qt","defaults"),
+            req("q", "id:[42 TO 47]",   "qt","/defaults"),
             "*[count(//doc)=4]"
             );
 
     assertQ("defaults handler includes highlighting",
-            req("q", "name:Zapp OR title:General",   "qt","defaults"),
+            req("q", "name:Zapp OR title:General",   "qt","/defaults"),
             "//lst[@name='highlighting']"
             );
 
@@ -869,7 +869,7 @@ public class BasicFunctionalityTest extends SolrTestCaseJ4 {
 
     // testing everything from query level is hard because
     // time marches on ... and there is no easy way to reach into the
-    // bowels of TrieDateField and muck with the definition of "now"
+    // bowels of DatePointField and muck with the definition of "now"
     //    ...
     // BUT: we can test that crazy combinations of "NOW" all work correctly,
     // assuming the test doesn't take too long to run...

@@ -108,8 +108,10 @@ public class UnInvertedField extends DocTermOrds {
   long memsz;
   final AtomicLong use = new AtomicLong(); // number of uses
 
+  /* The number of documents holding the term {@code maxDocs = maxTermCounts[termNum]}. */
   int[] maxTermCounts = new int[1024];
 
+  /* termNum -> docIDs for big terms. */
   final Map<Integer,TopTerm> bigTerms = new LinkedHashMap<>();
 
   private SolrIndexSearcher.DocsEnumState deState;
@@ -122,6 +124,12 @@ public class UnInvertedField extends DocTermOrds {
     searcher = null;
   }
 
+  /**
+   * Called for each term in the field being uninverted.
+   * Collects {@link #maxTermCounts} for all bigTerms as well as storing them in {@link #bigTerms}.
+   * @param te positioned at the current term.
+   * @param termNum the ID/pointer/ordinal of the current term. Monotonically increasing between calls.
+   */
   @Override
   protected void visitTerm(TermsEnum te, int termNum) throws IOException {
 
@@ -175,10 +183,6 @@ public class UnInvertedField extends DocTermOrds {
     }
     if (maxTermCounts != null)
       sz += maxTermCounts.length * 4;
-    if (indexedTermsArray != null) {
-      // assume 8 byte references?
-      sz += 8+8+8+8+(indexedTermsArray.length<<3)+sizeOfIndexedStrings;
-    }
     memsz = sz;
     return sz;
   }
@@ -269,8 +273,8 @@ public class UnInvertedField extends DocTermOrds {
       if (termInstances > 0) {
         int code = index[doc];
 
-        if ((code & 0xff)==1) {
-          int pos = code>>>8;
+        if ((code & 0x80000000)!=0) {
+          int pos = code & 0x7fffffff;
           int whichArray = (doc >>> 16) & 0xff;
           byte[] arr = tnums[whichArray];
           int tnum = 0;
@@ -355,8 +359,8 @@ public class UnInvertedField extends DocTermOrds {
         int doc = iter.nextDoc();
         int code = index[doc];
 
-        if ((code & 0xff) == 1) {
-          int pos = code >>> 8;
+        if ((code & 0x80000000)!=0) {
+          int pos = code & 0x7fffffff;
           int whichArray = (doc >>> 16) & 0xff;
           byte[] arr = tnums[whichArray];
           int tnum = 0;
@@ -433,13 +437,11 @@ public class UnInvertedField extends DocTermOrds {
     for (TopTerm tt : bigTerms.values()) {
       if (tt.termNum >= startTermIndex && tt.termNum < endTermIndex) {
         // handle the biggest terms
-        try ( DocSet intersection = searcher.getDocSet(tt.termQuery, docs); )
-        {
-          int collected = processor.collectFirstPhase(intersection, tt.termNum - startTermIndex);
-          countAcc.incrementCount(tt.termNum - startTermIndex, collected);
-          if (collected > 0) {
-            uniqueTerms++;
-          }
+        DocSet intersection = searcher.getDocSet(tt.termQuery, docs);
+        int collected = processor.collectFirstPhase(intersection, tt.termNum - startTermIndex);
+        countAcc.incrementCount(tt.termNum - startTermIndex, collected);
+        if (collected > 0) {
+          uniqueTerms++;
         }
       }
     }
@@ -480,8 +482,8 @@ public class UnInvertedField extends DocTermOrds {
 
         int code = index[doc];
 
-        if ((code & 0xff)==1) {
-          int pos = code>>>8;
+        if ((code & 0x80000000)!=0) {
+          int pos = code & 0x7fffffff;
           int whichArray = (doc >>> 16) & 0xff;
           byte[] arr = tnums[whichArray];
           int tnum = 0;
@@ -618,9 +620,11 @@ public class UnInvertedField extends DocTermOrds {
       SolrIndexSearcher searcher, DocSet baseDocs, int offset, int limit, Integer mincount, boolean missing,
       String sort, String prefix, String termList, SparseKeys sparseKeys, SparseCounterPool pool) throws IOException {
     if (!sparseKeys.sparse) { // Fallback to standard
-      return termList == null ?
-          getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix) :
-          SimpleFacets.fallbackGetListedTermCounts(searcher, null, field, termList, baseDocs);
+      // TODO: sparse - Implement this
+      throw new UnsupportedOperationException("Not ported to Solr 7 yet");
+//      return termList == null ?
+//          getCounts(searcher, baseDocs, offset, limit, mincount, missing, sort, prefix) :
+//          SimpleFacets.fallbackGetListedTermCounts(searcher, null, field, termList, baseDocs);
     }
 
     final int baseSize = baseDocs.size();
@@ -1012,5 +1016,16 @@ public class UnInvertedField extends DocTermOrds {
     pool.incExtractTimeRel(sparseExtractTime);
   }
   /* *************** Sparse implementation end *******************/
+
+  // Returns null if not already populated
+  public static UnInvertedField checkUnInvertedField(String field, SolrIndexSearcher searcher) throws IOException {
+    SolrCache<String, UnInvertedField> cache = searcher.getFieldValueCache();
+    if (cache == null) {
+      return null;
+    }
+    UnInvertedField uif = cache.get(field);  // cache is already synchronized, so no extra sync needed
+    // placeholder is an implementation detail, keep it hidden and return null if that is what we got
+    return uif==uifPlaceholder ? null : uif;
+  }
 
 }

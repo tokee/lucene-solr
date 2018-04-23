@@ -18,64 +18,40 @@ package org.apache.solr.client.solrj.io.eval;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.Locale;
 
+import org.apache.commons.math3.linear.RealMatrix;
 import org.apache.commons.math3.stat.correlation.Covariance;
-import org.apache.solr.client.solrj.io.Tuple;
-import org.apache.solr.client.solrj.io.stream.expr.Explanation;
-import org.apache.solr.client.solrj.io.stream.expr.Explanation.ExpressionType;
-import org.apache.solr.client.solrj.io.stream.expr.Expressible;
 import org.apache.solr.client.solrj.io.stream.expr.StreamExpression;
-import org.apache.solr.client.solrj.io.stream.expr.StreamExpressionParameter;
 import org.apache.solr.client.solrj.io.stream.expr.StreamFactory;
 
-public class CovarianceEvaluator extends ComplexEvaluator implements Expressible {
-
-  private static final long serialVersionUID = 1;
-
-  public CovarianceEvaluator(StreamExpression expression, StreamFactory factory) throws IOException {
+public class CovarianceEvaluator extends RecursiveObjectEvaluator implements ManyValueWorker {
+  protected static final long serialVersionUID = 1L;
+  
+  public CovarianceEvaluator(StreamExpression expression, StreamFactory factory) throws IOException{
     super(expression, factory);
-    
-    if(2 != subEvaluators.size()){
-      throw new IOException(String.format(Locale.ROOT,"Invalid expression %s - expecting two values but found %d",expression,subEvaluators.size()));
-    }
-  }
-
-  public Number evaluate(Tuple tuple) throws IOException {
-
-    StreamEvaluator colEval1 = subEvaluators.get(0);
-    StreamEvaluator colEval2 = subEvaluators.get(1);
-
-    List<Number> numbers1 = (List<Number>)colEval1.evaluate(tuple);
-    List<Number> numbers2 = (List<Number>)colEval2.evaluate(tuple);
-    double[] column1 = new double[numbers1.size()];
-    double[] column2 = new double[numbers2.size()];
-
-    for(int i=0; i<numbers1.size(); i++) {
-      column1[i] = numbers1.get(i).doubleValue();
-    }
-
-    for(int i=0; i<numbers2.size(); i++) {
-      column2[i] = numbers2.get(i).doubleValue();
-    }
-
-    Covariance covariance = new Covariance();
-
-    return covariance.covariance(column1, column2);
   }
 
   @Override
-  public StreamExpressionParameter toExpression(StreamFactory factory) throws IOException {
-    StreamExpression expression = new StreamExpression(factory.getFunctionName(getClass()));
-    return expression;
-  }
+  public Object doWork(Object ... values) throws IOException{
 
-  @Override
-  public Explanation toExplanation(StreamFactory factory) throws IOException {
-    return new Explanation(nodeId.toString())
-        .withExpressionType(ExpressionType.EVALUATOR)
-        .withFunctionName(factory.getFunctionName(getClass()))
-        .withImplementingClass(getClass().getName())
-        .withExpression(toExpression(factory).toString());
+    if(values.length == 2) {
+      Object first = values[0];
+      Object second = values[1];
+      Covariance covariance = new Covariance();
+
+      return covariance.covariance(
+          ((List) first).stream().mapToDouble(value -> ((Number) value).doubleValue()).toArray(),
+          ((List) second).stream().mapToDouble(value -> ((Number) value).doubleValue()).toArray()
+      );
+    } else if(values.length == 1) {
+      Matrix matrix = (Matrix) values[0];
+      double[][] data = matrix.getData();
+      Covariance covariance = new Covariance(data, true);
+      RealMatrix coMatrix = covariance.getCovarianceMatrix();
+      double[][] coData = coMatrix.getData();
+      return new Matrix(coData);
+    } else {
+      throw new IOException("The cov function expects either two numeric arrays or a matrix as parameters.");
+    }
   }
 }

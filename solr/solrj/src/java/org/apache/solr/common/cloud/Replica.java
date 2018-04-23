@@ -22,9 +22,6 @@ import java.util.Set;
 
 import org.noggit.JSONUtil;
 
-import static org.apache.solr.common.cloud.ZkStateReader.BASE_URL_PROP;
-import static org.apache.solr.common.cloud.ZkStateReader.CORE_NAME_PROP;
-
 public class Replica extends ZkNodeProps {
   
   /**
@@ -102,7 +99,11 @@ public class Replica extends ZkNodeProps {
      * replicas can’t become shard leaders (i.e., if there are only pull replicas in the collection at some point, updates will fail
      * same as if there is no leaders, queries continue to work), so they don’t even participate in elections.
      */
-    PULL
+    PULL;
+
+    public static Type get(String name){
+      return name == null ? Type.NRT : Type.valueOf(name);
+    }
   }
 
   private final String name;
@@ -120,13 +121,18 @@ public class Replica extends ZkNodeProps {
       this.state = State.ACTIVE;                         //Default to ACTIVE
       propMap.put(ZkStateReader.STATE_PROP, state.toString());
     }
-    String typeString = (String)propMap.get(ZkStateReader.REPLICA_TYPE);
-    if (typeString == null) {
-      this.type = Type.NRT;
-    } else {
-      this.type = Type.valueOf(typeString);
-    }
+    type = Type.get((String) propMap.get(ZkStateReader.REPLICA_TYPE));
+  }
 
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    if (!super.equals(o)) return false;
+
+    Replica replica = (Replica) o;
+
+    return name.equals(replica.name);
   }
 
   public String getName() {
@@ -134,14 +140,14 @@ public class Replica extends ZkNodeProps {
   }
 
   public String getCoreUrl() {
-    return ZkCoreNodeProps.getCoreUrl(getStr(BASE_URL_PROP), getStr(CORE_NAME_PROP));
+    return ZkCoreNodeProps.getCoreUrl(getStr(ZkStateReader.BASE_URL_PROP), getStr(ZkStateReader.CORE_NAME_PROP));
   }
   public String getBaseUrl(){
     return getStr(ZkStateReader.BASE_URL_PROP);
   }
 
   public String getCoreName() {
-    return getStr(CORE_NAME_PROP);
+    return getStr(ZkStateReader.CORE_NAME_PROP);
   }
 
   /** The name of the node this replica resides on */
@@ -160,6 +166,17 @@ public class Replica extends ZkNodeProps {
   
   public Type getType() {
     return this.type;
+  }
+
+  public String getProperty(String propertyName) {
+    final String propertyKey;
+    if (!propertyName.startsWith(ZkStateReader.PROPERTY_PROP_PREFIX)) {
+      propertyKey = ZkStateReader.PROPERTY_PROP_PREFIX+propertyName;
+    } else {
+      propertyKey = propertyName;
+    }
+    final String propertyValue = getStr(propertyKey);
+    return propertyValue;
   }
 
   @Override

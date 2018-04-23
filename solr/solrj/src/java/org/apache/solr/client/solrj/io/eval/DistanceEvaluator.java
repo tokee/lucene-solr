@@ -21,62 +21,133 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
 
+import org.apache.commons.math3.linear.Array2DRowRealMatrix;
+import org.apache.commons.math3.linear.RealMatrix;
+import org.apache.commons.math3.ml.distance.CanberraDistance;
+import org.apache.commons.math3.ml.distance.DistanceMeasure;
+import org.apache.commons.math3.ml.distance.EarthMoversDistance;
 import org.apache.commons.math3.ml.distance.EuclideanDistance;
-import org.apache.solr.client.solrj.io.Tuple;
-import org.apache.solr.client.solrj.io.stream.expr.Explanation;
-import org.apache.solr.client.solrj.io.stream.expr.Explanation.ExpressionType;
-import org.apache.solr.client.solrj.io.stream.expr.Expressible;
+import org.apache.commons.math3.ml.distance.ManhattanDistance;
+
 import org.apache.solr.client.solrj.io.stream.expr.StreamExpression;
-import org.apache.solr.client.solrj.io.stream.expr.StreamExpressionParameter;
+import org.apache.solr.client.solrj.io.stream.expr.StreamExpressionNamedParameter;
 import org.apache.solr.client.solrj.io.stream.expr.StreamFactory;
 
-public class DistanceEvaluator extends ComplexEvaluator implements Expressible {
+public class DistanceEvaluator extends RecursiveObjectEvaluator implements ManyValueWorker {
+  protected static final long serialVersionUID = 1L;
 
-  private static final long serialVersionUID = 1;
+  public enum DistanceType {euclidean, manhattan, canberra, earthMovers}
+  private DistanceType type;
 
-  public DistanceEvaluator(StreamExpression expression, StreamFactory factory) throws IOException {
+  public DistanceEvaluator(StreamExpression expression, StreamFactory factory) throws IOException{
     super(expression, factory);
-    
-    if(2 != subEvaluators.size()){
-      throw new IOException(String.format(Locale.ROOT,"Invalid expression %s - expecting two values but found %d",expression,subEvaluators.size()));
+    List<StreamExpressionNamedParameter> namedParams = factory.getNamedOperands(expression);
+    if(namedParams.size() > 0) {
+      if (namedParams.size() > 1) {
+        throw new IOException("distance function expects only one named parameter 'type'.");
+      }
+
+      StreamExpressionNamedParameter namedParameter = namedParams.get(0);
+      String name = namedParameter.getName();
+      if (!name.equalsIgnoreCase("type")) {
+        throw new IOException("distance function expects only one named parameter 'type'.");
+      }
+
+      String typeParam = namedParameter.getParameter().toString().trim();
+      this.type= DistanceType.valueOf(typeParam);
+    } else {
+      this.type = DistanceType.euclidean;
     }
-
-  }
-
-  public Number evaluate(Tuple tuple) throws IOException {
-
-    StreamEvaluator colEval1 = subEvaluators.get(0);
-    StreamEvaluator colEval2 = subEvaluators.get(1);
-
-    List<Number> numbers1 = (List<Number>)colEval1.evaluate(tuple);
-    List<Number> numbers2 = (List<Number>)colEval2.evaluate(tuple);
-    double[] column1 = new double[numbers1.size()];
-    double[] column2 = new double[numbers2.size()];
-
-    for(int i=0; i<numbers1.size(); i++) {
-      column1[i] = numbers1.get(i).doubleValue();
-    }
-
-    for(int i=0; i<numbers2.size(); i++) {
-      column2[i] = numbers2.get(i).doubleValue();
-    }
-
-    EuclideanDistance distance = new EuclideanDistance();
-    return distance.compute(column1, column2);
   }
 
   @Override
-  public StreamExpressionParameter toExpression(StreamFactory factory) throws IOException {
-    StreamExpression expression = new StreamExpression(factory.getFunctionName(getClass()));
-    return expression;
+  public Object doWork(Object ... values) throws IOException{
+
+    if(values.length == 2) {
+      Object first = values[0];
+      Object second = values[1];
+
+      if (null == first) {
+        throw new IOException(String.format(Locale.ROOT, "Invalid expression %s - null found for the first value", toExpression(constructingFactory)));
+      }
+      if (null == second) {
+        throw new IOException(String.format(Locale.ROOT, "Invalid expression %s - null found for the second value", toExpression(constructingFactory)));
+      }
+      if (!(first instanceof List<?>)) {
+        throw new IOException(String.format(Locale.ROOT, "Invalid expression %s - found type %s for the first value, expecting a list of numbers", toExpression(constructingFactory), first.getClass().getSimpleName()));
+      }
+      if (!(second instanceof List<?>)) {
+        throw new IOException(String.format(Locale.ROOT, "Invalid expression %s - found type %s for the second value, expecting a list of numbers", toExpression(constructingFactory), first.getClass().getSimpleName()));
+      }
+
+      if (type.equals(DistanceType.euclidean)) {
+        EuclideanDistance euclideanDistance = new EuclideanDistance();
+        return euclideanDistance.compute(
+            ((List) first).stream().mapToDouble(value -> ((Number) value).doubleValue()).toArray(),
+            ((List) second).stream().mapToDouble(value -> ((Number) value).doubleValue()).toArray()
+        );
+      } else if (type.equals(DistanceType.manhattan)) {
+        ManhattanDistance manhattanDistance = new ManhattanDistance();
+        return manhattanDistance.compute(
+            ((List) first).stream().mapToDouble(value -> ((Number) value).doubleValue()).toArray(),
+            ((List) second).stream().mapToDouble(value -> ((Number) value).doubleValue()).toArray()
+        );
+
+      } else if (type.equals(DistanceType.canberra)) {
+        CanberraDistance canberraDistance = new CanberraDistance();
+        return canberraDistance.compute(
+            ((List) first).stream().mapToDouble(value -> ((Number) value).doubleValue()).toArray(),
+            ((List) second).stream().mapToDouble(value -> ((Number) value).doubleValue()).toArray()
+        );
+      } else if (type.equals(DistanceType.earthMovers)) {
+        EarthMoversDistance earthMoversDistance = new EarthMoversDistance();
+        return earthMoversDistance.compute(
+            ((List) first).stream().mapToDouble(value -> ((Number) value).doubleValue()).toArray(),
+            ((List) second).stream().mapToDouble(value -> ((Number) value).doubleValue()).toArray()
+        );
+      } else {
+        return null;
+      }
+    } else if(values.length == 1) {
+      if(values[0] instanceof Matrix) {
+        Matrix matrix = (Matrix)values[0];
+        if (type.equals(DistanceType.euclidean)) {
+          EuclideanDistance euclideanDistance = new EuclideanDistance();
+          return distance(euclideanDistance, matrix);
+        } else if (type.equals(DistanceType.canberra)) {
+          CanberraDistance canberraDistance = new CanberraDistance();
+          return distance(canberraDistance, matrix);
+        } else if (type.equals(DistanceType.manhattan)) {
+          ManhattanDistance manhattanDistance = new ManhattanDistance();
+          return distance(manhattanDistance, matrix);
+        } else if (type.equals(DistanceType.earthMovers)) {
+          EarthMoversDistance earthMoversDistance = new EarthMoversDistance();
+          return distance(earthMoversDistance, matrix);
+        } else {
+          return null;
+        }
+      } else {
+        throw new IOException("distance function operates on either two numeric arrays or a single matrix as parameters.");
+      }
+    } else {
+      throw new IOException("distance function operates on either two numeric arrays or a single matrix as parameters.");
+    }
   }
 
-  @Override
-  public Explanation toExplanation(StreamFactory factory) throws IOException {
-    return new Explanation(nodeId.toString())
-        .withExpressionType(ExpressionType.EVALUATOR)
-        .withFunctionName(factory.getFunctionName(getClass()))
-        .withImplementingClass(getClass().getName())
-        .withExpression(toExpression(factory).toString());
+  private Matrix distance(DistanceMeasure distanceMeasure, Matrix matrix) {
+    double[][] data = matrix.getData();
+    RealMatrix realMatrix = new Array2DRowRealMatrix(data);
+    realMatrix = realMatrix.transpose();
+    data = realMatrix.getData();
+    double[][] distanceMatrix = new double[data.length][data.length];
+    for(int i=0; i<data.length; i++) {
+      double[] row = data[i];
+      for(int j=0; j<data.length; j++) {
+        double[] row2 = data[j];
+        double dist = distanceMeasure.compute(row, row2);
+        distanceMatrix[i][j] = dist;
+      }
+    }
+    return new Matrix(distanceMatrix);
   }
 }

@@ -246,6 +246,21 @@ final class DocumentsWriter implements Closeable, Accountable {
     }
   }
 
+  final boolean flushOneDWPT() throws IOException, AbortingException {
+    if (infoStream.isEnabled("DW")) {
+      infoStream.message("DW", "startFlushOneDWPT");
+    }
+    // first check if there is one pending
+    DocumentsWriterPerThread documentsWriterPerThread = flushControl.nextPendingFlush();
+    if (documentsWriterPerThread == null) {
+      documentsWriterPerThread = flushControl.checkoutLargestNonPendingWriter();
+    }
+    if (documentsWriterPerThread != null) {
+      return doFlush(documentsWriterPerThread);
+    }
+    return false; // we didn't flush anything here
+  }
+
   /** Returns how many documents were aborted. */
   synchronized long lockAndAbortAll(IndexWriter indexWriter) throws IOException {
     assert indexWriter.holdsFullFlushLock();
@@ -377,7 +392,8 @@ final class DocumentsWriter implements Closeable, Accountable {
   private boolean preUpdate() throws IOException, AbortingException {
     ensureOpen();
     boolean hasEvents = false;
-    if (flushControl.anyStalledThreads() || flushControl.numQueuedFlushes() > 0) {
+
+    if (flushControl.anyStalledThreads() || (flushControl.numQueuedFlushes() > 0 && config.checkPendingFlushOnUpdate)) {
       // Help out flushing any queued DWPTs so we can un-stall:
       do {
         // Try pick up pending threads here if possible
@@ -397,7 +413,7 @@ final class DocumentsWriter implements Closeable, Accountable {
     hasEvents |= applyAllDeletes(deleteQueue);
     if (flushingDWPT != null) {
       hasEvents |= doFlush(flushingDWPT);
-    } else {
+    } else if (config.checkPendingFlushOnUpdate) {
       final DocumentsWriterPerThread nextPendingFlush = flushControl.nextPendingFlush();
       if (nextPendingFlush != null) {
         hasEvents |= doFlush(nextPendingFlush);
@@ -534,7 +550,6 @@ final class DocumentsWriter implements Closeable, Accountable {
         try {
           // Each flush is assigned a ticket in the order they acquire the ticketQueue lock
           ticket = ticketQueue.addFlushTicket(flushingDWPT);
-  
           final int flushingDocsInRam = flushingDWPT.getNumDocsInRAM();
           boolean dwptSuccess = false;
           try {
@@ -544,11 +559,11 @@ final class DocumentsWriter implements Closeable, Accountable {
             dwptSuccess = true;
           } finally {
             subtractFlushedNumDocs(flushingDocsInRam);
-            if (!flushingDWPT.pendingFilesToDelete().isEmpty()) {
+            if (flushingDWPT.pendingFilesToDelete().isEmpty() == false) {
               putEvent(new DeleteNewFilesEvent(flushingDWPT.pendingFilesToDelete()));
               hasEvents = true;
             }
-            if (!dwptSuccess) {
+            if (dwptSuccess == false) {
               putEvent(new FlushFailedEvent(flushingDWPT.getSegmentInfo()));
               hasEvents = true;
             }
@@ -582,6 +597,10 @@ final class DocumentsWriter implements Closeable, Accountable {
       flushingDWPT = flushControl.nextPendingFlush();
     }
 
+    if (hasEvents) {
+      writer.doAfterSegmentFlushed(false, false);
+    }
+
     // If deletes alone are consuming > 1/2 our RAM
     // buffer, force them all to apply now. This is to
     // prevent too-frequent flushing of a long tail of
@@ -605,7 +624,7 @@ final class DocumentsWriter implements Closeable, Accountable {
   
   void subtractFlushedNumDocs(int numFlushed) {
     int oldValue = numDocsInRAM.get();
-    while (!numDocsInRAM.compareAndSet(oldValue, oldValue - numFlushed)) {
+    while (numDocsInRAM.compareAndSet(oldValue, oldValue - numFlushed) == false) {
       oldValue = numDocsInRAM.get();
     }
     assert numDocsInRAM.get() >= 0;
@@ -662,7 +681,9 @@ final class DocumentsWriter implements Closeable, Accountable {
         ticketQueue.addDeletes(flushingDeleteQueue);
       }
       ticketQueue.forcePurge(writer);
-      assert !flushingDeleteQueue.anyChanges() && !ticketQueue.hasTickets();
+      // we can't assert that we don't have any tickets in teh queue since we might add a DocumentsWriterDeleteQueue
+      // concurrently if we have very small ram buffers this happens quite frequently
+      assert !flushingDeleteQueue.anyChanges();
     } finally {
       assert flushingDeleteQueue == currentFullFlushDelQueue;
     }
@@ -726,10 +747,9 @@ final class DocumentsWriter implements Closeable, Accountable {
 
   static final class ApplyDeletesEvent implements Event {
     static final Event INSTANCE = new ApplyDeletesEvent();
-    private int instCount = 0;
+
     private ApplyDeletesEvent() {
-      assert instCount == 0;
-      instCount++;
+      // only one instance
     }
     
     @Override
@@ -740,10 +760,9 @@ final class DocumentsWriter implements Closeable, Accountable {
 
   static final class ForcedPurgeEvent implements Event {
     static final Event INSTANCE = new ForcedPurgeEvent();
-    private int instCount = 0;
+
     private ForcedPurgeEvent() {
-      assert instCount == 0;
-      instCount++;
+      // only one instance
     }
     
     @Override

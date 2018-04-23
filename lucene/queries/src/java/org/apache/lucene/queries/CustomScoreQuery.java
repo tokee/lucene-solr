@@ -26,6 +26,8 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.queries.function.FunctionQuery;
+import org.apache.lucene.queries.function.FunctionScoreQuery;
+import org.apache.lucene.search.DoubleValuesSource;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.FilterScorer;
 import org.apache.lucene.search.IndexSearcher;
@@ -42,7 +44,22 @@ import org.apache.lucene.search.Weight;
  * Subclasses can modify the computation by overriding {@link #getCustomScoreProvider}.
  * 
  * @lucene.experimental
+ *
+ * Clients should instead use FunctionScoreQuery.  For simple multiplicative boosts, use
+ * {@link FunctionScoreQuery#boostByValue(Query, DoubleValuesSource)}.  For more complex
+ * custom scores, use the lucene-expressions library
+ * <pre>
+ *   SimpleBindings bindings = new SimpleBindings();
+ *   bindings.add("score", DoubleValuesSource.SCORES);
+ *   bindings.add("boost1", DoubleValuesSource.fromIntField("myboostfield"));
+ *   bindings.add("boost2", DoubleValuesSource.fromIntField("myotherboostfield"));
+ *   Expression expr = JavascriptCompiler.compile("score * (boost1 + ln(boost2))");
+ *   FunctionScoreQuery q = new FunctionScoreQuery(inputQuery, expr.getDoubleValuesSource(bindings));
+ * </pre>
+ *
+ * @deprecated use {@link org.apache.lucene.queries.function.FunctionScoreQuery}
  */
+@Deprecated
 public class CustomScoreQuery extends Query implements Cloneable {
 
   private Query subQuery;
@@ -205,6 +222,17 @@ public class CustomScoreQuery extends Query implements Cloneable {
          valSrcScorers[i] = valSrcWeights[i].scorer(context);
       }
       return new CustomScorer(CustomScoreQuery.this.getCustomScoreProvider(context), this, queryWeight, subQueryScorer, valSrcScorers);
+    }
+
+    @Override
+    public boolean isCacheable(LeafReaderContext ctx) {
+      if (subQueryWeight.isCacheable(ctx) == false)
+        return false;
+      for (Weight w : valSrcWeights) {
+        if (w.isCacheable(ctx) == false)
+          return false;
+      }
+      return true;
     }
 
     @Override

@@ -1,6 +1,4 @@
 = Major Changes from Solr 5 to Solr 6
-:page-shortname: major-changes-from-solr-5-to-solr-6
-:page-permalink: major-changes-from-solr-5-to-solr-6.html
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -18,7 +16,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-There are some major changes in Solr 6 to consider before starting to migrate your configurations and indexes. There are many hundreds of changes, so a thorough review of the <<upgrading-solr.adoc#upgrading-solr,Upgrading Solr>> section as well as the {solr-javadocs}/changes/Changes.html[CHANGES.txt] file in your Solr instance will help you plan your migration to Solr 6. This section attempts to highlight some of the major changes you should be aware of.
+There are some major changes in Solr 6 to consider before starting to migrate your configurations and indexes.
+
+There are many hundreds of changes, so a thorough review of the <<solr-upgrade-notes.adoc#solr-upgrade-notes,Solr Upgrade Notes>> section as well as the {solr-javadocs}/changes/Changes.html[CHANGES.txt] file in your Solr instance will help you plan your migration to Solr 6. This section attempts to highlight some of the major changes you should be aware of.
 
 == Highlights of New Features in Solr 6
 
@@ -46,9 +46,9 @@ Built on streaming expressions, new in Solr 6 is a <<parallel-sql-interface.adoc
 
 Replication across data centers is now possible with <<cross-data-center-replication-cdcr.adoc#cross-data-center-replication-cdcr,Cross Data Center Replication>>. Using an active-passive model, a SolrCloud cluster can be replicated to another data center, and monitored with a new API.
 
-=== Graph Query Parser
+=== Graph QueryParser
 
-A new <<other-parsers.adoc#OtherParsers-GraphQueryParser,`graph` query parser>> makes it possible to to graph traversal queries of Directed (Cyclic) Graphs modelled using Solr documents.
+A new <<other-parsers.adoc#graph-query-parser,`graph` query parser>> makes it possible to to graph traversal queries of Directed (Cyclic) Graphs modelled using Solr documents.
 
 [[major-5-6-docvalues]]
 === DocValues
@@ -76,7 +76,7 @@ Please review the <<schema-factory-definition-in-solrconfig.adoc#schema-factory-
 
 == Default Similarity Changes
 
-Solr's default behavior when a Schema does not explicitly define a global <<other-schema-elements.adoc#other-schema-elements,`<similarity/>`>> is now dependent on the `luceneMatchVersion` specified in the `solrconfig.xml`. When `luceneMatchVersion < 6.0`, an instance of `ClassicSimilarityFactory` will be used, otherwise an instance of `SchemaSimilarityFactory` will be used. Most notably this change means that users can take advantage of per Field Type similarity declarations, with out needing to also explicitly declare a global usage of `SchemaSimilarityFactory`.
+Solr's default behavior when a Schema does not explicitly define a global <<other-schema-elements.adoc#other-schema-elements,`<similarity/>`>> is now dependent on the `luceneMatchVersion` specified in the `solrconfig.xml`. When `luceneMatchVersion < 6.0`, an instance of `ClassicSimilarityFactory` will be used, otherwise an instance of `SchemaSimilarityFactory` will be used. Most notably this change means that users can take advantage of per Field Type similarity declarations, without needing to also explicitly declare a global usage of `SchemaSimilarityFactory`.
 
 Regardless of whether it is explicitly declared, or used as an implicit global default, `SchemaSimilarityFactory` 's implicit behavior when a Field Types do not declare an explicit `<similarity />` has also been changed to depend on the the `luceneMatchVersion`. When `luceneMatchVersion < 6.0`, an instance of `ClassicSimilarity` will be used, otherwise an instance of `BM25Similarity` will be used. A `defaultSimFromFieldType` init option may be specified on the `SchemaSimilarityFactory` declaration to change this behavior. Please review the `SchemaSimilarityFactory` javadocs for more details
 

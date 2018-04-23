@@ -158,6 +158,12 @@ public final class DocValuesRewriteMethod extends MultiTermQuery.RewriteMethod {
             }
           });
         }
+
+        @Override
+        public boolean isCacheable(LeafReaderContext ctx) {
+          return DocValues.isCacheable(ctx, query.field);
+        }
+
       };
     }
   }

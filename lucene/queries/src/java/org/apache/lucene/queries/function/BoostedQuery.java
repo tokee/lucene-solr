@@ -25,6 +25,7 @@ import java.util.Set;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.Term;
+import org.apache.lucene.search.DoubleValuesSource;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.FilterScorer;
 import org.apache.lucene.search.IndexSearcher;
@@ -34,9 +35,10 @@ import org.apache.lucene.search.Weight;
 
 /**
  * Query that is boosted by a ValueSource
+ *
+ * @deprecated Use {@link FunctionScoreQuery#boostByValue(Query, DoubleValuesSource)}
  */
-// TODO: BoostedQuery and BoostingQuery in the same module? 
-// something has to give
+@Deprecated
 public final class BoostedQuery extends Query {
   private final Query q;
   private final ValueSource boostVal; // optional, can be null
@@ -86,6 +88,11 @@ public final class BoostedQuery extends Query {
         return null;
       }
       return new BoostedQuery.CustomScorer(context, this, subQueryScorer, boostVal);
+    }
+
+    @Override
+    public boolean isCacheable(LeafReaderContext ctx) {
+      return false;
     }
 
     @Override

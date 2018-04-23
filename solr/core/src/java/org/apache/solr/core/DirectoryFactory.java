@@ -55,8 +55,6 @@ public abstract class DirectoryFactory implements NamedListInitializedPlugin,
 
   protected static final String INDEX_W_TIMESTAMP_REGEX = "index\\.[0-9]{17}"; // see SnapShooter.DATE_FMT
 
-  public static final String DATA_HOME = "solr.data.home";
-
   // May be set by sub classes as data root, in which case getDataHome will use it as base
   protected Path dataHomePath;
 
@@ -111,9 +109,14 @@ public abstract class DirectoryFactory implements NamedListInitializedPlugin,
   protected abstract LockFactory createLockFactory(String rawLockType) throws IOException;
   
   /**
-   * Returns true if a Directory exists for a given path.
+   * Returns true if a Directory exists for a given path in the underlying (stable) storage <em>and</em> 
+   * contains at least one file.  
+   * Note that the existence of a {@link Directory} <em>Object</em> as returned by a previous call to the 
+   * {@link #get} method (on the specified <code>path</code>) is not enough to cause this method to return 
+   * true.  Some prior user of that Directory must have written &amp; synced at least one file to that 
+   * Directory (and at least one file must still exist)
+   *
    * @throws IOException If there is a low-level I/O error.
-   * 
    */
   public abstract boolean exists(String path) throws IOException;
   
@@ -394,6 +397,9 @@ public abstract class DirectoryFactory implements NamedListInitializedPlugin,
   
   public void initCoreContainer(CoreContainer cc) {
     this.coreContainer = cc;
+    if (cc != null && cc.getConfig() != null) {
+      this.dataHomePath = cc.getConfig().getSolrDataHome();
+    }
   }
   
   // special hack to work with FilterDirectory

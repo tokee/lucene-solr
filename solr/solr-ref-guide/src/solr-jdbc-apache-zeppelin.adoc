@@ -1,6 +1,4 @@
 = Solr JDBC - Apache Zeppelin
-:page-shortname: solr-jdbc-apache-zeppelin
-:page-permalink: solr-jdbc-apache-zeppelin.html
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -24,7 +22,6 @@ IMPORTANT: This requires Apache Zeppelin 0.6.0 or greater which contains the JDB
 
 To use http://zeppelin.apache.org[Apache Zeppelin] with Solr, you will need to create a JDBC interpreter for Solr. This will add SolrJ to the interpreter classpath. Once the interpreter has been created, you can create a notebook to issue queries. The http://zeppelin.apache.org/docs/latest/interpreter/jdbc.html[Apache Zeppelin JDBC interpreter documentation] provides additional information about JDBC prefixes and other features.
 
-[[SolrJDBC-ApacheZeppelin-CreatetheApacheSolrJDBCInterpreter]]
 == Create the Apache Solr JDBC Interpreter
 
 .Click "Interpreter" in the top navigation
@@ -41,7 +38,6 @@ image::images/solr-jdbc-apache-zeppelin/zeppelin_solrjdbc_3.png[image,height=400
 For most installations, Apache Zeppelin configures PostgreSQL as the JDBC interpreter default driver. The default driver can either be replaced by the Solr driver as outlined above or you can add a separate JDBC interpreter prefix as outlined in the http://zeppelin.apache.org/docs/latest/interpreter/jdbc.html[Apache Zeppelin JDBC interpreter documentation].
 ====
 
-[[SolrJDBC-ApacheZeppelin-CreateaNotebook]]
 == Create a Notebook
 
 .Click Notebook \-> Create new note
@@ -50,7 +46,20 @@ image::images/solr-jdbc-apache-zeppelin/zeppelin_solrjdbc_4.png[image,width=517,
 .Provide a name and click "Create Note"
 image::images/solr-jdbc-apache-zeppelin/zeppelin_solrjdbc_5.png[image,width=839,height=400]
 
-[[SolrJDBC-ApacheZeppelin-QuerywiththeNotebook]]
+== JDBC Interpreter Copy Sheet
+
+To facilitate easy copying the parameters mentioned in the screenshots, here is a consolidated list of the parameters:
+
+[source,text,subs=attributes]
+----
+Name : Solr
+Interpreter : jdbc
+default.url : jdbc:solr://SOLR_ZK_CONNECTION_STRING?collection=<collection_name>
+default.driver : org.apache.solr.client.solrj.io.sql.DriverImpl
+default.user : solr
+dependency : org.apache.solr:solr-solrj:{solr-docs-version}.0
+----
+
 == Query with the Notebook
 
 [IMPORTANT]

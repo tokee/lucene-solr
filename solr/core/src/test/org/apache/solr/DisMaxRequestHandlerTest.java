@@ -30,7 +30,7 @@ public class DisMaxRequestHandlerTest extends SolrTestCaseJ4 {
   public static void beforeClass() throws Exception {
     initCore("solrconfig.xml","schema.xml");
     lrf = h.getRequestFactory
-      ("dismax", 0, 20,
+      ("/dismax", 0, 20,
        CommonParams.VERSION,"2.2",
        "facet", "true",
        "facet.field","t_s"
@@ -69,7 +69,7 @@ public class DisMaxRequestHandlerTest extends SolrTestCaseJ4 {
 
   @Test
   public void testSomeStuff() throws Exception {
-    doTestSomeStuff("dismax");
+    doTestSomeStuff("/dismax");
   }
   public void doTestSomeStuff(final String qt) throws Exception {
 
@@ -169,6 +169,26 @@ public class DisMaxRequestHandlerTest extends SolrTestCaseJ4 {
                  "q", "\"cool chick\"" )
             ,"//*[@numFound='1']"
             );
+
+  }
+
+  @Test
+  public void testSubQueriesNotSupported() {
+    // See org.apache.solr.search.TestSolrQueryParser.testNestedQueryModifiers()
+    assertQ("don't parse subqueries",
+        req("defType", "dismax",
+            "df", "doesnotexist_s",
+            "q", "_query_:\"{!v=$qq}\"",
+            "qq", "features_t:cool")
+        ,"//*[@numFound='0']"
+    );
+    assertQ("don't parse subqueries",
+        req("defType", "dismax",
+            "df", "doesnotexist_s",
+            "q", "{!v=$qq}",
+            "qq", "features_t:cool")
+        ,"//*[@numFound='0']"
+    );
   }
 
   @Test
@@ -179,7 +199,7 @@ public class DisMaxRequestHandlerTest extends SolrTestCaseJ4 {
     Pattern p = Pattern.compile("subject:hell\\s*subject:cool");
     Pattern p_bool = Pattern.compile("\\(subject:hell\\s*subject:cool\\)");
     String resp = h.query(req("q", "cool stuff"
-                ,"qt", "dismax"
+                ,"qt", "/dismax"
                 ,CommonParams.VERSION, "2.2"
                 ,"bq", "subject:hell OR subject:cool"
                 ,CommonParams.DEBUG_QUERY, "true"
@@ -188,7 +208,7 @@ public class DisMaxRequestHandlerTest extends SolrTestCaseJ4 {
     assertFalse(p_bool.matcher(resp).find());
 
     resp = h.query(req("q", "cool stuff"
-                ,"qt", "dismax"
+                ,"qt", "/dismax"
                 ,CommonParams.VERSION, "2.2"
                 ,"bq", "subject:hell OR subject:cool"
                 ,"bq",""

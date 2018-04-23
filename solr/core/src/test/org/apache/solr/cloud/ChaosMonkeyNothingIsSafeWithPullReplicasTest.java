@@ -34,6 +34,7 @@ import org.apache.solr.common.cloud.DocCollection;
 import org.apache.solr.common.cloud.Replica;
 import org.apache.solr.common.cloud.Slice;
 import org.apache.solr.common.cloud.ZkStateReader;
+import org.apache.solr.common.util.TimeSource;
 import org.apache.solr.util.TestInjection;
 import org.apache.solr.util.TimeOut;
 import org.junit.AfterClass;
@@ -84,7 +85,7 @@ public class ChaosMonkeyNothingIsSafeWithPullReplicasTest extends AbstractFullDi
   protected static final String[] fieldNames = new String[]{"f_i", "f_f", "f_d", "f_l", "f_dt"};
   protected static final RandVal[] randVals = new RandVal[]{rint, rfloat, rdouble, rlong, rdate};
 
-  private int clientSoTimeout;
+  private int clientSoTimeout = 60000;
   
   public String[] getFieldNames() {
     return fieldNames;
@@ -115,19 +116,32 @@ public class ChaosMonkeyNothingIsSafeWithPullReplicasTest extends AbstractFullDi
     fixShardCount(numNodes);
     log.info("Starting ChaosMonkey test with {} shards and {} nodes", sliceCount, numNodes);
 
-    // None of the operations used here are particularly costly, so this should work.
-    // Using this low timeout will also help us catch index stalling.
-    clientSoTimeout = 5000;
+
   }
 
   @Override
   protected boolean useTlogReplicas() {
     return useTlogReplicas;
   }
+  
+  @Override
+  protected CloudSolrClient createCloudClient(String defaultCollection) {
+    return this.createCloudClient(defaultCollection, this.clientSoTimeout);
+  }
+  
+  protected CloudSolrClient createCloudClient(String defaultCollection, int socketTimeout) {
+    CloudSolrClient client = getCloudSolrClient(zkServer.getZkAddress(), random().nextBoolean(), 30000, socketTimeout);
+    if (defaultCollection != null) client.setDefaultCollection(defaultCollection);
+    return client;
+  }
+
 
   @Test
   public void test() throws Exception {
-    cloudClient.setSoTimeout(clientSoTimeout);
+    // None of the operations used here are particularly costly, so this should work.
+    // Using this low timeout will also help us catch index stalling.
+    clientSoTimeout = 5000;
+    cloudClient = createCloudClient(DEFAULT_COLLECTION);
     DocCollection docCollection = cloudClient.getZkStateReader().getClusterState().getCollection(DEFAULT_COLLECTION);
     assertEquals(this.sliceCount, docCollection.getSlices().size());
     Slice s = docCollection.getSlice("shard1");
@@ -251,7 +265,7 @@ public class ChaosMonkeyNothingIsSafeWithPullReplicasTest extends AbstractFullDi
         }
       }
       
-      waitForReplicationFromReplicas(DEFAULT_COLLECTION, zkStateReader, new TimeOut(30, TimeUnit.SECONDS));
+      waitForReplicationFromReplicas(DEFAULT_COLLECTION, zkStateReader, new TimeOut(30, TimeUnit.SECONDS, TimeSource.NANO_TIME));
 //      waitForAllWarmingSearchers();
       
       Set<String> addFails = getAddFails(indexTreads);
@@ -282,7 +296,7 @@ public class ChaosMonkeyNothingIsSafeWithPullReplicasTest extends AbstractFullDi
         restartZk(1000 * (5 + random().nextInt(4)));
       }
 
-      try (CloudSolrClient client = createCloudClient("collection1")) {
+      try (CloudSolrClient client = createCloudClient("collection1", 30000)) {
         // We don't really know how many live nodes we have at this point, so "maxShardsPerNode" needs to be > 1
         createCollection(null, "testcollection",
               1, 1, 10, client, null, "conf1"); 

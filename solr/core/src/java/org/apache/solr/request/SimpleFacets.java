@@ -17,6 +17,7 @@
 package org.apache.solr.request;
 
 import java.io.IOException;
+import java.lang.invoke.MethodHandles;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -100,6 +101,8 @@ import org.apache.solr.search.sparse.cache.SparseCounterPoolController;
 import org.apache.solr.util.BoundedTreeSet;
 import org.apache.solr.util.DefaultSolrThreadFactory;
 import org.apache.solr.util.RTimer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.apache.solr.common.params.CommonParams.SORT;
 
@@ -110,6 +113,7 @@ import static org.apache.solr.common.params.CommonParams.SORT;
  * to leverage any of its functionality.
  */
 public class SimpleFacets {
+  private static final Logger LOG = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
   
   /** The main set of documents all facet counts should be relative to */
   protected DocSet docsOrig;
@@ -262,7 +266,7 @@ public class SimpleFacets {
     // get the new base docset for this facet
     DocSet base = searcher.getDocSet(qlist);
     if (rb.grouping() && rb.getGroupingSpec().isTruncateGroups()) {
-      Grouping grouping = new Grouping(searcher, null, rb.getQueryCommand(), false, 0, false);
+      Grouping grouping = new Grouping(searcher, null, rb.createQueryCommand(), false, 0, false);
       grouping.setWithinGroupSort(rb.getGroupingSpec().getSortWithinGroup());
       if (rb.getGroupingSpec().getFields().length > 0) {
         grouping.addFieldCommand(rb.getGroupingSpec().getFields()[0], req);
@@ -351,6 +355,16 @@ public class SimpleFacets {
     ENUM, FC, FCS, UIF;
   }
 
+  /**
+   * Create a new bytes ref filter for excluding facet terms.
+   *
+   * This method by default uses the {@link FacetParams#FACET_EXCLUDETERMS} parameter
+   * but custom SimpleFacets classes could use a different implementation.
+   *
+   * @param field the field to check for facet term filters
+   * @param params the request parameter object
+   * @return A predicate for filtering terms or null if no filters are applicable.
+   */
   protected Predicate<BytesRef> newExcludeBytesRefFilter(String field, SolrParams params) {
     final String exclude = params.getFieldParam(field, FacetParams.FACET_EXCLUDETERMS);
     if (exclude == null) {
@@ -367,30 +381,37 @@ public class SimpleFacets {
     };
   }
 
+  /**
+   * Create a new bytes ref filter for filtering facet terms. If more than one filter is
+   * applicable the applicable filters will be returned as an {@link Predicate#and(Predicate)}
+   * of all such filters.
+   *
+   * @param field the field to check for facet term filters
+   * @param params the request parameter object
+   * @return A predicate for filtering terms or null if no filters are applicable.
+   */
   protected Predicate<BytesRef> newBytesRefFilter(String field, SolrParams params) {
     final String contains = params.getFieldParam(field, FacetParams.FACET_CONTAINS);
 
-    final Predicate<BytesRef> containsFilter;
+    Predicate<BytesRef> finalFilter = null;
+
     if (contains != null) {
       final boolean containsIgnoreCase = params.getFieldBool(field, FacetParams.FACET_CONTAINS_IGNORE_CASE, false);
-      containsFilter = new SubstringBytesRefFilter(contains, containsIgnoreCase);
-    } else {
-      containsFilter = null;
+      finalFilter = new SubstringBytesRefFilter(contains, containsIgnoreCase);
+    }
+
+    final String regex = params.getFieldParam(field, FacetParams.FACET_MATCHES);
+    if (regex != null) {
+      final RegexBytesRefFilter regexBytesRefFilter = new RegexBytesRefFilter(regex);
+      finalFilter = (finalFilter == null) ? regexBytesRefFilter : finalFilter.and(regexBytesRefFilter);
     }
 
     final Predicate<BytesRef> excludeFilter = newExcludeBytesRefFilter(field, params);
-
-    if (containsFilter == null && excludeFilter == null) {
-      return null;
+    if (excludeFilter != null) {
+      finalFilter = (finalFilter == null) ? excludeFilter : finalFilter.and(excludeFilter);
     }
 
-    if (containsFilter != null && excludeFilter == null) {
-      return containsFilter;
-    } else if (containsFilter == null && excludeFilter != null) {
-      return excludeFilter;
-    }
-
-    return containsFilter.and(excludeFilter);
+    return finalFilter;
   }
 
   /**
@@ -502,13 +523,23 @@ public class SimpleFacets {
             }
             if (termFilter != null) {
               throw new SolrException(ErrorCode.BAD_REQUEST, "BytesRef term filters ("
+                      + FacetParams.FACET_MATCHES + ", "
                       + FacetParams.FACET_CONTAINS + ", "
                       + FacetParams.FACET_EXCLUDETERMS + ") are not supported on numeric types");
             }
-//            We should do this, but mincount=0 is currently the default
-//            if (ft.isPointField() && mincount <= 0) {
-//              throw new SolrException(ErrorCode.BAD_REQUEST, FacetParams.FACET_MINCOUNT + " <= 0 is not supported on point types");
-//            }
+            if (ft.isPointField() && mincount <= 0) { // default is mincount=0.  See SOLR-10033 & SOLR-11174.
+              String warningMessage 
+                  = "Raising facet.mincount from " + mincount + " to 1, because field " + field + " is Points-based.";
+              LOG.warn(warningMessage);
+              List<String> warnings = (List<String>)rb.rsp.getResponseHeader().get("warnings");
+              if (null == warnings) {
+                warnings = new ArrayList<>();
+                rb.rsp.getResponseHeader().add("warnings", warnings);
+              }
+              warnings.add(warningMessage);
+
+              mincount = 1;
+            }
             counts = NumericFacets.getCounts(searcher, docs, field, offset, limit, mincount, missing, sort);
           } else {
             PerSegmentSingleValuedFaceting ps = new PerSegmentSingleValuedFaceting(searcher, docs, field, offset, limit, mincount, missing, sort, prefix, termFilter);

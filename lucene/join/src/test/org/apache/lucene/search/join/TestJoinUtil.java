@@ -55,11 +55,10 @@ import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.index.MultiDocValues.OrdinalMap;
-import org.apache.lucene.index.MultiDocValues;
 import org.apache.lucene.index.MultiFields;
 import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.NumericDocValues;
+import org.apache.lucene.index.OrdinalMap;
 import org.apache.lucene.index.PostingsEnum;
 import org.apache.lucene.index.RandomIndexWriter;
 import org.apache.lucene.index.SortedDocValues;
@@ -67,25 +66,7 @@ import org.apache.lucene.index.SortedSetDocValues;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.Terms;
 import org.apache.lucene.index.TermsEnum;
-import org.apache.lucene.search.BooleanClause;
-import org.apache.lucene.search.BooleanQuery;
-import org.apache.lucene.search.DocIdSetIterator;
-import org.apache.lucene.search.Explanation;
-import org.apache.lucene.search.FieldValueQuery;
-import org.apache.lucene.search.FilterScorer;
-import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.MatchAllDocsQuery;
-import org.apache.lucene.search.MatchNoDocsQuery;
-import org.apache.lucene.search.MultiCollector;
-import org.apache.lucene.search.Query;
-import org.apache.lucene.search.ScoreDoc;
-import org.apache.lucene.search.Scorer;
-import org.apache.lucene.search.SimpleCollector;
-import org.apache.lucene.search.TermQuery;
-import org.apache.lucene.search.TopDocs;
-import org.apache.lucene.search.TopScoreDocCollector;
-import org.apache.lucene.search.TotalHitCountCollector;
-import org.apache.lucene.search.Weight;
+import org.apache.lucene.search.*;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.BitSet;
 import org.apache.lucene.util.BitSetIterator;
@@ -267,7 +248,7 @@ public class TestJoinUtil extends LuceneTestCase {
       LeafReader leafReader =  r.leaves().get(i).reader();
       values[i] = DocValues.getSorted(leafReader, joinField);
     }
-    MultiDocValues.OrdinalMap ordinalMap = MultiDocValues.OrdinalMap.build(
+    OrdinalMap ordinalMap = OrdinalMap.build(
         null, values, PackedInts.DEFAULT
     );
 
@@ -372,7 +353,7 @@ public class TestJoinUtil extends LuceneTestCase {
       LeafReader leafReader =  r.leaves().get(i).reader();
       values[i] = DocValues.getSorted(leafReader, joinField);
     }
-    MultiDocValues.OrdinalMap ordinalMap = MultiDocValues.OrdinalMap.build(
+    OrdinalMap ordinalMap = OrdinalMap.build(
         null, values, PackedInts.DEFAULT
     );
 
@@ -500,7 +481,7 @@ public class TestJoinUtil extends LuceneTestCase {
     for (LeafReaderContext leadContext : searcher.getIndexReader().leaves()) {
       values[leadContext.ord] = DocValues.getSorted(leadContext.reader(), "join_field");
     }
-    MultiDocValues.OrdinalMap ordinalMap = MultiDocValues.OrdinalMap.build(
+    OrdinalMap ordinalMap = OrdinalMap.build(
         null, values, PackedInts.DEFAULT
     );
     BooleanQuery.Builder fromQuery = new BooleanQuery.Builder();
@@ -532,7 +513,7 @@ public class TestJoinUtil extends LuceneTestCase {
   static Query numericDocValuesScoreQuery(final String field) {
     return new Query() {
 
-        private final Query fieldQuery = new FieldValueQuery(field);
+        private final Query fieldQuery = new DocValuesFieldExistsQuery(field);
 
         @Override
         public Weight createWeight(IndexSearcher searcher, boolean needsScores, float boost) throws IOException {
@@ -563,6 +544,12 @@ public class TestJoinUtil extends LuceneTestCase {
                 }
               };
             }
+
+            @Override
+            public boolean isCacheable(LeafReaderContext ctx) {
+              return false;
+            }
+
           };
         }
 
@@ -621,7 +608,7 @@ public class TestJoinUtil extends LuceneTestCase {
     for (LeafReaderContext leadContext : searcher.getIndexReader().leaves()) {
       values[leadContext.ord] = DocValues.getSorted(leadContext.reader(), "join_field");
     }
-    MultiDocValues.OrdinalMap ordinalMap = MultiDocValues.OrdinalMap.build(
+    OrdinalMap ordinalMap = OrdinalMap.build(
         null, values, PackedInts.DEFAULT
     );
     Query fromQuery = new TermQuery(new Term("type", "from"));
@@ -1036,7 +1023,7 @@ public class TestJoinUtil extends LuceneTestCase {
             LeafReader leafReader =  r.leaves().get(i).reader();
             values[i] = DocValues.getSorted(leafReader, joinField);
           }
-          MultiDocValues.OrdinalMap ordinalMap = MultiDocValues.OrdinalMap.build(
+          OrdinalMap ordinalMap = OrdinalMap.build(
               null, values, PackedInts.DEFAULT
           );
           IndexSearcher indexSearcher = new IndexSearcher(r);
@@ -1067,7 +1054,7 @@ public class TestJoinUtil extends LuceneTestCase {
             LeafReader leafReader =  r.leaves().get(i).reader();
             values[i] = DocValues.getSorted(leafReader, joinField);
           }
-          MultiDocValues.OrdinalMap ordinalMap = MultiDocValues.OrdinalMap.build(
+          OrdinalMap ordinalMap = OrdinalMap.build(
               null, values, PackedInts.DEFAULT
           );
           IndexSearcher indexSearcher = new IndexSearcher(r);
@@ -1480,11 +1467,8 @@ public class TestJoinUtil extends LuceneTestCase {
 
           @Override
           public void collect(int doc) throws IOException {
-            if (doc > terms.docID()) {
-              terms.advance(doc);
-            }
             final BytesRef joinValue;
-            if (doc == terms.docID()) {
+            if (terms.advanceExact(doc)) {
               joinValue = terms.binaryValue();
             } else {
               // missing;
@@ -1549,11 +1533,8 @@ public class TestJoinUtil extends LuceneTestCase {
 
           @Override
           public void collect(int doc) throws IOException {
-            if (doc > terms.docID()) {
-              terms.advance(doc);
-            }
             final BytesRef joinValue;
-            if (doc == terms.docID()) {
+            if (terms.advanceExact(doc)) {
               joinValue = terms.binaryValue();
             } else {
               // missing;
@@ -1590,7 +1571,7 @@ public class TestJoinUtil extends LuceneTestCase {
       for (LeafReaderContext leadContext : topLevelReader.leaves()) {
         values[leadContext.ord] = DocValues.getSorted(leadContext.reader(), "join_field");
       }
-      context.ordinalMap = MultiDocValues.OrdinalMap.build(
+      context.ordinalMap = OrdinalMap.build(
           null, values, PackedInts.DEFAULT
       );
     }
@@ -1712,7 +1693,7 @@ public class TestJoinUtil extends LuceneTestCase {
     Map<String, Map<Integer, JoinScore>> fromHitsToJoinScore = new HashMap<>();
     Map<String, Map<Integer, JoinScore>> toHitsToJoinScore = new HashMap<>();
 
-    MultiDocValues.OrdinalMap ordinalMap;
+    OrdinalMap ordinalMap;
 
     Directory dir;
     IndexSearcher searcher;

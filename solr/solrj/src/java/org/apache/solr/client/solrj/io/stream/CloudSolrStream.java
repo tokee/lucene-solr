@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -46,7 +47,6 @@ import org.apache.solr.client.solrj.io.stream.expr.StreamExpression;
 import org.apache.solr.client.solrj.io.stream.expr.StreamExpressionNamedParameter;
 import org.apache.solr.client.solrj.io.stream.expr.StreamExpressionValue;
 import org.apache.solr.client.solrj.io.stream.expr.StreamFactory;
-import org.apache.solr.common.cloud.Aliases;
 import org.apache.solr.common.cloud.ClusterState;
 import org.apache.solr.common.cloud.DocCollection;
 import org.apache.solr.common.cloud.Slice;
@@ -55,7 +55,6 @@ import org.apache.solr.common.params.ModifiableSolrParams;
 import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.common.util.ExecutorUtil;
 import org.apache.solr.common.util.SolrjNamedThreadFactory;
-import org.apache.solr.common.util.StrUtils;
 
 import static org.apache.solr.common.params.CommonParams.DISTRIB;
 import static org.apache.solr.common.params.CommonParams.SORT;
@@ -65,6 +64,7 @@ import static org.apache.solr.common.params.CommonParams.SORT;
  * Under the covers the SolrStream instances send the query to the replicas.
  * SolrStreams are opened using a thread pool, but a single thread is used
  * to iterate and merge Tuples from each SolrStream.
+ * @since 5.1.0
  **/
 
 public class CloudSolrStream extends TupleStream implements Expressible {
@@ -73,7 +73,7 @@ public class CloudSolrStream extends TupleStream implements Expressible {
 
   protected String zkHost;
   protected String collection;
-  protected SolrParams params;
+  protected ModifiableSolrParams params;
   protected Map<String, String> fieldMappings;
   protected StreamComparator comp;
   private boolean trace;
@@ -172,18 +172,14 @@ public class CloudSolrStream extends TupleStream implements Expressible {
     // collection
     expression.addParameter(collection);
     
-    // parameters
-
-    ModifiableSolrParams mParams = new ModifiableSolrParams(SolrParams.toMultiMap(params.toNamedList()));
-    for (Entry<String, String[]> param : mParams.getMap().entrySet()) {
-      String value = String.join(",", param.getValue());
-      
-      // SOLR-8409: This is a special case where the params contain a " character
-      // Do note that in any other BASE streams with parameters where a " might come into play
-      // that this same replacement needs to take place.
-      value = value.replace("\"", "\\\"");
-
-      expression.addParameter(new StreamExpressionNamedParameter(param.getKey(), value));
+    for (Entry<String, String[]> param : params.getMap().entrySet()) {
+      for (String val : param.getValue()) {
+        // SOLR-8409: Escaping the " is a special case.
+        // Do note that in any other BASE streams with parameters where a " might come into play
+        // that this same replacement needs to take place.
+        expression.addParameter(new StreamExpressionNamedParameter(param.getKey(),
+            val.replace("\"", "\\\"")));
+      }
     }
     
     // zkHost
@@ -334,32 +330,27 @@ public class CloudSolrStream extends TupleStream implements Expressible {
 
     Map<String, DocCollection> collectionsMap = clusterState.getCollectionsMap();
 
-    // Check collection case sensitive
-    if(collectionsMap.containsKey(collectionName)) {
-      return collectionsMap.get(collectionName).getActiveSlices();
+    //TODO we should probably split collection by comma to query more than one
+    //  which is something already supported in other parts of Solr
+
+    // check for alias or collection
+    List<String> collections = checkAlias
+        ? zkStateReader.getAliases().resolveAliases(collectionName)  // if not an alias, returns collectionName
+        : Collections.singletonList(collectionName);
+    // Lookup all actives slices for these collections
+    List<Slice> slices = collections.stream()
+        .map(collectionsMap::get)
+        .filter(Objects::nonNull)
+        .flatMap(docCol -> docCol.getActiveSlices().stream())
+        .collect(Collectors.toList());
+    if (!slices.isEmpty()) {
+      return slices;
     }
 
     // Check collection case insensitive
     for(String collectionMapKey : collectionsMap.keySet()) {
       if(collectionMapKey.equalsIgnoreCase(collectionName)) {
         return collectionsMap.get(collectionMapKey).getActiveSlices();
-      }
-    }
-
-    if(checkAlias) {
-      // check for collection alias
-      Aliases aliases = zkStateReader.getAliases();
-      String alias = aliases.getCollectionAlias(collectionName);
-      if (alias != null) {
-        Collection<Slice> slices = new ArrayList<>();
-
-        List<String> aliasList = StrUtils.splitSmart(alias, ",", true);
-        for (String aliasCollectionName : aliasList) {
-          // Add all active slices for this alias collection
-          slices.addAll(collectionsMap.get(aliasCollectionName).getActiveSlices());
-        }
-
-        return slices;
       }
     }
 

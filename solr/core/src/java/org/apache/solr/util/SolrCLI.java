@@ -16,12 +16,7 @@
  */
 package org.apache.solr.util;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-import static org.apache.solr.common.SolrException.ErrorCode.FORBIDDEN;
-import static org.apache.solr.common.SolrException.ErrorCode.UNAUTHORIZED;
-import static org.apache.solr.common.params.CommonParams.DISTRIB;
-import static org.apache.solr.common.params.CommonParams.NAME;
-
+import javax.net.ssl.SSLPeerUnverifiedException;
 import java.io.Console;
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -43,7 +38,9 @@ import java.time.Instant;
 import java.time.Period;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -60,8 +57,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
-
-import javax.net.ssl.SSLPeerUnverifiedException;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.GnuParser;
@@ -95,26 +90,32 @@ import org.apache.http.util.EntityUtils;
 import org.apache.lucene.util.Version;
 import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.client.solrj.SolrQuery;
+import org.apache.solr.client.solrj.SolrRequest;
 import org.apache.solr.client.solrj.SolrServerException;
 import org.apache.solr.client.solrj.impl.CloudSolrClient;
 import org.apache.solr.client.solrj.impl.HttpClientUtil;
 import org.apache.solr.client.solrj.impl.HttpSolrClient;
 import org.apache.solr.client.solrj.impl.HttpSolrClient.Builder;
 import org.apache.solr.client.solrj.impl.ZkClientClusterStateProvider;
+import org.apache.solr.client.solrj.request.CollectionAdminRequest;
 import org.apache.solr.client.solrj.request.ContentStreamUpdateRequest;
+import org.apache.solr.client.solrj.response.CollectionAdminResponse;
 import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.cloud.ClusterState;
+import org.apache.solr.common.cloud.DocCollection;
 import org.apache.solr.common.cloud.Replica;
 import org.apache.solr.common.cloud.Slice;
 import org.apache.solr.common.cloud.SolrZkClient;
 import org.apache.solr.common.cloud.ZkConfigManager;
 import org.apache.solr.common.cloud.ZkCoreNodeProps;
 import org.apache.solr.common.cloud.ZkStateReader;
+import org.apache.solr.common.params.CollectionAdminParams;
 import org.apache.solr.common.params.CommonParams;
 import org.apache.solr.common.params.ModifiableSolrParams;
 import org.apache.solr.common.util.ContentStreamBase;
 import org.apache.solr.common.util.NamedList;
+import org.apache.solr.common.util.StrUtils;
 import org.apache.solr.security.Sha256AuthenticationProvider;
 import org.apache.solr.util.configuration.SSLConfigurationsFactory;
 import org.noggit.CharArr;
@@ -123,6 +124,12 @@ import org.noggit.JSONWriter;
 import org.noggit.ObjectBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.apache.solr.common.SolrException.ErrorCode.FORBIDDEN;
+import static org.apache.solr.common.SolrException.ErrorCode.UNAUTHORIZED;
+import static org.apache.solr.common.params.CommonParams.DISTRIB;
+import static org.apache.solr.common.params.CommonParams.NAME;
 
 /**
  * Command-line utility for working with Solr.
@@ -149,6 +156,12 @@ public class SolrCLI {
 
     protected ToolBase(PrintStream stdout) {
       this.stdout = stdout;
+    }
+    
+    protected void echoIfVerbose(final String msg, CommandLine cli) {
+      if (cli.hasOption("verbose")) {
+        echo(msg);
+      }
     }
 
     protected void echo(final String msg) {
@@ -189,10 +202,11 @@ public class SolrCLI {
     }
     
     protected void runImpl(CommandLine cli) throws Exception {
+      raiseLogLevelUnlessVerbose(cli);
       String zkHost = cli.getOptionValue("zkHost", ZK_HOST);
       
       log.debug("Connecting to Solr cluster: " + zkHost);
-      try (CloudSolrClient cloudSolrClient = new CloudSolrClient.Builder().withZkHost(zkHost).build()) {
+      try (CloudSolrClient cloudSolrClient = new CloudSolrClient.Builder(Collections.singletonList(zkHost), Optional.empty()).build()) {
 
         String collection = cli.getOptionValue("collection");
         if (collection != null)
@@ -227,7 +241,12 @@ public class SolrCLI {
         .hasArg()
         .isRequired(false)
         .withDescription("Name of collection; no default")
-        .create("collection")
+        .withLongOpt("collection")
+        .create("c"),
+    OptionBuilder
+        .isRequired(false)
+        .withDescription("Enable more verbose command output.")
+        .create("verbose")
   };
 
   private static void exit(int exitStatus) {
@@ -316,6 +335,12 @@ public class SolrCLI {
       System.err.println("WARNING: "+sysProp+" file "+keyStore+
           " not found! https requests to Solr will likely fail; please update your "+
           sysProp+" setting to use an absolute path.");
+    }
+  }
+  
+  private static void raiseLogLevelUnlessVerbose(CommandLine cli) {
+    if (! cli.hasOption("verbose")) {
+      StartupLoggingUtils.changeLogLevel("WARN");
     }
   }
   
@@ -1157,7 +1182,7 @@ public class SolrCLI {
         
     @Override
     protected void runCloudTool(CloudSolrClient cloudSolrClient, CommandLine cli) throws Exception {
-      
+      raiseLogLevelUnlessVerbose(cli);
       String collection = cli.getOptionValue("collection");
       if (collection == null)
         throw new IllegalArgumentException("Must provide a collection to run a healthcheck against!");
@@ -1168,10 +1193,11 @@ public class SolrCLI {
 
       ClusterState clusterState = zkStateReader.getClusterState();
       Set<String> liveNodes = clusterState.getLiveNodes();
-      Collection<Slice> slices = clusterState.getSlices(collection);
-      if (slices == null)
+      final DocCollection docCollection = clusterState.getCollectionOrNull(collection);
+      if (docCollection == null || docCollection.getSlices() == null)
         throw new IllegalArgumentException("Collection "+collection+" not found!");
       
+      Collection<Slice> slices = docCollection.getSlices();
       // Test http code using a HEAD request first, fail fast if authentication failure
       String urlForColl = zkStateReader.getLeaderUrl(collection, slices.stream().findFirst().get().getName(), 1000); 
       attemptHttpHead(urlForColl, cloudSolrClient.getHttpClient());
@@ -1331,7 +1357,12 @@ public class SolrCLI {
             .hasArg()
             .isRequired(true)
             .withDescription("Path to configsets directory on the local system.")
-            .create("configsetsDir")
+            .create("configsetsDir"),
+        OptionBuilder
+            .isRequired(false)
+            .withDescription("Enable more verbose command output.")
+            .create("verbose")
+            
   };
 
   /**
@@ -1344,7 +1375,7 @@ public class SolrCLI {
       if (zkHost == null)
         throw new IllegalStateException("Must provide either the '-solrUrl' or '-zkHost' parameters!");
 
-      try (CloudSolrClient cloudSolrClient = new CloudSolrClient.Builder().withZkHost(zkHost).build()) {
+      try (CloudSolrClient cloudSolrClient = new CloudSolrClient.Builder(Collections.singletonList(zkHost), Optional.empty()).build()) {
         cloudSolrClient.connect();
         Set<String> liveNodes = cloudSolrClient.getZkStateReader().getClusterState().getLiveNodes();
         if (liveNodes.isEmpty())
@@ -1458,9 +1489,11 @@ public class SolrCLI {
     public Option[] getOptions() {
       return CREATE_COLLECTION_OPTIONS;
     }
+    
+
 
     protected void runImpl(CommandLine cli) throws Exception {
-
+      raiseLogLevelUnlessVerbose(cli);
       String zkHost = getZkHost(cli);
       if (zkHost == null) {
         throw new IllegalStateException("Solr at "+cli.getOptionValue("solrUrl")+
@@ -1468,8 +1501,8 @@ public class SolrCLI {
             "create_collection can only be used when running in SolrCloud mode.\n");
       }
 
-      try (CloudSolrClient cloudSolrClient = new CloudSolrClient.Builder().withZkHost(zkHost).build()) {
-        echo("\nConnecting to ZooKeeper at " + zkHost+" ...");
+      try (CloudSolrClient cloudSolrClient = new CloudSolrClient.Builder(Collections.singletonList(zkHost), Optional.empty()).build()) {
+        echoIfVerbose("\nConnecting to ZooKeeper at " + zkHost+" ...", cli);
         cloudSolrClient.connect();
         runCloudTool(cloudSolrClient, cli);
       }
@@ -1497,10 +1530,6 @@ public class SolrCLI {
 
       if (cli.hasOption("maxShardsPerNode")) {
         maxShardsPerNode = Integer.parseInt(cli.getOptionValue("maxShardsPerNode"));
-      } else {
-        // need number of live nodes to determine maxShardsPerNode if it is not set
-        int numNodes = liveNodes.size();
-        maxShardsPerNode = ((numShards*replicationFactor)+numNodes-1)/numNodes;
       }
 
       String confname = cli.getOptionValue("confname");
@@ -1510,7 +1539,7 @@ public class SolrCLI {
       boolean configExistsInZk = confname != null && !"".equals(confname.trim()) &&
           cloudSolrClient.getZkStateReader().getZkClient().exists("/configs/" + confname, true);
 
-      if (".system".equals(collectionName)) {
+      if (CollectionAdminParams.SYSTEM_COLL.equals(collectionName)) {
         //do nothing
       } else if (configExistsInZk) {
         echo("Re-using existing configuration directory "+confname);
@@ -1521,8 +1550,8 @@ public class SolrCLI {
         Path confPath = ZkConfigManager.getConfigsetPath(confdir,
             configsetsDir);
 
-        echo("Uploading " + confPath.toAbsolutePath().toString() +
-            " for config " + confname + " to ZooKeeper at " + cloudSolrClient.getZkHost());
+        echoIfVerbose("Uploading " + confPath.toAbsolutePath().toString() +
+            " for config " + confname + " to ZooKeeper at " + cloudSolrClient.getZkHost(), cli);
         ((ZkClientClusterStateProvider) cloudSolrClient.getClusterStateProvider()).uploadConfig(confPath, confname);
       }
 
@@ -1547,7 +1576,7 @@ public class SolrCLI {
         createCollectionUrl = createCollectionUrl + String.format(Locale.ROOT, "&collection.configName=%s", confname);
       }
 
-      echo("\nCreating new collection '"+collectionName+"' using command:\n"+createCollectionUrl+"\n");
+      echoIfVerbose("\nCreating new collection '"+collectionName+"' using command:\n"+createCollectionUrl+"\n", cli);
 
       Map<String,Object> json = null;
       try {
@@ -1556,9 +1585,19 @@ public class SolrCLI {
         throw new Exception("Failed to create collection '"+collectionName+"' due to: "+sse.getMessage());
       }
 
-      CharArr arr = new CharArr();
-      new JSONWriter(arr, 2).write(json);
-      echo(arr.toString());
+      if (cli.hasOption("verbose")) {
+        CharArr arr = new CharArr();
+        new JSONWriter(arr, 2).write(json);
+        echo(arr.toString());
+      } else {
+        String endMessage = String.format(Locale.ROOT, "Created collection '%s' with %d shard(s), %d replica(s)",
+            collectionName, numShards, replicationFactor);
+        if (confname != null && !"".equals(confname.trim())) {
+          endMessage += String.format(Locale.ROOT, " with config-set '%s'", confname);
+        }
+      
+        echo(endMessage);
+      }
     }
 
     protected int optionAsInt(CommandLine cli, String option, int defaultVal) {
@@ -1601,12 +1640,15 @@ public class SolrCLI {
               .hasArg()
               .isRequired(true)
               .withDescription("Path to configsets directory on the local system.")
-              .create("configsetsDir")
+              .create("configsetsDir"),
+              OptionBuilder
+              .isRequired(false)
+              .withDescription("Enable more verbose command output.")
+              .create("verbose")
       };
     }
 
     protected void runImpl(CommandLine cli) throws Exception {
-
       String solrUrl = cli.getOptionValue("solrUrl", DEFAULT_SOLR_URL);
       if (!solrUrl.endsWith("/"))
         solrUrl += "/";
@@ -1673,7 +1715,7 @@ public class SolrCLI {
             throw new IllegalArgumentException("\n"+configSetDir.getAbsolutePath()+" doesn't contain a conf subdirectory or solrconfig.xml\n");
           }
         }
-        echo("\nCopying configuration to new core instance directory:\n" + coreInstanceDir.getAbsolutePath());
+        echoIfVerbose("\nCopying configuration to new core instance directory:\n" + coreInstanceDir.getAbsolutePath(), cli);
       }
 
       String createCoreUrl =
@@ -1683,14 +1725,18 @@ public class SolrCLI {
               coreName,
               coreName);
 
-      echo("\nCreating new core '" + coreName + "' using command:\n" + createCoreUrl + "\n");
+      echoIfVerbose("\nCreating new core '" + coreName + "' using command:\n" + createCoreUrl + "\n", cli);
 
       try {
         Map<String,Object> json = getJson(createCoreUrl);
-        CharArr arr = new CharArr();
-        new JSONWriter(arr, 2).write(json);
-        echo(arr.toString());
-        echo("\n");
+        if (cli.hasOption("verbose")) {
+          CharArr arr = new CharArr();
+          new JSONWriter(arr, 2).write(json);
+          echo(arr.toString());
+          echo("\n");
+        } else {
+          echo(String.format(Locale.ROOT, "\nCreated new core '%s'", coreName));
+        }
       } catch (Exception e) {
         /* create-core failed, cleanup the copied configset before propagating the error. */
         FileUtils.deleteDirectory(coreInstanceDir);
@@ -1714,7 +1760,7 @@ public class SolrCLI {
     }
 
     protected void runImpl(CommandLine cli) throws Exception {
-
+      raiseLogLevelUnlessVerbose(cli);
       String solrUrl = cli.getOptionValue("solrUrl", DEFAULT_SOLR_URL);
       if (!solrUrl.endsWith("/"))
         solrUrl += "/";
@@ -1774,7 +1820,11 @@ public class SolrCLI {
               .hasArg()
               .isRequired(true)
               .withDescription("Address of the Zookeeper ensemble; defaults to: " + ZK_HOST)
-              .create("zkHost")
+              .create("zkHost"),
+          OptionBuilder
+              .isRequired(false)
+              .withDescription("Enable more verbose command output.")
+              .create("verbose")
       };
     }
 
@@ -1784,6 +1834,7 @@ public class SolrCLI {
     }
 
     protected void runImpl(CommandLine cli) throws Exception {
+      raiseLogLevelUnlessVerbose(cli);
       String zkHost = getZkHost(cli);
       if (zkHost == null) {
         throw new IllegalStateException("Solr at " + cli.getOptionValue("solrUrl") +
@@ -1792,7 +1843,7 @@ public class SolrCLI {
 
       String confName = cli.getOptionValue("confname");
       try (SolrZkClient zkClient = new SolrZkClient(zkHost, 30000)) {
-        echo("\nConnecting to ZooKeeper at " + zkHost + " ...");
+        echoIfVerbose("\nConnecting to ZooKeeper at " + zkHost + " ...", cli);
         Path confPath = ZkConfigManager.getConfigsetPath(cli.getOptionValue("confdir"), cli.getOptionValue("configsetsDir"));
 
         echo("Uploading " + confPath.toAbsolutePath().toString() +
@@ -1803,7 +1854,6 @@ public class SolrCLI {
         log.error("Could not complete upconfig operation for reason: " + e.getMessage());
         throw (e);
       }
-
     }
   }
 
@@ -1837,7 +1887,11 @@ public class SolrCLI {
               .hasArg()
               .isRequired(true)
               .withDescription("Address of the Zookeeper ensemble; defaults to: " + ZK_HOST)
-              .create("zkHost")
+              .create("zkHost"),
+          OptionBuilder
+              .isRequired(false)
+              .withDescription("Enable more verbose command output.")
+              .create("verbose")
       };
     }
 
@@ -1846,7 +1900,7 @@ public class SolrCLI {
     }
 
     protected void runImpl(CommandLine cli) throws Exception {
-
+      raiseLogLevelUnlessVerbose(cli);
       String zkHost = getZkHost(cli);
       if (zkHost == null) {
         throw new IllegalStateException("Solr at " + cli.getOptionValue("solrUrl") +
@@ -1855,7 +1909,7 @@ public class SolrCLI {
 
 
       try (SolrZkClient zkClient = new SolrZkClient(zkHost, 30000)) {
-        echo("\nConnecting to ZooKeeper at " + zkHost + " ...");
+        echoIfVerbose("\nConnecting to ZooKeeper at " + zkHost + " ...", cli);
         String confName = cli.getOptionValue("confname");
         String confDir = cli.getOptionValue("confdir");
         Path configSetPath = Paths.get(confDir);
@@ -1909,7 +1963,11 @@ public class SolrCLI {
               .hasArg()
               .isRequired(true)
               .withDescription("Address of the Zookeeper ensemble; defaults to: " + ZK_HOST)
-              .create("zkHost")
+              .create("zkHost"),
+          OptionBuilder
+              .isRequired(false)
+              .withDescription("Enable more verbose command output.")
+              .create("verbose")
       };
     }
 
@@ -1918,7 +1976,7 @@ public class SolrCLI {
     }
 
     protected void runImpl(CommandLine cli) throws Exception {
-
+      raiseLogLevelUnlessVerbose(cli);
       String zkHost = getZkHost(cli);
 
       if (zkHost == null) {
@@ -1935,7 +1993,7 @@ public class SolrCLI {
       if (znode.equals("/")) {
         throw new SolrServerException("You may not remove the root ZK node ('/')!");
       }
-      echo("\nConnecting to ZooKeeper at " + zkHost + " ...");
+      echoIfVerbose("\nConnecting to ZooKeeper at " + zkHost + " ...", cli);
       try (SolrZkClient zkClient = new SolrZkClient(zkHost, 30000)) {
         if (recurse == false && zkClient.getChildren(znode, null, true).size() != 0) {
           throw new SolrServerException("Zookeeper node " + znode + " has children and recurse has NOT been specified");
@@ -1982,7 +2040,11 @@ public class SolrCLI {
               .hasArg()
               .isRequired(true)
               .withDescription("Address of the Zookeeper ensemble; defaults to: " + ZK_HOST)
-              .create("zkHost")
+              .create("zkHost"),
+          OptionBuilder
+              .isRequired(false)
+              .withDescription("Enable more verbose command output.")
+              .create("verbose")
       };
     }
 
@@ -1991,7 +2053,7 @@ public class SolrCLI {
     }
 
     protected void runImpl(CommandLine cli) throws Exception {
-
+      raiseLogLevelUnlessVerbose(cli);
       String zkHost = getZkHost(cli);
 
       if (zkHost == null) {
@@ -2001,12 +2063,12 @@ public class SolrCLI {
 
 
       try (SolrZkClient zkClient = new SolrZkClient(zkHost, 30000)) {
-        echo("\nConnecting to ZooKeeper at " + zkHost + " ...");
+        echoIfVerbose("\nConnecting to ZooKeeper at " + zkHost + " ...", cli);
 
         String znode = cli.getOptionValue("path");
         Boolean recurse = Boolean.parseBoolean(cli.getOptionValue("recurse"));
-        echo("Getting listing for Zookeeper node " + znode + " from ZooKeeper at " + zkHost +
-            " recurse: " + Boolean.toString(recurse));
+        echoIfVerbose("Getting listing for Zookeeper node " + znode + " from ZooKeeper at " + zkHost +
+            " recurse: " + Boolean.toString(recurse), cli);
         stdout.print(zkClient.listZnode(znode, recurse));
       } catch (Exception e) {
         log.error("Could not complete ls operation for reason: " + e.getMessage());
@@ -2040,7 +2102,11 @@ public class SolrCLI {
               .hasArg()
               .isRequired(true)
               .withDescription("Address of the Zookeeper ensemble; defaults to: " + ZK_HOST)
-              .create("zkHost")
+              .create("zkHost"),
+          OptionBuilder
+              .isRequired(false)
+              .withDescription("Enable more verbose command output.")
+              .create("verbose")
       };
     }
 
@@ -2049,7 +2115,7 @@ public class SolrCLI {
     }
 
     protected void runImpl(CommandLine cli) throws Exception {
-
+      raiseLogLevelUnlessVerbose(cli);
       String zkHost = getZkHost(cli);
 
       if (zkHost == null) {
@@ -2059,7 +2125,7 @@ public class SolrCLI {
 
 
       try (SolrZkClient zkClient = new SolrZkClient(zkHost, 30000)) {
-        echo("\nConnecting to ZooKeeper at " + zkHost + " ...");
+        echoIfVerbose("\nConnecting to ZooKeeper at " + zkHost + " ...", cli);
 
         String znode = cli.getOptionValue("path");
         echo("Creating Zookeeper path " + znode + " on ZooKeeper at " + zkHost);
@@ -2110,7 +2176,11 @@ public class SolrCLI {
               .hasArg()
               .isRequired(true)
               .withDescription("Address of the Zookeeper ensemble; defaults to: " + ZK_HOST)
-              .create("zkHost")
+              .create("zkHost"),
+          OptionBuilder
+              .isRequired(false)
+              .withDescription("Enable more verbose command output.")
+              .create("verbose")
       };
     }
 
@@ -2119,7 +2189,7 @@ public class SolrCLI {
     }
 
     protected void runImpl(CommandLine cli) throws Exception {
-
+      raiseLogLevelUnlessVerbose(cli);
       String zkHost = getZkHost(cli);
       if (zkHost == null) {
         throw new IllegalStateException("Solr at " + cli.getOptionValue("solrUrl") +
@@ -2127,7 +2197,7 @@ public class SolrCLI {
       }
 
       try (SolrZkClient zkClient = new SolrZkClient(zkHost, 30000)) {
-        echo("\nConnecting to ZooKeeper at " + zkHost + " ...");
+        echoIfVerbose("\nConnecting to ZooKeeper at " + zkHost + " ...", cli);
         String src = cli.getOptionValue("src");
         String dst = cli.getOptionValue("dst");
         Boolean recurse = Boolean.parseBoolean(cli.getOptionValue("recurse"));
@@ -2190,7 +2260,11 @@ public class SolrCLI {
               .hasArg()
               .isRequired(true)
               .withDescription("Address of the Zookeeper ensemble; defaults to: " + ZK_HOST)
-              .create("zkHost")
+              .create("zkHost"),
+          OptionBuilder
+              .isRequired(false)
+              .withDescription("Enable more verbose command output.")
+              .create("verbose")
       };
     }
 
@@ -2199,7 +2273,7 @@ public class SolrCLI {
     }
 
     protected void runImpl(CommandLine cli) throws Exception {
-
+      raiseLogLevelUnlessVerbose(cli);
       String zkHost = getZkHost(cli);
       if (zkHost == null) {
         throw new IllegalStateException("Solr at " + cli.getOptionValue("solrUrl") +
@@ -2208,7 +2282,7 @@ public class SolrCLI {
 
       
       try (SolrZkClient zkClient = new SolrZkClient(zkHost, 30000)) {
-        echo("\nConnecting to ZooKeeper at " + zkHost + " ...");
+        echoIfVerbose("\nConnecting to ZooKeeper at " + zkHost + " ...", cli);
         String src = cli.getOptionValue("src");
         String dst = cli.getOptionValue("dst");
         
@@ -2276,12 +2350,16 @@ public class SolrCLI {
               .hasArg()
               .isRequired(false)
               .withDescription("Address of the Zookeeper ensemble; defaults to: "+ZK_HOST)
-              .create("zkHost")
+              .create("zkHost"),
+          OptionBuilder
+              .isRequired(false)
+              .withDescription("Enable more verbose command output.")
+              .create("verbose")
       };
     }
-
+    
     protected void runImpl(CommandLine cli) throws Exception {
-
+      raiseLogLevelUnlessVerbose(cli);
       String solrUrl = cli.getOptionValue("solrUrl", DEFAULT_SOLR_URL);
       if (!solrUrl.endsWith("/"))
         solrUrl += "/";
@@ -2302,8 +2380,8 @@ public class SolrCLI {
 
     protected void deleteCollection(CommandLine cli) throws Exception {
       String zkHost = getZkHost(cli);
-      try (CloudSolrClient cloudSolrClient = new CloudSolrClient.Builder().withZkHost(zkHost).build()) {
-        echo("Connecting to ZooKeeper at " + zkHost);
+      try (CloudSolrClient cloudSolrClient = new CloudSolrClient.Builder(Collections.singletonList(zkHost), Optional.empty()).build()) {
+        echoIfVerbose("Connecting to ZooKeeper at " + zkHost, cli);
         cloudSolrClient.connect();
         deleteCollection(cloudSolrClient, cli);
       }
@@ -2357,7 +2435,7 @@ public class SolrCLI {
               baseUrl,
               collectionName);
 
-      echo("\nDeleting collection '" + collectionName + "' using command:\n" + deleteCollectionUrl + "\n");
+      echoIfVerbose("\nDeleting collection '" + collectionName + "' using command:\n" + deleteCollectionUrl + "\n", cli);
 
       Map<String,Object> json = null;
       try {
@@ -2371,7 +2449,7 @@ public class SolrCLI {
         try {
           zkStateReader.getZkClient().clean(configZnode);
         } catch (Exception exc) {
-          System.err.println("\nWARNING: Failed to delete configuration directory "+configZnode+" in ZooKeeper due to: "+
+          echo("\nWARNING: Failed to delete configuration directory "+configZnode+" in ZooKeeper due to: "+
             exc.getMessage()+"\nYou'll need to manually delete this znode using the zkcli script.");
         }
       }
@@ -2382,6 +2460,8 @@ public class SolrCLI {
         echo(arr.toString());
         echo("\n");
       }
+      
+      echo("Deleted collection '" + collectionName + "' using command:\n" + deleteCollectionUrl);
     }
 
     protected void deleteCore(CommandLine cli, CloseableHttpClient httpClient, String solrUrl) throws Exception {
@@ -2404,8 +2484,8 @@ public class SolrCLI {
       if (json != null) {
         CharArr arr = new CharArr();
         new JSONWriter(arr, 2).write(json);
-        echo(arr.toString());
-        echo("\n");
+        echoIfVerbose(arr.toString(), cli);
+        echoIfVerbose("\n", cli);
       }
     }
   } // end DeleteTool class
@@ -2449,13 +2529,39 @@ public class SolrCLI {
               .hasArg()
               .isRequired(false)
               .withDescription("Base Solr URL, which can be used to determine the zkHost if that's not known")
-              .create("solrUrl")
+              .create("solrUrl"),
+          OptionBuilder
+              .withArgName("PORT")
+              .hasArg()
+              .isRequired(false)
+              .withDescription("The port of the Solr node to use when applying configuration change")
+              .withLongOpt("port")
+              .create('p'),
+          OptionBuilder
+              .withArgName("SCHEME")
+              .hasArg()
+              .isRequired(false)
+              .withDescription("The scheme for accessing Solr.  Accepted values: http or https.  Default: http")
+              .withLongOpt("scheme")
+              .create('s')
       };
       return joinOptions(configOptions, cloudOptions);
     }
 
     protected void runImpl(CommandLine cli) throws Exception {
-      String solrUrl = resolveSolrUrl(cli);
+      String solrUrl;
+      try {
+        solrUrl = resolveSolrUrl(cli);
+      } catch (IllegalStateException e) {
+        // Fallback to using the provided scheme and port
+        final String scheme = cli.getOptionValue("scheme", "http");
+        if (cli.hasOption("port")) {
+          solrUrl = scheme + "://localhost:" + cli.getOptionValue("port", "8983") + "/solr";
+        } else {
+          throw e;
+        }
+      }
+
       String action = cli.getOptionValue("action", "set-property");
       String collection = cli.getOptionValue("collection", "gettingstarted");
       String property = cli.getOptionValue("property");
@@ -2878,8 +2984,7 @@ public class SolrCLI {
     protected void waitToSeeLiveNodes(int maxWaitSecs, String zkHost, int numNodes) {
       CloudSolrClient cloudClient = null;
       try {
-        cloudClient = new CloudSolrClient.Builder()
-            .withZkHost(zkHost)
+        cloudClient = new CloudSolrClient.Builder(Collections.singletonList(zkHost), Optional.empty())
             .build();
         cloudClient.connect();
         Set<String> liveNodes = cloudClient.getZkStateReader().getClusterState().getLiveNodes();
@@ -3337,6 +3442,18 @@ public class SolrCLI {
               .withArgName("directory")
               .create("X"),
           OptionBuilder
+              .withDescription("Asserts that Solr is running in cloud mode.  Also fails if Solr not running.  URL should be for root Solr path.")
+              .withLongOpt("cloud")
+              .hasArg(true)
+              .withArgName("url")
+              .create("c"),
+          OptionBuilder
+              .withDescription("Asserts that Solr is not running in cloud mode.  Also fails if Solr not running.  URL should be for root Solr path.")
+              .withLongOpt("not-cloud")
+              .hasArg(true)
+              .withArgName("url")
+              .create("C"),
+          OptionBuilder
               .withDescription("Exception message to be used in place of the default error message")
               .withLongOpt("message")
               .hasArg(true)
@@ -3388,7 +3505,7 @@ public class SolrCLI {
      */
     protected int runAssert(CommandLine cli) throws Exception {
       if (cli.getOptions().length == 0 || cli.getArgs().length > 0 || cli.hasOption("h")) {
-        new HelpFormatter().printHelp("bin/solr assert [-m <message>] [-e] [-rR] [-s <url>] [-S <url>] [-u <dir>] [-x <dir>] [-X <dir>]", getToolOptions(this));
+        new HelpFormatter().printHelp("bin/solr assert [-m <message>] [-e] [-rR] [-s <url>] [-S <url>] [-c <url>] [-C <url>] [-u <dir>] [-x <dir>] [-X <dir>]", getToolOptions(this));
         return 1;
       }
       if (cli.hasOption("m")) {
@@ -3422,6 +3539,12 @@ public class SolrCLI {
       }
       if (cli.hasOption("S")) {
         ret += assertSolrNotRunning(cli.getOptionValue("S"));
+      }
+      if (cli.hasOption("c")) {
+        ret += assertSolrRunningInCloudMode(cli.getOptionValue("c"));
+      }
+      if (cli.hasOption("C")) {
+        ret += assertSolrNotRunningInCloudMode(cli.getOptionValue("C"));
       }
       return ret;
     }
@@ -3467,6 +3590,28 @@ public class SolrCLI {
         }
       }
       return exitOrException("Solr is still running at " + url + " after " + timeoutMs.orElse(1000L) / 1000 + "s");
+    }
+
+    public static int assertSolrRunningInCloudMode(String url) throws Exception {
+      if (! isSolrRunningOn(url)) {
+        return exitOrException("Solr is not running on url " + url + " after " + timeoutMs.orElse(1000L) / 1000 + "s");
+      }
+
+      if (! runningSolrIsCloud(url)) {
+        return exitOrException("Solr is not running in cloud mode on " + url);
+      }
+      return 0;
+    }
+
+    public static int assertSolrNotRunningInCloudMode(String url) throws Exception {
+      if (! isSolrRunningOn(url)) {
+        return exitOrException("Solr is not running on url " + url + " after " + timeoutMs.orElse(1000L) / 1000 + "s");
+      }
+
+      if (runningSolrIsCloud(url)) {
+        return exitOrException("Solr is not running in standalone mode on " + url);
+      }
+      return 0;
     }
 
     public static int sameUser(String directory) throws Exception {
@@ -3522,14 +3667,46 @@ public class SolrCLI {
       }
     }
 
-    private static int exitOrException(String msg) throws Exception {
+    private static int exitOrException(String msg) throws AssertionFailureException {
       if (useExitCode) {
         return 1;
       } else {
-        throw new Exception(message != null ? message : msg);
+        throw new AssertionFailureException(message != null ? message : msg);
+      }
+    }
+
+    private static boolean isSolrRunningOn(String url) throws Exception {
+      StatusTool status = new StatusTool();
+      try {
+        status.waitToSeeSolrUp(url, timeoutMs.orElse(1000L).intValue() / 1000);
+        return true;
+      } catch (Exception se) {
+        if (exceptionIsAuthRelated(se)) {
+          throw se;
+        }
+        return false;
+      }
+    }
+
+    private static boolean runningSolrIsCloud(String url) throws Exception {
+      try (final HttpSolrClient client = new HttpSolrClient.Builder(url).build()) {
+        final SolrRequest<CollectionAdminResponse> request = new CollectionAdminRequest.ClusterStatus();
+        final CollectionAdminResponse response = request.process(client);
+        return response != null;
+      } catch (Exception e) {
+        if (exceptionIsAuthRelated(e)) {
+          throw e;
+        }
+        return false;
       }
     }
   } // end AssertTool class
+
+  public static class AssertionFailureException extends Exception {
+    public AssertionFailureException(String message) {
+      super(message);
+    }
+  }
 
   // Authentication tool
   public static class AuthTool extends ToolBase {
@@ -3548,7 +3725,7 @@ public class SolrCLI {
           OptionBuilder
           .withArgName("type")
           .hasArg()
-          .withDescription("The authentication mechanism to enable. Defaults to 'basicAuth'.")
+          .withDescription("The authentication mechanism to enable (basicAuth or kerberos). Defaults to 'basicAuth'.")
           .create("type"),
           OptionBuilder
           .withArgName("credentials")
@@ -3560,6 +3737,11 @@ public class SolrCLI {
           .hasArg()
           .withDescription("Prompts the user to provide the credentials. Use either -credentials or -prompt, not both")
           .create("prompt"),
+          OptionBuilder
+          .withArgName("config")
+          .hasArgs()
+          .withDescription("Configuration parameters (Solr startup parameters). Required for Kerberos authentication")
+          .create("config"),
           OptionBuilder
           .withArgName("blockUnknown")
           .withDescription("Blocks all access for unknown users (requires authentication for all endpoints)")
@@ -3592,22 +3774,157 @@ public class SolrCLI {
           .hasArg()
           .withDescription("ZooKeeper host")
           .create("zkHost"),
+          OptionBuilder
+          .isRequired(false)
+          .withDescription("Enable more verbose command output.")
+          .create("verbose")
       };
     }
 
     @Override
     public int runTool(CommandLine cli) throws Exception {
+      raiseLogLevelUnlessVerbose(cli);
       if (cli.getOptions().length == 0 || cli.getArgs().length == 0 || cli.getArgs().length > 1 || cli.hasOption("h")) {
         new HelpFormatter().printHelp("bin/solr auth <enable|disable> [OPTIONS]", getToolOptions(this));
         return 1;
       }
 
       String type = cli.getOptionValue("type", "basicAuth");
-      if (type.equalsIgnoreCase("basicAuth") == false) {
-        System.out.println("Only type=basicAuth supported at the moment.");
-        exit(1);
+      switch (type) {
+        case "basicAuth":
+          return handleBasicAuth(cli);
+        case "kerberos":
+          return handleKerberos(cli);
+        default:
+          System.out.println("Only type=basicAuth or kerberos supported at the moment.");
+          exit(1);
+      }
+      return 1;
+    }
+
+    private int handleKerberos(CommandLine cli) throws Exception {
+      String cmd = cli.getArgs()[0];
+      boolean updateIncludeFileOnly = Boolean.parseBoolean(cli.getOptionValue("updateIncludeFileOnly", "false"));
+      String securityJson = "{" +
+                "\n  \"authentication\":{" +
+                "\n   \"class\":\"solr.KerberosPlugin\"" +
+                "\n  }" +
+                "\n}";
+
+
+      switch (cmd) {
+        case "enable":
+          String zkHost = null;
+          boolean zkInaccessible = false;
+
+          if (!updateIncludeFileOnly) {
+            try {
+              zkHost = getZkHost(cli);
+            } catch (Exception ex) {
+              System.out.println("Unable to access ZooKeeper. Please add the following security.json to ZooKeeper (in case of SolrCloud):\n"
+                    + securityJson + "\n");
+              zkInaccessible = true;
+            }
+            if (zkHost == null) {
+              if (zkInaccessible == false) {
+                System.out.println("Unable to access ZooKeeper. Please add the following security.json to ZooKeeper (in case of SolrCloud):\n"
+                    + securityJson + "\n");
+                zkInaccessible = true;
+              }
+            }
+
+            // check if security is already enabled or not
+            if (!zkInaccessible) {
+              try (SolrZkClient zkClient = new SolrZkClient(zkHost, 10000)) {
+                if (zkClient.exists("/security.json", true)) {
+                  byte oldSecurityBytes[] = zkClient.getData("/security.json", null, null, true);
+                  if (!"{}".equals(new String(oldSecurityBytes, StandardCharsets.UTF_8).trim())) {
+                    System.out.println("Security is already enabled. You can disable it with 'bin/solr auth disable'. Existing security.json: \n"
+                        + new String(oldSecurityBytes, StandardCharsets.UTF_8));
+                    exit(1);
+                  }
+                }
+              } catch (Exception ex) {
+                if (zkInaccessible == false) {
+                  System.out.println("Unable to access ZooKeeper. Please add the following security.json to ZooKeeper (in case of SolrCloud):\n"
+                      + securityJson + "\n");
+                  zkInaccessible = true;
+                }
+              }
+            }
+          }
+
+          if (!updateIncludeFileOnly) {
+            if (!zkInaccessible) {
+              echoIfVerbose("Uploading following security.json: " + securityJson, cli);
+              try (SolrZkClient zkClient = new SolrZkClient(zkHost, 10000)) {
+                zkClient.setData("/security.json", securityJson.getBytes(StandardCharsets.UTF_8), true);
+              } catch (Exception ex) {
+                if (zkInaccessible == false) {
+                  System.out.println("Unable to access ZooKeeper. Please add the following security.json to ZooKeeper (in case of SolrCloud):\n"
+                      + securityJson);
+                  zkInaccessible = true;
+                }
+              }
+            }
+          }
+
+          String config = StrUtils.join(Arrays.asList(cli.getOptionValues("config")), ' ');
+          // config is base64 encoded (to get around parsing problems), decode it
+          config = config.replaceAll(" ", "");
+          config = new String(Base64.getDecoder().decode(config.getBytes("UTF-8")), "UTF-8");
+          config = config.replaceAll("\n", "").replaceAll("\r", "");
+
+          String solrIncludeFilename = cli.getOptionValue("solrIncludeFile");
+          File includeFile = new File(solrIncludeFilename);
+          if (includeFile.exists() == false || includeFile.canWrite() == false) {
+            System.out.println("Solr include file " + solrIncludeFilename + " doesn't exist or is not writeable.");
+            printAuthEnablingInstructions(config);
+            System.exit(0);
+          }
+
+          // update the solr.in.sh file to contain the necessary authentication lines
+          updateIncludeFileEnableAuth(includeFile, null, config, cli);
+          echo("Successfully enabled Kerberos authentication; please restart any running Solr nodes.");
+          return 0;
+
+        case "disable":
+          if (!updateIncludeFileOnly) {
+            zkHost = getZkHost(cli);
+            if (zkHost == null) {
+              stdout.print("ZK Host not found. Solr should be running in cloud mode");
+              exit(1);
+            }
+
+            echoIfVerbose("Uploading following security.json: {}", cli);
+
+            try (SolrZkClient zkClient = new SolrZkClient(zkHost, 10000)) {
+              zkClient.setData("/security.json", "{}".getBytes(StandardCharsets.UTF_8), true);
+            }
+          }
+
+          solrIncludeFilename = cli.getOptionValue("solrIncludeFile");
+          includeFile = new File(solrIncludeFilename);
+          if (!includeFile.exists() || !includeFile.canWrite()) {
+            System.out.println("Solr include file " + solrIncludeFilename + " doesn't exist or is not writeable.");
+            System.out.println("Security has been disabled. Please remove any SOLR_AUTH_TYPE or SOLR_AUTHENTICATION_OPTS configuration from solr.in.sh/solr.in.cmd.\n");
+            System.exit(0);
+          }
+
+          // update the solr.in.sh file to comment out the necessary authentication lines
+          updateIncludeFileDisableAuth(includeFile, cli);
+          return 0;
+
+        default:
+          System.out.println("Valid auth commands are: enable, disable");
+          exit(1);
       }
 
+      System.out.println("Options not understood.");
+      new HelpFormatter().printHelp("bin/solr auth <enable|disable> [OPTIONS]", getToolOptions(this));
+      return 1;
+    }
+    private int handleBasicAuth(CommandLine cli) throws Exception {
       String cmd = cli.getArgs()[0];
       boolean prompt = Boolean.parseBoolean(cli.getOptionValue("prompt", "false"));
       boolean updateIncludeFileOnly = Boolean.parseBoolean(cli.getOptionValue("updateIncludeFileOnly", "false"));
@@ -3689,7 +4006,7 @@ public class SolrCLI {
               "\n}";
 
           if (!updateIncludeFileOnly) {
-            System.out.println("Uploading following security.json: " + securityJson);
+            echoIfVerbose("Uploading following security.json: " + securityJson, cli);
             try (SolrZkClient zkClient = new SolrZkClient(zkHost, 10000)) {
               zkClient.setData("/security.json", securityJson.getBytes(StandardCharsets.UTF_8), true);
             }
@@ -3715,7 +4032,10 @@ public class SolrCLI {
               "httpBasicAuthUser=" + username + "\nhttpBasicAuthPassword=" + password, StandardCharsets.UTF_8);
 
           // update the solr.in.sh file to contain the necessary authentication lines
-          updateIncludeFileEnableAuth(includeFile, basicAuthConfFile.getAbsolutePath());
+          updateIncludeFileEnableAuth(includeFile, basicAuthConfFile.getAbsolutePath(), null, cli);
+          final String successMessage = String.format(Locale.ROOT,
+              "Successfully enabled basic auth with username [%s] and password [%s].", username, password);
+          echo(successMessage);
           return 0;
 
         case "disable":
@@ -3726,7 +4046,7 @@ public class SolrCLI {
               exit(1);
             }
 
-            System.out.println("Uploading following security.json: {}");
+            echoIfVerbose("Uploading following security.json: {}", cli);
 
             try (SolrZkClient zkClient = new SolrZkClient(zkHost, 10000)) {
               zkClient.setData("/security.json", "{}".getBytes(StandardCharsets.UTF_8), true);
@@ -3742,7 +4062,7 @@ public class SolrCLI {
           }
 
           // update the solr.in.sh file to comment out the necessary authentication lines
-          updateIncludeFileDisableAuth(includeFile);
+          updateIncludeFileDisableAuth(includeFile, cli);
           return 0;
 
         default:
@@ -3754,7 +4074,6 @@ public class SolrCLI {
       new HelpFormatter().printHelp("bin/solr auth <enable|disable> [OPTIONS]", getToolOptions(this));
       return 1;
     }
-
     private void printAuthEnablingInstructions(String username, String password) {
       if (SystemUtils.IS_OS_WINDOWS) {
         System.out.println("\nAdd the following lines to the solr.in.cmd file so that the solr.cmd script can use subsequently.\n");
@@ -3766,8 +4085,26 @@ public class SolrCLI {
             + "SOLR_AUTHENTICATION_OPTS=\"-Dbasicauth=" + username + ":" + password + "\"\n");
       }
     }
+    private void printAuthEnablingInstructions(String kerberosConfig) {
+      if (SystemUtils.IS_OS_WINDOWS) {
+        System.out.println("\nAdd the following lines to the solr.in.cmd file so that the solr.cmd script can use subsequently.\n");
+        System.out.println("set SOLR_AUTH_TYPE=kerberos\n"
+            + "set SOLR_AUTHENTICATION_OPTS=\"" + kerberosConfig + "\"\n");
+      } else {
+        System.out.println("\nAdd the following lines to the solr.in.sh file so that the ./solr script can use subsequently.\n");
+        System.out.println("SOLR_AUTH_TYPE=\"kerberos\"\n"
+            + "SOLR_AUTHENTICATION_OPTS=\"" + kerberosConfig + "\"\n");
+      }
+    }
 
-    private void updateIncludeFileEnableAuth(File includeFile, String basicAuthConfFile) throws IOException {
+    /**
+     * This will update the include file (e.g. solr.in.sh / solr.in.cmd) with the authentication parameters.
+     * @param includeFile The include file
+     * @param basicAuthConfFile  If basicAuth, the path of the file containing credentials. If not, null.
+     * @param kerberosConfig If kerberos, the config string containing startup parameters. If not, null.
+     */
+    private void updateIncludeFileEnableAuth(File includeFile, String basicAuthConfFile, String kerberosConfig, CommandLine cli) throws IOException {
+      assert !(basicAuthConfFile != null && kerberosConfig != null); // only one of the two needs to be populated
       List<String> includeFileLines = FileUtils.readLines(includeFile, StandardCharsets.UTF_8);
       for (int i=0; i<includeFileLines.size(); i++) {
         String line = includeFileLines.get(i);
@@ -3780,21 +4117,37 @@ public class SolrCLI {
         }
       }
       includeFileLines.add(""); // blank line
-      if (SystemUtils.IS_OS_WINDOWS) {
-        includeFileLines.add("REM The following lines added by solr.cmd for enabling BasicAuth");
-        includeFileLines.add("set SOLR_AUTH_TYPE=basic");
-        includeFileLines.add("set SOLR_AUTHENTICATION_OPTS=\"-Dsolr.httpclient.config=" + basicAuthConfFile + "\"");
-      } else {
-        includeFileLines.add("# The following lines added by ./solr for enabling BasicAuth");
-        includeFileLines.add("SOLR_AUTH_TYPE=\"basic\"");
-        includeFileLines.add("SOLR_AUTHENTICATION_OPTS=\"-Dsolr.httpclient.config=" + basicAuthConfFile + "\"");
+      
+      if (basicAuthConfFile != null) { // for basicAuth
+        if (SystemUtils.IS_OS_WINDOWS) {
+          includeFileLines.add("REM The following lines added by solr.cmd for enabling BasicAuth");
+          includeFileLines.add("set SOLR_AUTH_TYPE=basic");
+          includeFileLines.add("set SOLR_AUTHENTICATION_OPTS=\"-Dsolr.httpclient.config=" + basicAuthConfFile + "\"");
+        } else {
+          includeFileLines.add("# The following lines added by ./solr for enabling BasicAuth");
+          includeFileLines.add("SOLR_AUTH_TYPE=\"basic\"");
+          includeFileLines.add("SOLR_AUTHENTICATION_OPTS=\"-Dsolr.httpclient.config=" + basicAuthConfFile + "\"");
+        }
+      } else { // for kerberos
+        if (SystemUtils.IS_OS_WINDOWS) {
+          includeFileLines.add("REM The following lines added by solr.cmd for enabling BasicAuth");
+          includeFileLines.add("set SOLR_AUTH_TYPE=kerberos");
+          includeFileLines.add("set SOLR_AUTHENTICATION_OPTS=\"-Dsolr.httpclient.config=" + basicAuthConfFile + "\"");
+        } else {
+          includeFileLines.add("# The following lines added by ./solr for enabling BasicAuth");
+          includeFileLines.add("SOLR_AUTH_TYPE=\"kerberos\"");
+          includeFileLines.add("SOLR_AUTHENTICATION_OPTS=\"" + kerberosConfig + "\"");
+        }        
       }
       FileUtils.writeLines(includeFile, StandardCharsets.UTF_8.name(), includeFileLines);
 
-      System.out.println("Written out credentials file: " + basicAuthConfFile + ", updated Solr include file: " + includeFile.getAbsolutePath() + ".");
+      if (basicAuthConfFile != null) {
+        echoIfVerbose("Written out credentials file: " + basicAuthConfFile, cli);
+      }
+      echoIfVerbose("Updated Solr include file: " + includeFile.getAbsolutePath(), cli);
     }
 
-    private void updateIncludeFileDisableAuth(File includeFile) throws IOException {
+    private void updateIncludeFileDisableAuth(File includeFile, CommandLine cli) throws IOException {
       List<String> includeFileLines = FileUtils.readLines(includeFile, StandardCharsets.UTF_8);
       boolean hasChanged = false;
       for (int i=0; i<includeFileLines.size(); i++) {
@@ -3811,7 +4164,7 @@ public class SolrCLI {
       }
       if (hasChanged) {
         FileUtils.writeLines(includeFile, StandardCharsets.UTF_8.name(), includeFileLines);
-        System.out.println("Commented out necessary lines from " + includeFile.getAbsolutePath());
+        echoIfVerbose("Commented out necessary lines from " + includeFile.getAbsolutePath(), cli);
       }
     }
     @Override

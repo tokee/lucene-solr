@@ -18,7 +18,6 @@ package org.apache.solr.cloud;
 
 import junit.framework.Assert;
 import org.apache.hadoop.util.Time;
-import org.apache.lucene.util.Constants;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.solr.SolrTestCaseJ4;
 import org.apache.solr.client.solrj.impl.CloudSolrClient;
@@ -44,7 +43,9 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.lang.invoke.MethodHandles;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.Set;
 
 import org.slf4j.Logger;
@@ -63,8 +64,6 @@ public class TestSolrCloudWithDelegationTokens extends SolrTestCaseJ4 {
 
   @BeforeClass
   public static void startup() throws Exception {
-    assumeFalse("SOLR-10951: Hadoop does not work on Java 9", Constants.JRE_IS_MINIMUM_JAVA9);
-    
     System.setProperty("authenticationPlugin", HttpParamDelegationTokenPlugin.class.getName());
     System.setProperty(KerberosPlugin.DELEGATION_TOKEN_ENABLED, "true");
     System.setProperty("solr.kerberos.cookie.domain", "127.0.0.1");
@@ -182,8 +181,7 @@ public class TestSolrCloudWithDelegationTokens extends SolrTestCaseJ4 {
         .withKerberosDelegationToken(token)
         .withResponseParser(client.getParser())
         .build();
-    else delegationTokenClient = new CloudSolrClient.Builder()
-        .withZkHost((miniCluster.getZkServer().getZkAddress()))
+    else delegationTokenClient = new CloudSolrClient.Builder(Collections.singletonList(miniCluster.getZkServer().getZkAddress()), Optional.empty())
         .withLBHttpSolrClientBuilder(new LBHttpSolrClient.Builder()
             .withResponseParser(client.getParser())
             .withHttpSolrClientBuilder(
@@ -285,7 +283,6 @@ public class TestSolrCloudWithDelegationTokens extends SolrTestCaseJ4 {
   }
 
   @Test
-  @AwaitsFix(bugUrl="https://issues.apache.org/jira/browse/HADOOP-14044")
   public void testDelegationTokenCancelFail() throws Exception {
     // cancel a bogus token
     cancelDelegationToken("BOGUS", ErrorCode.NOT_FOUND.code, solrClientPrimary);

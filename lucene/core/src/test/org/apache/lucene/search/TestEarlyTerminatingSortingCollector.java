@@ -121,8 +121,8 @@ public class TestEarlyTerminatingSortingCollector extends LuceneTestCase {
         final boolean fillFields = random().nextBoolean();
         final boolean trackDocScores = random().nextBoolean();
         final boolean trackMaxScore = random().nextBoolean();
-        final TopFieldCollector collector1 = TopFieldCollector.create(sort, numHits, fillFields, trackDocScores, trackMaxScore);
-        final TopFieldCollector collector2 = TopFieldCollector.create(sort, numHits, fillFields, trackDocScores, trackMaxScore);
+        final TopFieldCollector collector1 = TopFieldCollector.create(sort, numHits, fillFields, trackDocScores, trackMaxScore, false);
+        final TopFieldCollector collector2 = TopFieldCollector.create(sort, numHits, fillFields, trackDocScores, trackMaxScore, false);
 
         final Query query;
         if (random().nextBoolean()) {

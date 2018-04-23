@@ -395,7 +395,12 @@ public class TermAutomatonQuery extends Query {
         return null;
       }
     }
-    
+
+    @Override
+    public boolean isCacheable(LeafReaderContext ctx) {
+      return true;
+    }
+
     @Override
     public Explanation explain(LeafReaderContext context, int doc) throws IOException {
       // TODO

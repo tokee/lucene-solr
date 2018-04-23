@@ -386,7 +386,7 @@ public class TestDistributedSearch extends BaseDistributedSearchTestCase {
     query("q","*:*", "fl","n_*","sort",i1 + " desc");
 
     // basic spellcheck testing
-    query("q", "toyata", "fl", "id,lowerfilt", "spellcheck", true, "spellcheck.q", "toyata", "qt", "spellCheckCompRH_Direct", "shards.qt", "spellCheckCompRH_Direct");
+    query("q", "toyata", "fl", "id,lowerfilt", "spellcheck", true, "spellcheck.q", "toyata", "qt", "/spellCheckCompRH_Direct", "shards.qt", "/spellCheckCompRH_Direct");
 
     stress=0;  // turn off stress... we want to tex max combos in min time
     for (int i=0; i<25*RANDOM_MULTIPLIER; i++) {
@@ -1012,8 +1012,8 @@ public class TestDistributedSearch extends BaseDistributedSearchTestCase {
           "q", "toyata",
           "spellcheck", "true",
           "spellcheck.q", "toyata",
-          "qt", "spellCheckCompRH_Direct",
-          "shards.qt", "spellCheckCompRH_Direct",
+          "qt", "/spellCheckCompRH_Direct",
+          "shards.qt", "/spellCheckCompRH_Direct",
           ShardParams.SHARDS_INFO, "true",
           ShardParams.SHARDS_TOLERANT, "true");
 
@@ -1062,7 +1062,7 @@ public class TestDistributedSearch extends BaseDistributedSearchTestCase {
                  rsp.getFieldStatsInfo().get(fieldName).getMin());
     query("q", "*:*", "stats", "true", "stats.field", fieldName,  
           StatsParams.STATS_CALC_DISTINCT, "true");
-    assertEquals(new EnumFieldValue(4, "Critical"),
+    assertEquals(new EnumFieldValue(11, "Critical"),
                  rsp.getFieldStatsInfo().get(fieldName).getMax());
 
     handle.put("severity", UNORDERED); // this is stupid, but stats.facet doesn't garuntee order

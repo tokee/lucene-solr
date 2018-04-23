@@ -1,6 +1,4 @@
 = Solr Glossary
-:page-shortname: solr-glossary
-:page-permalink: solr-glossary.html
 :page-toc: false
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
@@ -33,7 +31,7 @@ Where possible, terms are linked to relevant parts of the Solr Reference Guide f
 [[SolrGlossary-A]]
 === A
 
-[[atomicupdates]]<<updating-parts-of-documents.adoc#UpdatingPartsofDocuments-AtomicUpdates,Atomic updates>>::
+[[atomicupdates]]<<updating-parts-of-documents.adoc#atomic-updates,Atomic updates>>::
 An approach to updating only one or more fields of a document, instead of reindexing the entire document.
 
 
@@ -120,7 +118,7 @@ A JVM instance running Solr. Also known as a Solr server.
 [[SolrGlossary-O]]
 === O
 
-[[optimisticconcurrency]]<<updating-parts-of-documents.adoc#UpdatingPartsofDocuments-OptimisticConcurrency,Optimistic concurrency>>::
+[[optimisticconcurrency]]<<updating-parts-of-documents.adoc#optimistic-concurrency,Optimistic concurrency>>::
 Also known as "optimistic locking", this is an approach that allows for updates to documents currently in the index while retaining locking or version control.
 
 [[overseer]]Overseer::
@@ -168,7 +166,7 @@ The Solr index Schema defines the fields to be indexed and the type for the fiel
 
 [[solrconfig]]<<the-well-configured-solr-instance.adoc#the-well-configured-solr-instance,SolrConfig (solrconfig.xml)>>::
 
-The Apache Solr configuration file. Defines indexing options, RequestHandlers, highlighting, spellchecking and various other configurations. The file, solrconfig.xml is located in the Solr home conf directory.
+The Apache Solr configuration file. Defines indexing options, RequestHandlers, highlighting, spellchecking and various other configurations. The file, `solrconfig.xml`, is located in the Solr home `conf` directory.
 
 [[spellcheck]]<<spell-checking.adoc#spell-checking,Spell Check>>::
 The ability to suggest alternative spellings of search terms to a user, as a check against spelling errors causing few or zero results.

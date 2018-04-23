@@ -96,6 +96,11 @@ public class TermQuery extends Query {
       return new TermScorer(this, docs, similarity.simScorer(stats, context));
     }
 
+    @Override
+    public boolean isCacheable(LeafReaderContext ctx) {
+      return true;
+    }
+
     /**
      * Returns a {@link TermsEnum} positioned at this weights Term or null if
      * the term does not exist in the given context
@@ -136,7 +141,7 @@ public class TermQuery extends Query {
 
     @Override
     public Explanation explain(LeafReaderContext context, int doc) throws IOException {
-      Scorer scorer = scorer(context);
+      TermScorer scorer = (TermScorer) scorer(context);
       if (scorer != null) {
         int newDoc = scorer.iterator().advance(doc);
         if (newDoc == doc) {

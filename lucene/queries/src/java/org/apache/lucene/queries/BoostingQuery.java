@@ -23,7 +23,14 @@ import java.util.Set;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.Term;
-import org.apache.lucene.search.*;
+import org.apache.lucene.search.DocIdSetIterator;
+import org.apache.lucene.search.Explanation;
+import org.apache.lucene.search.FilterScorer;
+import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.Query;
+import org.apache.lucene.search.Scorer;
+import org.apache.lucene.search.TwoPhaseIterator;
+import org.apache.lucene.search.Weight;
 
 /**
  * The BoostingQuery class can be used to effectively demote results that match a given query. 
@@ -40,16 +47,19 @@ import org.apache.lucene.search.*;
  * This code was originally made available here: 
  *   <a href="http://marc.theaimsgroup.com/?l=lucene-user&amp;m=108058407130459&amp;w=2">http://marc.theaimsgroup.com/?l=lucene-user&amp;m=108058407130459&amp;w=2</a>
  * and is documented here: http://wiki.apache.org/lucene-java/CommunityContributions
+ *
+ * @deprecated Use {@link org.apache.lucene.queries.function.FunctionScoreQuery#boostByQuery(Query, Query, float)}
  */
+@Deprecated
 public class BoostingQuery extends Query {
-    private final float boost;                            // the amount to boost by
+    private final float contextBoost;                     // the amount to boost by
     private final Query match;                            // query to match
     private final Query context;                          // boost when matches too
 
     public BoostingQuery(Query match, Query context, float boost) {
       this.match = match;
       this.context = context; // ignore context-only matches
-      this.boost = boost;
+      this.contextBoost = boost;
     }
 
     @Override
@@ -57,7 +67,7 @@ public class BoostingQuery extends Query {
       Query matchRewritten = match.rewrite(reader);
       Query contextRewritten = context.rewrite(reader);
       if (match != matchRewritten || context != contextRewritten) {
-        return new BoostingQuery(matchRewritten, contextRewritten, boost);
+        return new BoostingQuery(matchRewritten, contextRewritten, contextBoost);
       }
       return super.rewrite(reader);
     }
@@ -86,9 +96,9 @@ public class BoostingQuery extends Query {
           if (matchExplanation.isMatch() == false || contextExplanation.isMatch() == false) {
             return matchExplanation;
           }
-          return Explanation.match(matchExplanation.getValue() * boost, "product of:",
+          return Explanation.match(matchExplanation.getValue() * contextBoost, "product of:",
               matchExplanation,
-              Explanation.match(boost, "boost"));
+              Explanation.match(contextBoost, "boost"));
         }
 
         @Override
@@ -115,12 +125,18 @@ public class BoostingQuery extends Query {
               float score = super.score();
               if (contextApproximation.docID() == docID()
                   && (contextTwoPhase == null || contextTwoPhase.matches())) {
-                score *= boost;
+                score *= contextBoost;
               }
               return score;
             }
           };
         }
+
+        @Override
+        public boolean isCacheable(LeafReaderContext ctx) {
+          return matchWeight.isCacheable(ctx) && contextWeight.isCacheable(ctx);
+        }
+
       };
     }
 
@@ -133,12 +149,12 @@ public class BoostingQuery extends Query {
     }
 
     public float getBoost() {
-      return boost;
+      return contextBoost;
     }
 
     @Override
     public int hashCode() {
-      return 31 * classHash() + Objects.hash(match, context, boost);
+      return 31 * classHash() + Objects.hash(match, context, contextBoost);
     }
 
     @Override
@@ -150,7 +166,7 @@ public class BoostingQuery extends Query {
     private boolean equalsTo(BoostingQuery other) {
       return match.equals(other.match)
           && context.equals(other.context)
-          && Float.floatToIntBits(boost) == Float.floatToIntBits(other.boost);
+          && Float.floatToIntBits(contextBoost) == Float.floatToIntBits(other.contextBoost);
     }
 
     @Override

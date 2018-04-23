@@ -536,6 +536,7 @@ public abstract class TFIDFSimilarity extends Similarity {
    * @param distance the edit distance of this sloppy phrase match
    * @return the frequency increment for this match
    */
+  @Deprecated
   public abstract float sloppyFreq(int distance);
 
   /**
@@ -549,6 +550,7 @@ public abstract class TFIDFSimilarity extends Similarity {
    * @param payload The payload byte array to be scored
    * @return An implementation dependent float to be used as a scoring factor
    */
+  @Deprecated
   public abstract float scorePayload(int doc, int start, int end, BytesRef payload);
 
   @Override

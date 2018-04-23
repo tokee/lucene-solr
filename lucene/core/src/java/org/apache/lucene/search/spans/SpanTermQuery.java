@@ -92,6 +92,11 @@ public class SpanTermQuery extends SpanQuery {
     }
 
     @Override
+    public boolean isCacheable(LeafReaderContext ctx) {
+      return true;
+    }
+
+    @Override
     public void extractTermContexts(Map<Term, TermContext> contexts) {
       contexts.put(term, termContext);
     }

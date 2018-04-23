@@ -1,6 +1,4 @@
 = Dataimport Screen
-:page-shortname: dataimport-screen
-:page-permalink: dataimport-screen.html
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -22,7 +20,6 @@ The Dataimport screen shows the configuration of the DataImportHandler (DIH) and
 
 .The Dataimport Screen
 image::images/dataimport-screen/dataimport.png[image,width=485,height=250]
-
 
 This screen also lets you adjust various options to control how the data is imported to Solr, and view the data import configuration file that controls the import.
 

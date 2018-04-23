@@ -50,7 +50,7 @@ import org.apache.solr.request.LocalSolrQueryRequest;
 import org.apache.solr.request.SolrQueryRequest;
 import org.apache.solr.response.SolrQueryResponse;
 import org.apache.solr.schema.SchemaField;
-import org.apache.solr.util.AbstractSolrTestCase;
+import org.apache.solr.SolrTestCaseJ4;
 
 import org.apache.commons.math3.util.Combinations;
 import com.tdunning.math.stats.AVLTreeDigest;
@@ -62,7 +62,7 @@ import org.junit.BeforeClass;
 /**
  * Statistics Component Test
  */
-public class StatsComponentTest extends AbstractSolrTestCase {
+public class StatsComponentTest extends SolrTestCaseJ4 {
 
   final static String XPRE = "/response/lst[@name='stats']/";
 
@@ -78,7 +78,6 @@ public class StatsComponentTest extends AbstractSolrTestCase {
     super.setUp();
     clearIndex();
     assertU(commit());
-    lrf = h.getRequestFactory("standard", 0, 20);
   }
 
   public void testStats() throws Exception {

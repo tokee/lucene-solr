@@ -163,6 +163,10 @@ public class IndexFetcher {
 
   private Integer soTimeout;
 
+  private boolean downloadTlogFiles = false;
+
+  private boolean skipCommitOnMasterVersionZero;
+
   private static final String INTERRUPT_RESPONSE_MESSAGE = "Interrupted while waiting for modify lock";
 
   public static class IndexFetchResult {
@@ -226,6 +230,10 @@ public class IndexFetcher {
     if (fetchFromLeader != null && fetchFromLeader instanceof Boolean) {
       this.fetchFromLeader = (boolean) fetchFromLeader;
     }
+    Object skipCommitOnMasterVersionZero = initArgs.get(SKIP_COMMIT_ON_MASTER_VERSION_ZERO);
+    if (skipCommitOnMasterVersionZero != null && skipCommitOnMasterVersionZero instanceof Boolean) {
+      this.skipCommitOnMasterVersionZero = (boolean) skipCommitOnMasterVersionZero;
+    }
     String masterUrl = (String) initArgs.get(MASTER_URL);
     if (masterUrl == null && !this.fetchFromLeader)
       throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,
@@ -247,6 +255,10 @@ public class IndexFetcher {
     soTimeout = Integer.getInteger("solr.indexfetcher.sotimeout", -1);
     if (soTimeout == -1) {
       soTimeout = getParameter(initArgs, HttpClientUtil.PROP_SO_TIMEOUT, 120000, null);
+    }
+
+    if (initArgs.getBooleanArg(TLOG_FILES) != null) {
+      downloadTlogFiles = initArgs.getBooleanArg(TLOG_FILES);
     }
 
     String httpBasicAuthUser = (String) initArgs.get(HttpClientUtil.PROP_BASIC_AUTH_USER);
@@ -276,9 +288,11 @@ public class IndexFetcher {
     QueryRequest req = new QueryRequest(params);
 
     // TODO modify to use shardhandler
-    try (HttpSolrClient client = new Builder(masterUrl).withHttpClient(myHttpClient).build()) {
-      client.setSoTimeout(soTimeout);
-      client.setConnectionTimeout(connTimeout);
+    try (HttpSolrClient client = new Builder(masterUrl)
+        .withHttpClient(myHttpClient)
+        .withConnectionTimeout(connTimeout)
+        .withSocketTimeout(soTimeout)
+        .build()) {
 
       return client.request(req);
     } catch (SolrServerException e) {
@@ -292,15 +306,18 @@ public class IndexFetcher {
   private void fetchFileList(long gen) throws IOException {
     ModifiableSolrParams params = new ModifiableSolrParams();
     params.set(COMMAND,  CMD_GET_FILE_LIST);
+    params.set(TLOG_FILES, downloadTlogFiles);
     params.set(GENERATION, String.valueOf(gen));
     params.set(CommonParams.WT, JAVABIN);
     params.set(CommonParams.QT, ReplicationHandler.PATH);
     QueryRequest req = new QueryRequest(params);
 
     // TODO modify to use shardhandler
-    try (HttpSolrClient client = new HttpSolrClient.Builder(masterUrl).withHttpClient(myHttpClient).build()) {
-      client.setSoTimeout(soTimeout);
-      client.setConnectionTimeout(connTimeout);
+    try (HttpSolrClient client = new HttpSolrClient.Builder(masterUrl)
+        .withHttpClient(myHttpClient)
+        .withConnectionTimeout(connTimeout)
+        .withSocketTimeout(soTimeout)
+        .build()) {
       NamedList response = client.request(req);
 
       List<Map<String, Object>> files = (List<Map<String,Object>>) response.get(CMD_GET_FILE_LIST);
@@ -424,7 +441,7 @@ public class IndexFetcher {
       LOG.info("Slave's version: " + IndexDeletionPolicyWrapper.getCommitTimestamp(commit));
 
       if (latestVersion == 0L) {
-        if (forceReplication && commit.getGeneration() != 0) {
+        if (commit.getGeneration() != 0) {
           // since we won't get the files for an empty index,
           // we just clear ours and commit
           LOG.info("New index in Master. Deleting mine...");
@@ -434,8 +451,12 @@ public class IndexFetcher {
           } finally {
             iw.decref();
           }
-          SolrQueryRequest req = new LocalSolrQueryRequest(solrCore, new ModifiableSolrParams());
-          solrCore.getUpdateHandler().commit(new CommitUpdateCommand(req, false));
+          if (skipCommitOnMasterVersionZero) {
+            openNewSearcherAndUpdateCommitPoint();
+          } else {
+            SolrQueryRequest req = new LocalSolrQueryRequest(solrCore, new ModifiableSolrParams());
+            solrCore.getUpdateHandler().commit(new CommitUpdateCommand(req, false));
+          }
         }
 
         //there is nothing to be replicated
@@ -1691,9 +1712,9 @@ public class IndexFetcher {
       try (HttpSolrClient client = new Builder(masterUrl)
           .withHttpClient(myHttpClient)
           .withResponseParser(null)
+          .withConnectionTimeout(connTimeout)
+          .withSocketTimeout(soTimeout)
           .build()) {
-        client.setSoTimeout(soTimeout);
-        client.setConnectionTimeout(connTimeout);
         QueryRequest req = new QueryRequest(params);
         response = client.request(req);
         is = (InputStream) response.get("stream");
@@ -1800,9 +1821,11 @@ public class IndexFetcher {
     params.set(CommonParams.QT, ReplicationHandler.PATH);
 
     // TODO use shardhandler
-    try (HttpSolrClient client = new HttpSolrClient.Builder(masterUrl).withHttpClient(myHttpClient).build()) {
-      client.setSoTimeout(soTimeout);
-      client.setConnectionTimeout(connTimeout);
+    try (HttpSolrClient client = new HttpSolrClient.Builder(masterUrl)
+        .withHttpClient(myHttpClient)
+        .withConnectionTimeout(connTimeout)
+        .withSocketTimeout(soTimeout)
+        .build()) {
       QueryRequest request = new QueryRequest(params);
       return client.request(request);
     }

@@ -25,6 +25,7 @@ import java.util.stream.Stream;
 
 import com.google.common.base.Objects;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.util.Version;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.params.HighlightParams;
 import org.apache.solr.common.params.SolrParams;
@@ -46,6 +47,7 @@ import org.apache.solr.util.plugin.PluginInfoInitialized;
 import org.apache.solr.util.plugin.SolrCoreAware;
 
 import static java.util.stream.Collectors.toMap;
+import static org.apache.solr.core.Config.assertWarnOrFail;
 
 /**
  * TODO!
@@ -131,6 +133,11 @@ public class HighlightComponent extends SearchComponent implements PluginInfoIni
     List<PluginInfo> children = info.getChildren("highlighting");
     if(children.isEmpty()) {
       PluginInfo pluginInfo = core.getSolrConfig().getPluginInfo(SolrHighlighter.class.getName()); //TODO deprecated configuration remove later
+      assertWarnOrFail("solrconfig.xml <highlighting> configuration is deprecated since SOLR-1696 "
+              + "and no longer supported from Solr 7.3 onwards. "
+              + "Please configure via <searchComponent> instead.",
+          (null == pluginInfo),
+          core.getSolrConfig().luceneMatchVersion.onOrAfter(Version.LUCENE_7_3_0));
       if (pluginInfo != null) {
         solrConfigHighlighter = core.createInitInstance(pluginInfo, SolrHighlighter.class, null, DefaultSolrHighlighter.class.getName());
       } else {
@@ -180,7 +187,7 @@ public class HighlightComponent extends SearchComponent implements PluginInfoIni
         
         if(sumData != null) {
           // TODO ???? add this directly to the response?
-          rb.rsp.add("highlighting", sumData);
+          rb.rsp.add(highlightingResponseField(), convertHighlights(sumData));
         }
       }
     }
@@ -238,7 +245,8 @@ public class HighlightComponent extends SearchComponent implements PluginInfoIni
   public void finishStage(ResponseBuilder rb) {
     if (rb.doHighlights && rb.stage == ResponseBuilder.STAGE_GET_FIELDS) {
 
-      NamedList.NamedListEntry[] arr = new NamedList.NamedListEntry[rb.resultIds.size()];
+      final Object[] objArr = newHighlightsArray(rb.resultIds.size());
+      final String highlightingResponseField = highlightingResponseField();
 
       // TODO: make a generic routine to do automatic merging of id keyed data
       for (ShardRequest sreq : rb.finished) {
@@ -249,13 +257,12 @@ public class HighlightComponent extends SearchComponent implements PluginInfoIni
             // this should only happen when using shards.tolerant=true
             continue;
           }
-          NamedList hl = (NamedList)srsp.getSolrResponse().getResponse().get("highlighting");
-          SolrPluginUtils.copyNamedListIntoArrayByDocPosInResponse(hl, rb.resultIds, arr);
+          Object hl = srsp.getSolrResponse().getResponse().get(highlightingResponseField);
+          addHighlights(objArr, hl, rb.resultIds);
         }
       }
 
-      // remove nulls in case not all docs were able to be retrieved
-      rb.rsp.add("highlighting", SolrPluginUtils.removeNulls(arr, new SimpleOrderedMap<>()));
+      rb.rsp.add(highlightingResponseField, getAllHighlights(objArr));
     }
   }
 
@@ -272,4 +279,33 @@ public class HighlightComponent extends SearchComponent implements PluginInfoIni
   public Category getCategory() {
     return Category.HIGHLIGHTER;
   }
+
+  ////////////////////////////////////////////
+  ///  highlighting response collation
+  ////////////////////////////////////////////
+
+  protected String highlightingResponseField() {
+    return "highlighting";
+  }
+
+  protected Object convertHighlights(NamedList hl) {
+    return hl;
+  }
+
+  protected Object[] newHighlightsArray(int size) {
+    return new NamedList.NamedListEntry[size];
+  }
+
+  protected void addHighlights(Object[] objArr, Object obj, Map<Object, ShardDoc> resultIds) {
+    Map.Entry<String, Object>[] arr = (Map.Entry<String, Object>[])objArr;
+    NamedList hl = (NamedList)obj;
+    SolrPluginUtils.copyNamedListIntoArrayByDocPosInResponse(hl, resultIds, arr);
+  }
+
+  protected Object getAllHighlights(Object[] objArr) {
+      final Map.Entry<String, Object>[] arr = (Map.Entry<String, Object>[])objArr;
+      // remove nulls in case not all docs were able to be retrieved
+      return SolrPluginUtils.removeNulls(arr, new SimpleOrderedMap<>());
+  }
+
 }

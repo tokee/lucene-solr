@@ -148,15 +148,19 @@ public class TermInSetQuery extends Query implements Accountable {
   @Override
   public String toString(String defaultField) {
     StringBuilder builder = new StringBuilder();
-    boolean first = true;
+    builder.append(field);
+    builder.append(":(");
+
     TermIterator iterator = termData.iterator();
+    boolean first = true;
     for (BytesRef term = iterator.next(); term != null; term = iterator.next()) {
       if (!first) {
         builder.append(' ');
       }
       first = false;
-      builder.append(new Term(iterator.field(), term).toString());
+      builder.append(Term.toString(term));
     }
+    builder.append(')');
 
     return builder.toString();
   }
@@ -315,6 +319,14 @@ public class TermInSetQuery extends Query implements Accountable {
           return scorer(weightOrBitSet.set);
         }
       }
+
+      @Override
+      public boolean isCacheable(LeafReaderContext ctx) {
+        // Only cache instances that have a reasonable size. Otherwise it might cause memory issues
+        // with the query cache if most memory ends up being spent on queries rather than doc id sets.
+        return ramBytesUsed() <= LRUQueryCache.QUERY_DEFAULT_RAM_BYTES_USED;
+      }
+
     };
   }
 }

@@ -1,6 +1,4 @@
 = Working with Currencies and Exchange Rates
-:page-shortname: working-with-currencies-and-exchange-rates
-:page-permalink: working-with-currencies-and-exchange-rates.html
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -26,8 +24,8 @@ The `currency` FieldType provides support for monetary values to Solr/Lucene wit
 * Sorting
 * Currency parsing by either currency code or symbol
 * Symmetric & asymmetric exchange rates (asymmetric exchange rates are useful if there are fees associated with exchanging the currency)
+* Range faceting (using either `facet.range` or `type:range` in `json.facet`) as long as the `start` and `end` values are specified in the same Currency.
 
-[[WorkingwithCurrenciesandExchangeRates-ConfiguringCurrencies]]
 == Configuring Currencies
 
 .CurrencyField has been Deprecated
@@ -40,12 +38,12 @@ The `currency` field type is defined in `schema.xml`. This is the default config
 
 [source,xml]
 ----
-<fieldType name="currency" class="solr.CurrencyFieldType" 
+<fieldType name="currency" class="solr.CurrencyFieldType"
            amountLongSuffix="_l_ns" codeStrSuffix="_s_ns"
            defaultCurrency="USD" currencyConfig="currency.xml" />
 ----
 
-In this example, we have defined the name and class of the field type, and defined the `defaultCurrency` as "USD", for U.S. Dollars. We have also defined a `currencyConfig` to use a file called "currency.xml". This is a file of exchange rates between our default currency to other currencies. There is an alternate implementation that would allow regular downloading of currency data. See <<WorkingwithCurrenciesandExchangeRates-ExchangeRates,Exchange Rates>> below for more.
+In this example, we have defined the name and class of the field type, and defined the `defaultCurrency` as "USD", for U.S. Dollars. We have also defined a `currencyConfig` to use a file called "currency.xml". This is a file of exchange rates between our default currency to other currencies. There is an alternate implementation that would allow regular downloading of currency data. See <<Exchange Rates>> below for more.
 
 Many of the example schemas that ship with Solr include a <<dynamic-fields.adoc#dynamic-fields,dynamic field>> that uses this type, such as this example:
 
@@ -60,10 +58,9 @@ At indexing time, money fields can be indexed in a native currency. For example,
 
 During query processing, range and point queries are both supported.
 
-[[WorkingwithCurrenciesandExchangeRates-Sub-fieldSuffixes]]
 === Sub-field Suffixes
 
-You must specify parameters `amountLongSuffix` and `codeStrSuffix`, corresponding to dynamic fields to be used for the raw amount and the currency dynamic sub-fields, e.g.: 
+You must specify parameters `amountLongSuffix` and `codeStrSuffix`, corresponding to dynamic fields to be used for the raw amount and the currency dynamic sub-fields, e.g.:
 
 [source,xml]
 ----
@@ -72,20 +69,18 @@ You must specify parameters `amountLongSuffix` and `codeStrSuffix`, correspondin
            defaultCurrency="USD" currencyConfig="currency.xml" />
 ----
 
-In the above example, the raw amount field will use the `"*_l_ns"` dynamic field, which must exist in the schema and use a long field type, i.e. one that extends `LongValueFieldType`.  The currency code field will use the `"*_s_ns"` dynamic field, which must exist in the schema and use a string field type, i.e. one that is or extends `StrField`.
+In the above example, the raw amount field will use the `"*_l_ns"` dynamic field, which must exist in the schema and use a long field type, i.e., one that extends `LongValueFieldType`.  The currency code field will use the `"*_s_ns"` dynamic field, which must exist in the schema and use a string field type, i.e., one that is or extends `StrField`.
 
 .Atomic Updates won't work if dynamic sub-fields are stored
 [NOTE]
 ====
-As noted on <<updating-parts-of-documents.adoc#UpdatingPartsofDocuments-FieldStorage,Updating Parts of Documents>>, stored dynamic sub-fields will cause indexing to fail when you use Atomic Updates. To avoid this problem, specify `stored="false"` on those dynamic fields.
+As noted on <<updating-parts-of-documents.adoc#field-storage,Updating Parts of Documents>>, stored dynamic sub-fields will cause indexing to fail when you use Atomic Updates. To avoid this problem, specify `stored="false"` on those dynamic fields.
 ====
 
-[[WorkingwithCurrenciesandExchangeRates-ExchangeRates]]
 == Exchange Rates
 
 You configure exchange rates by specifying a provider. Natively, two provider types are supported: `FileExchangeRateProvider` or `OpenExchangeRatesOrgProvider`.
 
-[[WorkingwithCurrenciesandExchangeRates-FileExchangeRateProvider]]
 === FileExchangeRateProvider
 
 This provider requires you to provide a file of exchange rates. It is the default, meaning that to use this provider you only need to specify the file path and name as a value for `currencyConfig` in the definition for this type.
@@ -103,9 +98,9 @@ There is a sample `currency.xml` file included with Solr, found in the same dire
     <rate from="USD" to="CAD" rate="1.030815" comment="CANADA Dollar" />
 
     <!-- Cross-rates for some common currencies -->
-    <rate from="EUR" to="GBP" rate="0.869914" />  
-    <rate from="EUR" to="NOK" rate="7.800095" />  
-    <rate from="GBP" to="NOK" rate="8.966508" />  
+    <rate from="EUR" to="GBP" rate="0.869914" />
+    <rate from="EUR" to="NOK" rate="7.800095" />
+    <rate from="GBP" to="NOK" rate="8.966508" />
 
     <!-- Asymmetrical rates -->
     <rate from="EUR" to="USD" rate="0.5" />
@@ -113,7 +108,6 @@ There is a sample `currency.xml` file included with Solr, found in the same dire
 </currencyConfig>
 ----
 
-[[WorkingwithCurrenciesandExchangeRates-OpenExchangeRatesOrgProvider]]
 === OpenExchangeRatesOrgProvider
 
 You can configure Solr to download exchange rates from http://www.OpenExchangeRates.Org[OpenExchangeRates.Org], with updates rates between USD and 170 currencies hourly. These rates are symmetrical only.
@@ -122,10 +116,10 @@ In this case, you need to specify the `providerClass` in the definitions for the
 
 [source,xml]
 ----
-<fieldType name="currency" class="solr.CurrencyFieldType" 
+<fieldType name="currency" class="solr.CurrencyFieldType"
            amountLongSuffix="_l_ns" codeStrSuffix="_s_ns"
            providerClass="solr.OpenExchangeRatesOrgProvider"
-           refreshInterval="60" 
+           refreshInterval="60"
            ratesFileLocation="http://www.openexchangerates.org/api/latest.json?app_id=yourPersonalAppIdKey"/>
 ----
 

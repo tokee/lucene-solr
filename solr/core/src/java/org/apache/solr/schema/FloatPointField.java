@@ -18,7 +18,6 @@
 package org.apache.solr.schema;
 
 import java.util.Collection;
-
 import org.apache.lucene.document.FloatPoint;
 import org.apache.lucene.document.StoredField;
 import org.apache.lucene.index.DocValuesType;
@@ -26,8 +25,8 @@ import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.queries.function.ValueSource;
 import org.apache.lucene.queries.function.valuesource.FloatFieldSource;
 import org.apache.lucene.queries.function.valuesource.MultiValuedFloatFieldSource;
+import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
-import org.apache.lucene.search.SortField;
 import org.apache.lucene.search.SortedNumericSelector;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
@@ -63,6 +62,7 @@ public class FloatPointField extends PointField implements FloatValueFieldType {
     } else {
       actualMin = parseFloatFromUser(field.getName(), min);
       if (!minInclusive) {
+        if (actualMin == Float.POSITIVE_INFINITY) return new MatchNoDocsQuery();
         actualMin = FloatPoint.nextUp(actualMin);
       }
     }
@@ -71,6 +71,7 @@ public class FloatPointField extends PointField implements FloatValueFieldType {
     } else {
       actualMax = parseFloatFromUser(field.getName(), max);
       if (!maxInclusive) {
+        if (actualMax == Float.NEGATIVE_INFINITY) return new MatchNoDocsQuery();
         actualMax = FloatPoint.nextDown(actualMax);
       }
     }
@@ -128,24 +129,6 @@ public class FloatPointField extends PointField implements FloatValueFieldType {
     result.grow(Float.BYTES);
     result.setLength(Float.BYTES);
     FloatPoint.encodeDimension(parseFloatFromUser(null, val.toString()), result.bytes(), 0);
-  }
-
-  @Override
-  public SortField getSortField(SchemaField field, boolean top) {
-    field.checkSortability();
-
-    Object missingValue = null;
-    boolean sortMissingLast = field.sortMissingLast();
-    boolean sortMissingFirst = field.sortMissingFirst();
-
-    if (sortMissingLast) {
-      missingValue = top ? Float.NEGATIVE_INFINITY : Float.POSITIVE_INFINITY;
-    } else if (sortMissingFirst) {
-      missingValue = top ? Float.POSITIVE_INFINITY : Float.NEGATIVE_INFINITY;
-    }
-    SortField sf = new SortField(field.getName(), SortField.Type.FLOAT, top);
-    sf.setMissingValue(missingValue);
-    return sf;
   }
 
   @Override
