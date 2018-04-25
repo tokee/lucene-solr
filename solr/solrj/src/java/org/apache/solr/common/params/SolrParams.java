@@ -371,6 +371,12 @@ public abstract class SolrParams implements Serializable, MapSerializable {
     }
   }
 
+  /**
+   * Wraps params and defaults so that lookups for missing keys in params are directed to defaults.
+   * @param params   primary parameters
+   * @param defaults fallback if no values exists for a given key in params
+   * @return params lookup with fallback to defaults
+   */
   public static SolrParams wrapDefaults(SolrParams params, SolrParams defaults) {
     if (params == null)
       return defaults;

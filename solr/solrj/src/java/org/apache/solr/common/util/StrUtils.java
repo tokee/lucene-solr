@@ -33,6 +33,12 @@ public class StrUtils {
   public static final char[] HEX_DIGITS = { '0', '1', '2', '3', '4', '5', '6',
       '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f' };
 
+  /**
+   * Split a string based on a separator, but don't split if it's inside a string enclosed in {@code '} or {@code "}.
+   * Assume '\' escapes the next char both inside and outside strings.
+   * @param s the String to split
+   * @param separator separating character
+   */
   public static List<String> splitSmart(String s, char separator) {
     ArrayList<String> lst = new ArrayList<>(4);
     splitSmart(s, separator, lst);

@@ -120,23 +120,37 @@ public class SimpleFacets {
   protected FacetDebugInfo fdebugParent;
   protected FacetDebugInfo fdebug;
 
-  // per-facet values
+
+  /**
+   * Single-facet parameters extracted from base request.
+   */
   protected final static class ParsedParams {
-    final public SolrParams localParams; // localParams on this particular facet command
+    final public SolrParams localParams; // localParams on this particular facet command. Can be null
     final public SolrParams params;      // local+original
     final public SolrParams required;    // required version of params
-    final public String facetValue;      // the field to or query to facet on (minus local params)
+    final public String facetValue;      // the field or query to facet on (minus local params)
     final public DocSet docs;            // the base docset for this particular facet
     final public String key;             // what name should the results be stored under
     final public List<String> tags;      // the tags applied to this facet value
     final public int threads;
-    
-    public ParsedParams(final SolrParams localParams, // localParams on this particular facet command
-                        final SolrParams params,      // local+original
-                        final SolrParams required,    // required version of params
-                        final String facetValue,      // the field to or query to facet on (minus local params)
-                        final DocSet docs,            // the base docset for this particular facet
-                        final String key,             // what name should the results be stored under
+
+    /**
+     *
+     * @param localParams localParams on this particular facet command
+     * @param params      local+original
+     * @param required    required version of params
+     * @param facetValue  the field to or query to facet on (minus local params)
+     * @param docs        the base docset for this particular facet
+     * @param key         what name should the results be stored under
+     * @param tags        the tags applied to this facet value
+     * @param threads     the maximum number of threads to use for processing this facet
+     */
+    public ParsedParams(final SolrParams localParams,
+                        final SolrParams params,
+                        final SolrParams required,
+                        final String facetValue,
+                        final DocSet docs,
+                        final String key,
                         final List<String> tags,
                         final int threads) {
       this.localParams = localParams;
@@ -148,7 +162,7 @@ public class SimpleFacets {
       this.tags = tags;
       this.threads = threads;
     }
-    
+
     public ParsedParams withDocs(final DocSet docs) {
       return new ParsedParams(localParams, params, required, facetValue, docs, key, tags, threads);
     }
@@ -175,6 +189,19 @@ public class SimpleFacets {
     this.fdebugParent = fdebugParent;
   }
 
+  /**
+   * Parse the params according to type and produce an expanded request for a facet request.
+   *
+   * @param type the facet type. Used to determine {@link ParsedParams#key} and {@link ParsedParams#facetValue}.
+   *            Known values are {@link FacetParams#FACET_FIELD}, {@link FacetParams#FACET_PIVOT},
+   *            {@link FacetParams#FACET_INTERVAL}, {@link FacetParams#FACET_QUERY} and
+   *            {@link FacetParams#FACET_HEATMAP}.
+   *             As is, only {@link FacetParams#FACET_QUERY} causes a change inkey and facetValue resolution.
+   * @param param the field, query or field list for the params
+   * @return single facet oriented parameters
+   * @throws SyntaxError if the parameters contained errors
+   * @throws IOException if errors occured during docSet resolving
+   */
   protected ParsedParams parseParams(String type, String param) throws SyntaxError, IOException {
     SolrParams localParams = QueryParsing.getLocalParams(param, req.getParams());
     DocSet docs = docsOrig;
@@ -186,14 +213,14 @@ public class SimpleFacets {
     if (localParams == null) {
       SolrParams params = global;
       SolrParams required = new RequiredSolrParams(params);
-      return new ParsedParams(localParams, params, required, facetValue, docs, key, tags, threads);
+      return new ParsedParams(null, params, required, facetValue, docs, key, tags, threads);
     }
     
     SolrParams params = SolrParams.wrapDefaults(localParams, global);
     SolrParams required = new RequiredSolrParams(params);
 
     // remove local params unless it's a query
-    if (type != FacetParams.FACET_QUERY) { // TODO Cut over to an Enum here
+    if (!FacetParams.FACET_QUERY.equals(type)) { // TODO Cut over to an Enum here
       facetValue = localParams.get(CommonParams.VALUE);
     }
 
@@ -204,7 +231,7 @@ public class SimpleFacets {
     key = localParams.get(CommonParams.OUTPUT_KEY, key);
 
     String tagStr = localParams.get(CommonParams.TAG);
-    tags = tagStr == null ? Collections.<String>emptyList() : StrUtils.splitSmart(tagStr,',');
+    tags = tagStr == null ? Collections.emptyList() : StrUtils.splitSmart(tagStr,',');
 
     String threadStr = localParams.get(CommonParams.THREADS);
     if (threadStr != null) {
@@ -220,6 +247,17 @@ public class SimpleFacets {
     return new ParsedParams(localParams, params, required, facetValue, docs, key, tags, threads);
   }
 
+  /**
+   * If the base request contains tagged filters or query, a new DocSet is calculated where the filters or query with
+   * a tag in the excludeTagList has been removed. Typically used to perform faceting on fields where a value (resulting
+   * in a filter query) has been selected in a GUI and where tag counts should be independent of the selection.
+   *
+   * @param baseDocSet     returned if the exclusion is not applicable (no tag + excludeTagList match)
+   * @param excludeTagList the tagged filters or query to exclude when calculating the DocSet
+   * @return the docset for the base request without tagged and excluded filters or query limits
+   * @throws SyntaxError if grouping setup was faulty
+   * @throws IOException if the search for a new DocSet failed
+   */
   protected DocSet computeDocSet(DocSet baseDocSet, List<String> excludeTagList) throws SyntaxError, IOException {
     Map<?,?> tagMap = (Map<?,?>)req.getContext().get("tags");
     // rb can be null if facets are being calculated from a RequestHandler e.g. MoreLikeThisHandler
@@ -348,6 +386,14 @@ public class SimpleFacets {
     ENUM, FC, FCS, UIF;
   }
 
+  /**
+   * Generates an exclusion filter for the given field if any {@link FacetParams#FACET_EXCLUDETERMS} are
+   * specified for it.
+   *
+   * @param field  the field that the exclusion predicate is generated for
+   * @param params base request parameters
+   * @return predicate that allows all BytesRefs that are not excluded. null if there are no exclusions
+   */
   protected Predicate<BytesRef> newExcludeBytesRefFilter(String field, SolrParams params) {
     final String exclude = params.getFieldParam(field, FacetParams.FACET_EXCLUDETERMS);
     if (exclude == null) {
@@ -356,14 +402,17 @@ public class SimpleFacets {
 
     final Set<String> excludeTerms = new HashSet<>(StrUtils.splitSmart(exclude, ",", true));
 
-    return new Predicate<BytesRef>() {
-      @Override
-      public boolean test(BytesRef bytesRef) {
-        return !excludeTerms.contains(bytesRef.utf8ToString());
-      }
-    };
+    return bytesRef -> !excludeTerms.contains(bytesRef.utf8ToString());
   }
 
+  /**
+   * Generates chained inclusion and exclusion filters for given field based on {@link FacetParams#FACET_CONTAINS} and
+   * {@link FacetParams#FACET_EXCLUDETERMS}.
+   *
+   * @param field  the field that the predicate is generated for
+   * @param params base request parameters
+   * @return predicate that filters BytesRefs based on the given inclusions and exclusions
+   */
   protected Predicate<BytesRef> newBytesRefFilter(String field, SolrParams params) {
     final String contains = params.getFieldParam(field, FacetParams.FACET_CONTAINS);
 
@@ -391,7 +440,8 @@ public class SimpleFacets {
   }
 
   /**
-   * Term counts for use in pivot faceting that resepcts the appropriate mincount
+   * Term counts for use in pivot faceting that respects the appropriate mincount
+   *
    * @see FacetParams#FACET_PIVOT_MINCOUNT
    */
   public NamedList<Integer> getTermCountsForPivots(String field, ParsedParams parsed) throws IOException {
@@ -400,7 +450,7 @@ public class SimpleFacets {
   }
 
   /**
-   * Term counts for use in field faceting that resepects the appropriate mincount
+   * Term counts for use in field faceting that respects the appropriate mincount
    *
    * @see FacetParams#FACET_MINCOUNT
    */
@@ -410,10 +460,13 @@ public class SimpleFacets {
   }
 
   /**
-   * Term counts for use in field faceting that resepcts the specified mincount - 
+   * Term counts for use in field faceting that respects the specified mincount -
    * if mincount is null, the "zeros" param is consulted for the appropriate backcompat 
    * default
    *
+   * @param field the field to facet on
+   * @param mincount mincount for the field. Can be null
+   * @param parsed params for the specific facet
    * @see FacetParams#FACET_ZEROS
    */
   private NamedList<Integer> getTermCounts(String field, Integer mincount, ParsedParams parsed) throws IOException {
@@ -589,9 +642,18 @@ public class SimpleFacets {
     return counts;
   }
 
-   /**
-    * @param existsRequested facet.exists=true is passed for the given field
-    * */
+  /**
+   * Sanity checks the requested facet method against the index layout, potentially returning another method due to
+   * constraints imposed by the layout or throwing exception in case of invalid requests.
+   *
+   * @param fieldName the name of the index field to facet on
+   * @param field field we are faceting
+   * @param method the facet method passed as a request parameter
+   * @param mincount the minimum value a facet should have to be returned
+   * @param existsRequested facet.exists=true is passed for the given field
+   * @return the FacetMethod to use
+   **/
+  // TODO: Why not use getName() on field to get fieldName?
   static FacetMethod selectFacetMethod(String fieldName, 
                                        SchemaField field, FacetMethod method, Integer mincount,
                                        boolean existsRequested) {
@@ -853,7 +915,8 @@ public class SimpleFacets {
   }
 
   /**
-   * Computes the term-&gt;count counts for the specified term values relative to the 
+   * Computes the term-&gt;count counts for the specified term values relative to the doc set in parsed.
+   *
    * @param field the name of the field to compute term counts against
    * @param parsed contains the docset to compute term counts relative to
    * @param terms a list of term values (in the specified field) to compute the counts for 
@@ -862,6 +925,7 @@ public class SimpleFacets {
     SchemaField sf = searcher.getSchema().getField(field);
     FieldType ft = sf.getType();
     NamedList<Integer> res = new NamedList<>();
+    // TODO: This could easily be threaded with facetExecutor and the limit taken from parsed.threads
     for (String term : terms) {
       int count = searcher.numDocs(ft.getFieldQuery(null, sf, term), parsed.docs);
       res.add(term, count);
@@ -872,7 +936,7 @@ public class SimpleFacets {
 
   /**
    * Returns a count of the documents in the set which do not have any 
-   * terms for for the specified field.
+   * terms for the specified field.
    *
    * @see FacetParams#FACET_MISSING
    */
@@ -1084,6 +1148,12 @@ public class SimpleFacets {
     return res;
   }
 
+  /**
+   * Throws {@link SolrException} is mincount > 1 and {@link FacetParams#FACET_EXISTS} is true.
+   *
+   * @param fieldName facet field
+   * @param mincount  mincount for the field
+   */
   public static void checkMincountOnExists(String fieldName, int mincount) {
     if (mincount > 1) {
         throw new SolrException (ErrorCode.BAD_REQUEST,
