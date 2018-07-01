@@ -65,7 +65,7 @@ import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
  *
  * The total overhead for the rank cache is currently also numDocs/32 bits or numDocs/8 bytes
  * as the rank-representation is not sparse itself, using empty entries for sub-blocks of type
- * ALL or SPARSE. // TODO: Supporte sparse rank structures
+ * ALL or SPARSE. // TODO: Support sparse rank structures
  */
 public class IndexedDISICache {
   private final long[] blockOffsets;
@@ -191,17 +191,33 @@ public class IndexedDISICache {
       return (leftBits & 1L) != 0;
     }
   }
-    /*
+
   private void fillCaches(IndexInput slice, int numDocs, boolean fillBlockCache, boolean createRankCache)
       throws IOException {
-    int index = 0;
-    int setBits = 0;
-    long nextBlockOffset = 0;
-    long blockOffset = 0;
-
+    final int lastBlock = numDocs & 0xFFFF0000;
     if (fillBlockCache) {
       Arrays.fill(blockOffsets, -1L); // Default is no set bits
     }
+
+    int block = -1;
+    long blockOffset = 0;
+    long nextBlockOffset = slice.getFilePointer();
+    int setBits = 0;
+
+    while (block <= lastBlock) {
+      // Move to next block
+      slice.seek(nextBlockOffset);
+      blockOffset = nextBlockOffset;
+
+      if (fillBlockCache) {
+        blockOffsets[block] = blockOffset;
+      }
+
+    }
+
+
+    int index = 0;
+
 
     while (index < numDocs) {
       assert index >> 16 << 16 == 0; // Blocks are 2^16 bits
@@ -209,9 +225,6 @@ public class IndexedDISICache {
         blockOffsets[index >> 16] = blockOffset;
       }
 
-      // Move to next block
-      slice.seek(nextBlockOffset);
-      blockOffset = nextBlockOffset;
 
 // Get basic data
       final int blockIndex = Short.toUnsignedInt(slice.readShort()) << 16;
@@ -238,5 +251,5 @@ public class IndexedDISICache {
     }
 
   }
-  */
+
 }
