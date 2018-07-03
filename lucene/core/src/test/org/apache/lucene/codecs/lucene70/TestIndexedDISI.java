@@ -151,6 +151,17 @@ public class TestIndexedDISI extends LuceneTestCase {
     }
   }
 
+  public void testDenseMultiBlock() throws IOException {
+    try (Directory dir = newDirectory()) {
+      int maxDoc = 10*65536; // 10 blocks
+      FixedBitSet set = new FixedBitSet(maxDoc);
+      for (int i = 0 ; i < maxDoc ; i+=2) { // Set every other to ensure dense
+        set.set(i);
+      }
+      doTest(set, dir);
+    }
+  }
+
   public void testRandom() throws IOException {
     try (Directory dir = newDirectory()) {
       for (int i = 0; i < 10; ++i) {
@@ -211,10 +222,19 @@ public class TestIndexedDISI extends LuceneTestCase {
     // Cached versions below
 
     try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
-      IndexedDISICache cache = new IndexedDISICache(in, true, true);
+      IndexedDISICache cache = new IndexedDISICache(in.slice("docs", 0L, length), true, true);
       IndexedDISI disi = new IndexedDISI(in, 0L, length, cardinality, cache);
       BitSetIterator disi2 = new BitSetIterator(set, cardinality);
       assertSingleStepEquality(disi, disi2);
+    }
+
+    for (int step : new int[] {300000}) { // 300K to guarantee block-skip
+      try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
+        IndexedDISICache cache = new IndexedDISICache(in.slice("docs", 0L, length), true, true);
+        IndexedDISI disi = new IndexedDISI(in, 0L, length, cardinality, cache);
+        BitSetIterator disi2 = new BitSetIterator(set, cardinality);
+        assertAdvanceEquality(disi, disi2, step);
+      }
     }
 
     dir.deleteFile("foo");

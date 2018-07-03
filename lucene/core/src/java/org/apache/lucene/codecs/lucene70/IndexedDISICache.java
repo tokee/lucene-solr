@@ -64,13 +64,15 @@ import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
  */
 public class IndexedDISICache {
 
-  private static final int BLOCK = 65536;
-  private static final int BLOCK_BITS = 16;
-  private static final int RANK_BLOCK = 512;
-  private static final int RANK_BLOCK_BITS = 9;
-  private static final int RANKS_PER_BLOCK = BLOCK/RANK_BLOCK;
+  public static final int BLOCK = 65536;
+  public static final int BLOCK_BITS = 16;
+  public static final int RANK_BLOCK = 512;
+  public static final int RANK_BLOCK_LONGS = 512/Long.SIZE;
+  public static final int RANK_BLOCK_BITS = 9;
+  public static final int RANKS_PER_BLOCK = BLOCK/RANK_BLOCK;
 
   private long[] blockOffsets = null; // One every 65536 docs, contains slice position
+  private int[] blockOrigo = null;    // One every 65536 docs, counts set bits before the current block
   private char[] rank;        // One every 512 docs
 
   /**
@@ -80,8 +82,10 @@ public class IndexedDISICache {
    */
   IndexedDISICache(IndexInput in, boolean createBlockCache, boolean createRankCache) throws IOException {
     if (createBlockCache) {
-      blockOffsets = new long[16]; // Will be extended when needed
+      blockOffsets = new long[16];    // Will be extended when needed
       Arrays.fill(blockOffsets, -1L); // -1 signals empty (the default)
+      blockOrigo = new int[16];       // Will be extended when needed
+      Arrays.fill(blockOrigo, -1);    // -1 signals not set (will be assigned later)
     }
     rank = createRankCache ? new char[256] : null; // Will be extended when needed
     if (!createBlockCache && !createRankCache) {
@@ -93,6 +97,7 @@ public class IndexedDISICache {
 
   private IndexedDISICache() {
     this.blockOffsets = null;
+    this.blockOrigo = null;
     this.rank = null;
   }
   public static final IndexedDISICache EMPTY = new IndexedDISICache();
@@ -108,6 +113,15 @@ public class IndexedDISICache {
   }
 
   /**
+   * If available, returns the origo; number of set bits before the wanted block.
+   * @param targetBlock the index for the block to resolve (docID >> BLOCK_BITS).
+   * @return the origo for the block or -1 if it cannot be resolved.
+   */
+  public int getOrigoForBlock(int targetBlock) {
+    return blockOrigo == null || blockOrigo.length <= targetBlock ? -1 : blockOrigo[targetBlock];
+  }
+
+  /**
    * Given a target (docID), this method returns the docID
    * @param target the docID for which an index is wanted.
    * @return the docID where the rank is known. This will be <= target.
@@ -117,6 +131,17 @@ public class IndexedDISICache {
        return target >> RANK_BLOCK_BITS << RANK_BLOCK_BITS;
   }
 
+  public boolean hasBlockOffsets() {
+    return blockOffsets != null;
+  }
+  public boolean hasBlockOrigo() {
+    return blockOrigo != null;
+  }
+  
+  public boolean hasRank() {
+    return rank != null;
+  }
+  
   /**
    * Get the rank (index) for all set bits up to just before the given rankPosition in the block.
    * The caller is responsible for deriving the count of bits up to the docID target from the rankPosition.
@@ -142,6 +167,7 @@ public class IndexedDISICache {
 
     // Fill phase
     int largestBlock = -1;
+    int origo = 0;
     while (slice.getFilePointer() < slice.length()) {
       final long startFilePointer = slice.getFilePointer();
 
@@ -154,7 +180,10 @@ public class IndexedDISICache {
       if (fillBlockCache) {
         blockOffsets = ArrayUtil.grow(blockOffsets, blockIndex+1); // No-op if large enough
         blockOffsets[blockIndex] = startFilePointer;
+        blockOrigo = ArrayUtil.grow(blockOrigo, blockIndex+1); // No-op if large enough
+        blockOrigo[blockIndex] = origo;
       }
+      origo += numValues;
 
       if (numValues <= MAX_ARRAY_LENGTH) { // SPARSE
         slice.seek(slice.getFilePointer() + (numValues << 1));
@@ -186,6 +215,7 @@ public class IndexedDISICache {
     if (largestBlock == -1) { // No set bit: Disable the caches
       // TODO: Maybe signal a warning somehow?
       blockOffsets = null;
+      blockOrigo = null;
       rank = null;
       return;
     }
@@ -196,13 +226,29 @@ public class IndexedDISICache {
       blockOffsets = newBlockOffsets;
     }
 
+    if (fillBlockCache && blockOrigo.length-1 > largestBlock) {
+      int[] newBlockOrigo = new int[largestBlock - 1];
+      System.arraycopy(blockOrigo, 0, newBlockOrigo, 0, newBlockOrigo.length);
+      blockOrigo = newBlockOrigo;
+    }
+
     if (fillBlockCache) {
+      // Set non-defined offsets (blocks with 0 set bits) to the next defined offset
       long latestValid = -1;
       for (int i = blockOffsets.length-1 ; i >= 0 ; i--) {
         if (blockOffsets[i] == -1) { // -1 means EMPTY block, so skip to the next valid one
           blockOffsets[i] = latestValid;
         } else {
           latestValid = blockOffsets[i];
+        }
+      }
+      // Set non-defined origo (for blocks with 0 set bits) to the previous origo (x+0=x)
+      int lastOrigo = 0;
+      for (int i = 0 ; i < blockOrigo.length ; i++) {
+        if (blockOrigo[i] == -1) { // -1 means EMPTY block, so assign the previous origo
+          blockOrigo[i] = lastOrigo;
+        } else {
+          lastOrigo = blockOrigo[i];
         }
       }
     }

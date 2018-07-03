@@ -174,8 +174,11 @@ final class IndexedDISI extends DocIdSetIterator {
   }
 
   private void advanceBlock(int targetBlock) throws IOException {
-    long offset = cache.getFilePointerForBlock(targetBlock);
-    if (offset != -1) {
+    long offset = cache.getFilePointerForBlock(targetBlock>>IndexedDISICache.BLOCK_BITS);
+    int origo = cache.getOrigoForBlock(targetBlock>>IndexedDISICache.BLOCK_BITS);
+    if (origo != -1 && offset != -1 && offset > slice.getFilePointer()) {
+      System.out.println("Seeking to " + offset + " for targetBlock " + (targetBlock>>IndexedDISICache.BLOCK_BITS) + " with origo " + origo);
+      this.nextBlockIndex = origo;
       slice.seek(offset);
       readBlockHeader();
       return;
@@ -269,6 +272,19 @@ final class IndexedDISI extends DocIdSetIterator {
       boolean advanceWithinBlock(IndexedDISI disi, int target) throws IOException {
         final int targetInBlock = target & 0xFFFF;
         final int targetWordIndex = targetInBlock >>> 6;
+
+        // If the distance between the current position and the target is >= 8
+        // then it pays to use the rank to jump
+        if (disi.cache.hasRank() && targetWordIndex - disi.wordIndex > IndexedDISICache.RANK_BLOCK_LONGS) {
+          int rankPos = disi.cache.denseRankPosition(target);
+          if (rankPos != -1) {
+            int rankIndex = (disi.block << IndexedDISICache.RANK_BLOCK_BITS) + disi.cache.getRankInBlock(rankPos);
+            // TODO: Set the wordIndex to rankPos >> 6
+            // TODO: Set the slicer offset to origo + wordIndex << 3
+            // TODO: Set the numberOfOnes to numberOfOnesOrigo + rankPos
+          }
+        }
+
         for (int i = disi.wordIndex + 1; i <= targetWordIndex; ++i) {
           disi.word = disi.slice.readLong();
           disi.numberOfOnes += Long.bitCount(disi.word);
