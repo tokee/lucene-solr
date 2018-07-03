@@ -710,7 +710,7 @@ public final class VersionBlockTreeTermsWriter extends FieldsConsumer {
       metaWriter.reset();
 
       // if (DEBUG) {
-      //   System.out.println("      fpEnd=" + out.getFilePointer());
+      //   System.out.println("      fpEnd=" + out.getFilePointerForBlock());
       // }
 
       if (hasFloorLeadLabel) {

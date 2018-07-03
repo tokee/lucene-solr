@@ -340,7 +340,7 @@ public class BKDWriter implements Closeable {
             //System.out.println("  done!");
             return false;
           }
-          //System.out.println("  new block @ fp=" + state.in.getFilePointer());
+          //System.out.println("  new block @ fp=" + state.in.getFilePointerForBlock());
           docsInBlock = bkd.readDocIDs(state.in, state.in.getFilePointer(), state.scratchDocIDs);
           assert docsInBlock > 0;
           docBlockUpto = 0;
@@ -1544,7 +1544,7 @@ public class BKDWriter implements Closeable {
       for (int i = from; i < to; ++i) {
         docIDs[i - from] = reader.getDocID(i);
       }
-      //System.out.println("writeLeafBlock pos=" + out.getFilePointer());
+      //System.out.println("writeLeafBlock pos=" + out.getFilePointerForBlock());
       writeLeafBlockDocs(scratchOut, docIDs, 0, count);
 
       // Write the common prefixes:
@@ -1691,7 +1691,7 @@ public class BKDWriter implements Closeable {
 
       // Save the block file pointer:
       leafBlockFPs[nodeID - leafNodeOffset] = out.getFilePointer();
-      //System.out.println("  write leaf block @ fp=" + out.getFilePointer());
+      //System.out.println("  write leaf block @ fp=" + out.getFilePointerForBlock());
 
       // Write docIDs first, as their own chunk, so that at intersect time we can add all docIDs w/o
       // loading the values:

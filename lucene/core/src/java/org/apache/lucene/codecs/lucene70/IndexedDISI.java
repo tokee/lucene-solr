@@ -98,16 +98,27 @@ final class IndexedDISI extends DocIdSetIterator {
   /** The slice that stores the {@link DocIdSetIterator}. */
   private final IndexInput slice;
   private final long cost;
+  private final IndexedDISICache cache;
 
   IndexedDISI(IndexInput in, long offset, long length, long cost) throws IOException {
-    this(in.slice("docs", offset, length), cost);
+    this(in.slice("docs", offset, length), cost, null);
+  }
+
+  IndexedDISI(IndexInput in, long offset, long length, long cost, IndexedDISICache cache) throws IOException {
+    this(in.slice("docs", offset, length), cost, cache);
   }
 
   // This constructor allows to pass the slice directly in case it helps reuse
   // see eg. Lucene70 norms producer's merge instance
   IndexedDISI(IndexInput slice, long cost) throws IOException {
+    this(slice, cost, null);
+  }
+  // This constructor allows to pass the slice directly in case it helps reuse
+  // see eg. Lucene70 norms producer's merge instance
+  IndexedDISI(IndexInput slice, long cost, IndexedDISICache cache) throws IOException {
     this.slice = slice;
     this.cost = cost;
+    this.cache = cache == null ? IndexedDISICache.EMPTY : cache;
   }
 
   private int block = -1;
@@ -163,6 +174,14 @@ final class IndexedDISI extends DocIdSetIterator {
   }
 
   private void advanceBlock(int targetBlock) throws IOException {
+    long offset = cache.getFilePointerForBlock(targetBlock);
+    if (offset != -1) {
+      slice.seek(offset);
+      readBlockHeader();
+      return;
+    }
+
+    // Fallback to non-cached
     do {
       slice.seek(blockEnd);
       readBlockHeader();

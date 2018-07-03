@@ -63,7 +63,12 @@ import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
  * ALL or SPARSE. // TODO: Support sparse rank structures
  */
 public class IndexedDISICache {
-  private static final int RANKS_PER_BLOCK = 65536/512;
+
+  private static final int BLOCK = 65536;
+  private static final int BLOCK_BITS = 16;
+  private static final int RANK_BLOCK = 512;
+  private static final int RANK_BLOCK_BITS = 9;
+  private static final int RANKS_PER_BLOCK = BLOCK/RANK_BLOCK;
 
   private long[] blockOffsets = null; // One every 65536 docs, contains slice position
   private char[] rank;        // One every 512 docs
@@ -73,7 +78,7 @@ public class IndexedDISICache {
    *
    * @param in positioned at the start of the logical underlying bitmap.
    */
-  IndexedDISICache(IndexInput in, int numDocs, boolean createBlockCache, boolean createRankCache) throws IOException {
+  IndexedDISICache(IndexInput in, boolean createBlockCache, boolean createRankCache) throws IOException {
     if (createBlockCache) {
       blockOffsets = new long[16]; // Will be extended when needed
       Arrays.fill(blockOffsets, -1L); // -1 signals empty (the default)
@@ -86,21 +91,54 @@ public class IndexedDISICache {
     fillCaches(in, createBlockCache, createRankCache);
   }
 
+  private IndexedDISICache() {
+    this.blockOffsets = null;
+    this.rank = null;
+  }
+  public static final IndexedDISICache EMPTY = new IndexedDISICache();
+
   /**
    * If available, returns a position within the underlying {@link IndexInput} for the start of the block
    * containing the wanted bit (the target) or the next non-EMPTY block, if the block representing the bit is empty.
-   * @param target the docID that shall be resolved.
+   * @param targetBlock the index for the block to resolve (docID >> BLOCK_BITS).
    * @return the offset for the block for target or -1 if it cannot be resolved.
    */
-  public long getFilePointer(int target) {
-    final int blockTarget = target >> 16;
-    return blockOffsets == null || blockOffsets.length <= blockTarget ? -1 : blockOffsets[blockTarget];
+  public long getFilePointerForBlock(int targetBlock) {
+    return blockOffsets == null || blockOffsets.length <= targetBlock ? -1 : blockOffsets[targetBlock];
+  }
+
+  /**
+   * Given a target (docID), this method returns the docID
+   * @param target the docID for which an index is wanted.
+   * @return the docID where the rank is known. This will be <= target.
+   */
+  // TODO: This method requires way too much knowledge of the intrinsics of the cache. Usage should be simplified
+  public int denseRankPosition(int target) {
+       return target >> RANK_BLOCK_BITS << RANK_BLOCK_BITS;
+  }
+
+  /**
+   * Get the rank (index) for all set bits up to just before the given rankPosition in the block.
+   * The caller is responsible for deriving the count of bits up to the docID target from the rankPosition.
+   * The caller is also responsible for keeping track of set bits up to the current block.
+   * Important: This only accepts rankPositions that aligns to {@link #RANK_BLOCK} boundaries.
+   * Note 1: Use {@link #denseRankPosition(int)} to obtain a calid rankPosition for a wanted docID.
+   * Note 2: The caller should seek to the rankPosition in the underlying slice to keep everything in sync.
+   * @param rankPosition a docID target that aligns to {@link #RANK_BLOCK}.
+   * @return the rank (index / set bits count) up to just before the given rankPosition.
+   *         If rank is disabled, -1 is returned.
+   */
+  // TODO: This method requires way too much knowledge of the intrinsics of the cache. Usage should be simplified
+  public int getRankInBlock(int rankPosition) {
+    assert rankPosition == denseRankPosition(rankPosition);
+    return rank == null ? -1 : rank[rankPosition >> RANK_BLOCK_BITS];
   }
 
   // TODO: Add a method that updates the slice-position and returns doc & index (maybe as a long?
 
   private void fillCaches(IndexInput slice, boolean fillBlockCache, boolean fillRankCache)
       throws IOException {
+    final long startOffset = slice.getFilePointer();
 
     // Fill phase
     int largestBlock = -1;
@@ -114,7 +152,7 @@ public class IndexedDISICache {
       largestBlock = blockIndex;
 
       if (fillBlockCache) {
-        blockOffsets = ArrayUtil.grow(blockOffsets, blockIndex); // No-op if large enough
+        blockOffsets = ArrayUtil.grow(blockOffsets, blockIndex+1); // No-op if large enough
         blockOffsets[blockIndex] = startFilePointer;
       }
 
@@ -134,7 +172,7 @@ public class IndexedDISICache {
         int rankOrigo = blockIndex << 16 >> 9; // Double shift for clarity: The compiler will simplify it
         for (int rankDelta = 0 ; rankDelta < RANKS_PER_BLOCK ; rankDelta++) { // 128 rank-entries in a block
           final int rankIndex = rankOrigo + rankDelta;
-          rank = ArrayUtil.grow(rank, rankIndex);
+          rank = ArrayUtil.grow(rank, rankIndex+1);
           rank[rankIndex] = (char)setBits;
           for (int i = 0 ; i < 512/64 ; i++) { // 8 longs for each rank-entry
             setBits += Long.bitCount(slice.readLong());
@@ -174,6 +212,8 @@ public class IndexedDISICache {
       System.arraycopy(rank, 0, newRank, 0, newRank.length);
       rank = newRank;
     }
+
+    slice.seek(startOffset); // Leave it as we found it
   }
 
 }

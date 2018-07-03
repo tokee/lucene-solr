@@ -393,7 +393,7 @@ public class NativeUnixDirectory extends FSDirectory {
     @Override
     public void readBytes(byte[] dst, int offset, int len) throws IOException {
       int toRead = len;
-      //System.out.println("\nX readBytes len=" + len + " fp=" + getFilePointer() + " size=" + length() + " this=" + this);
+      //System.out.println("\nX readBytes len=" + len + " fp=" + getFilePointerForBlock() + " size=" + length() + " this=" + this);
       while(true) {
         final int left = bufferSize - bufferPos;
         if (left < toRead) {
