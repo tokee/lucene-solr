@@ -150,15 +150,39 @@ public class TestIndexedDISI extends LuceneTestCase {
       }
     }
   }
-
   public void testDenseMultiBlock() throws IOException {
+    try (Directory dir = newDirectory()) {
+      int maxDoc = 10 * 65536; // 10 blocks
+      FixedBitSet set = new FixedBitSet(maxDoc);
+      for (int i = 0; i < maxDoc; i += 2) { // Set every other to ensure dense
+        set.set(i);
+      }
+      doTest(set, dir);
+    }
+  }
+
+  public void testExplorativeTestCachedDense() throws IOException {
     try (Directory dir = newDirectory()) {
       int maxDoc = 10*65536; // 10 blocks
       FixedBitSet set = new FixedBitSet(maxDoc);
       for (int i = 0 ; i < maxDoc ; i+=2) { // Set every other to ensure dense
         set.set(i);
       }
-      doTest(set, dir);
+
+      final int cardinality = set.cardinality();
+      long length;
+      try (IndexOutput out = dir.createOutput("foo", IOContext.DEFAULT)) {
+        IndexedDISI.writeBitSet(new BitSetIterator(set, cardinality), out);
+        length = out.getFilePointer();
+      }
+
+      int step = 65536;
+      try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
+        IndexedDISICache cache = new IndexedDISICache(in.slice("docs", 0L, length), true, true);
+        IndexedDISI disi = new IndexedDISI(in, 0L, length, cardinality, cache);
+        BitSetIterator disi2 = new BitSetIterator(set, cardinality);
+        assertAdvanceEquality(disi, disi2, step);
+      }
     }
   }
 
@@ -228,6 +252,8 @@ public class TestIndexedDISI extends LuceneTestCase {
       assertSingleStepEquality(disi, disi2);
     }
 
+    // TODO: Fix fail below NOTE: reproduce with: ant test  -Dtestcase=TestIndexedDISI -Dtests.method=testRandom -Dtests.seed=EECC0255E9A6DF17 -Dtests.slow=true -Dtests.badapples=true -Dtests.locale=ar-SY -Dtests.timezone=America/Paramaribo -Dtests.asserts=true -Dtests.file.encoding=UTF-8
+
     for (int step : new int[] {300000}) { // 300K to guarantee block-skip
       try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
         IndexedDISICache cache = new IndexedDISICache(in.slice("docs", 0L, length), true, true);
@@ -285,7 +311,7 @@ public class TestIndexedDISI extends LuceneTestCase {
       if (doc == DocIdSetIterator.NO_MORE_DOCS) {
         break;
       }
-      assertEquals(index, disi.index());
+      assertEquals("Expected equality at docID " + doc, index, disi.index());
     }
   }
 
