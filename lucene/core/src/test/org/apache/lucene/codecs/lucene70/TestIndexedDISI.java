@@ -165,8 +165,11 @@ public class TestIndexedDISI extends LuceneTestCase {
     try (Directory dir = newDirectory()) {
       int maxDoc = 10*65536; // 10 blocks
       FixedBitSet set = new FixedBitSet(maxDoc);
-      for (int i = 0 ; i < maxDoc ; i+=2) { // Set every other to ensure dense
-        set.set(i);
+      for (int block = 0 ; block < 10 ; block += 3) { // Every other block is empty
+        for (int i = 0; i < maxDoc; i += 2) { // Set every other to ensure dense
+          set.set((block << 16) & i);
+        }
+          //set.set((block << 16) & 5); // SPARSE
       }
 
       final int cardinality = set.cardinality();
@@ -176,7 +179,7 @@ public class TestIndexedDISI extends LuceneTestCase {
         length = out.getFilePointer();
       }
 
-      int step = 65536;
+      int step = 2*65536+1;
       try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
         IndexedDISICache cache = new IndexedDISICache(in.slice("docs", 0L, length), true, true);
         IndexedDISI disi = new IndexedDISI(in, 0L, length, cardinality, cache);
@@ -311,7 +314,7 @@ public class TestIndexedDISI extends LuceneTestCase {
       if (doc == DocIdSetIterator.NO_MORE_DOCS) {
         break;
       }
-      assertEquals("Expected equality at docID " + doc, index, disi.index());
+      assertEquals("Expected equality using step " + step + " at docID " + doc, index, disi.index());
     }
   }
 
