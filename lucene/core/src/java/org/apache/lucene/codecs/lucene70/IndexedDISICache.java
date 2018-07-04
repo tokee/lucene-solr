@@ -28,6 +28,7 @@ package org.apache.lucene.codecs.lucene70;
 import java.io.IOException;
 import java.util.Arrays;
 
+import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.ArrayUtil;
 
@@ -86,6 +87,7 @@ public class IndexedDISICache {
 
   private long[] blockCache = null; // One every 65536 docs, contains index & slice position
   private char[] rank;              // One every 512 docs
+  public String creationStats = ""; // TODO: Definitely not the way to keep the stats, but where to send them?
 
   // Flags for not-yet-defined-values used during building
   private static final long BLOCK_EMPTY_INDEX = ~0L << BLOCK_INDEX_SHIFT;
@@ -180,6 +182,11 @@ public class IndexedDISICache {
       throws IOException {
     final long startOffset = slice.getFilePointer();
 
+    final long startTime = System.nanoTime();
+    int statBlockALL = 0;
+    int statBlockDENSE = 0;
+    int statBlockSPARSE = 0;
+
     // Fill phase
     int largestBlock = -1;
     long index = 0;
@@ -190,6 +197,11 @@ public class IndexedDISICache {
       final int numValues = 1 + Short.toUnsignedInt(slice.readShort());
 
       assert blockIndex > largestBlock;
+      if (blockIndex == DocIdSetIterator.NO_MORE_DOCS >>> 16) { // End reached
+        assert Short.toUnsignedInt(slice.readShort()) == (DocIdSetIterator.NO_MORE_DOCS & 0xFFFF);
+        continue;
+      }
+
       largestBlock = blockIndex;
 
       if (fillBlockCache) {
@@ -199,15 +211,18 @@ public class IndexedDISICache {
       index += numValues;
 
       if (numValues <= MAX_ARRAY_LENGTH) { // SPARSE
+        statBlockSPARSE++;
         slice.seek(slice.getFilePointer() + (numValues << 1));
         continue;
       }
       if (numValues == 65536) { // ALL
+        statBlockALL++;
         // Already at next block offset
         continue;
       }
 
       // The block is DENSE
+      statBlockDENSE++;
       long nextBlockOffset = slice.getFilePointer() + (1 << 13);
       if (fillRankCache) {
         int setBits = 0;
@@ -229,6 +244,9 @@ public class IndexedDISICache {
     freezeCaches(fillBlockCache, fillRankCache, largestBlock);
 
     slice.seek(startOffset); // Leave it as we found it
+    creationStats = String.format("blocks=%d (ALL=%d, DENSE=%d, SPARSE=%d, EMPTY=%d), time=%dms, block=%b, rank=%b",
+        largestBlock+1, statBlockALL, statBlockDENSE, statBlockSPARSE, (largestBlock+1-statBlockALL-statBlockDENSE-statBlockSPARSE),
+        (System.nanoTime()-startTime)/1000000, fillBlockCache, fillRankCache);
   }
 
   private void freezeCaches(boolean fillBlockCache, boolean fillRankCache, int largestBlock) {
@@ -240,7 +258,7 @@ public class IndexedDISICache {
 
     // Reduce size to minimum
     if (fillBlockCache && blockCache.length-1 > largestBlock) {
-      long[] newBC = new long[largestBlock - 1];
+      long[] newBC = new long[Math.max(largestBlock - 1, 1)];
       System.arraycopy(blockCache, 0, newBC, 0, newBC.length);
       blockCache = newBC;
     }

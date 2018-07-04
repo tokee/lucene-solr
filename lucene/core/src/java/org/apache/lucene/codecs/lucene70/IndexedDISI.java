@@ -93,6 +93,8 @@ final class IndexedDISI extends DocIdSetIterator {
     }
     // NO_MORE_DOCS is stored explicitly
     buffer.set(DocIdSetIterator.NO_MORE_DOCS & 0xFFFF);
+    // TODO/FIXME: Shifting NO_MORE_DOCS 16 bits to the right becomes 32767, effectively limiting IndexedDISI to 1G docs, instead of the usual 2G limit
+    // This should probably be 65535 instead
     flush(DocIdSetIterator.NO_MORE_DOCS >>> 16, buffer, 1, out);
   }
 

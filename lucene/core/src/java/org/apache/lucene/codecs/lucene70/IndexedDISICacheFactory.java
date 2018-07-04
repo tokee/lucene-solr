@@ -40,9 +40,11 @@ import org.apache.lucene.store.IndexInput;
 // Note: This was hacked together with little understanding of overall caching principles for Lucene.
 // It probably belongs somewhere else and hopefully someone with a better understanding will refactor the code.
 public class IndexedDISICacheFactory {
-  public static int MIN_LENGTH_FOR_CACHING = 65540; // The size of a single DENSE block
+  public static int MIN_LENGTH_FOR_CACHING = 50; // Set this very low: Could be 9 EMPTY followed by a SPARSE
   public static boolean BLOCK_CACHING_ENABLED = true;
   public static boolean DENSE_CACHING_ENABLED = false; // Not functioning yet
+
+  private static boolean DEBUG = false; // TODO: Remove this when code has stabilized
 
   // Map<IndexInput.hashCode, Map<key, cache>>
   private static final Map<Integer, Map<Long, IndexedDISICache>> pool = new HashMap<>();
@@ -52,7 +54,7 @@ public class IndexedDISICacheFactory {
    * @param data with {@link IndexedDISICache}s.
    */
   public static void release(IndexInput data) {
-    pool.remove(data.hashCode());
+    debug("Release cache called for data " + data.hashCode() + " with exists=" + pool.remove(data.hashCode()));
   }
 
   /**
@@ -76,7 +78,15 @@ public class IndexedDISICacheFactory {
       cache = new IndexedDISICache(data.slice("docs", offset, length),
           BLOCK_CACHING_ENABLED, DENSE_CACHING_ENABLED);
       caches.put(key, cache);
+      debug("Created cache for " + data.toString() + ": " + cache.creationStats);
     }
     return cache;
+  }
+
+  // TODO: Definitely not the way to do it. Connect to InputStream or just remove it fully when IndexedDISICache is stable
+  private static void debug(String message) {
+    if (DEBUG) {
+      System.out.println(IndexedDISICacheFactory.class.getSimpleName() + ": " + message);
+    }
   }
 }

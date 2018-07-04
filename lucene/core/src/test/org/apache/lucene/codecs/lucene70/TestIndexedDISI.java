@@ -181,8 +181,8 @@ public class TestIndexedDISI extends LuceneTestCase {
 
       int step = 65536+1;
       try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
-        IndexedDISICache cache = new IndexedDISICache(in.slice("docs", 0L, length), true, true);
-        IndexedDISI disi = new IndexedDISI(in, 0L, length, cardinality, cache);
+//        IndexedDISICache cache = new IndexedDISICache(in.slice("docs", 0L, length), true, true);
+        IndexedDISI disi = new IndexedDISI(in, 0L, length, cardinality, true);
         BitSetIterator disi2 = new BitSetIterator(set, cardinality);
         assertAdvanceEquality(disi, disi2, step);
       }
