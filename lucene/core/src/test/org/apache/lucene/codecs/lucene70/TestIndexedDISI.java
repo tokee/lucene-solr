@@ -247,7 +247,7 @@ public class TestIndexedDISI extends LuceneTestCase {
     }
 
     // Cached versions below
-
+/*
     try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
       IndexedDISICache cache = new IndexedDISICache(in.slice("docs", 0L, length), true, true);
       IndexedDISI disi = new IndexedDISI(in, 0L, length, cardinality, cache);
@@ -265,7 +265,7 @@ public class TestIndexedDISI extends LuceneTestCase {
         assertAdvanceEquality(disi, disi2, step);
       }
     }
-
+  */
     dir.deleteFile("foo");
   }
 

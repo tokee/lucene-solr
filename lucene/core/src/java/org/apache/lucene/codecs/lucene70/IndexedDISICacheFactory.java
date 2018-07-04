@@ -26,13 +26,56 @@
 package org.apache.lucene.codecs.lucene70;
 
 
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
+
+import org.apache.lucene.store.IndexInput;
+
 /**
- * Creates two caches for IndexedDISI:
- * A lookup table for block offsets and a rank structure for DENSE block lookups.
- * Creation time is O(n) and equivalent to a full scan through the IndexedDISI.
+ * Creates and stores caches for {@link IndexedDISI}.
  *
  * See https://issues.apache.org/jira/browse/LUCENE-8374 for details
  */
+// Note: This was hacked together with little understanding of overall caching principles for Lucene.
+// It probably belongs somewhere else and hopefully someone with a better understanding will refactor the code.
 public class IndexedDISICacheFactory {
-  
+  public static int MIN_LENGTH_FOR_CACHING = 65540; // The size of a single DENSE block
+  public static boolean BLOCK_CACHING_ENABLED = true;
+  public static boolean DENSE_CACHING_ENABLED = true;
+
+  // Map<IndexInput.hashCode, Map<key, cache>>
+  private static final Map<Integer, Map<Long, IndexedDISICache>> pool = new HashMap<>();
+
+  /**
+   * Releases all caches associated with the given data.
+   * @param data with {@link IndexedDISICache}s.
+   */
+  public static void release(IndexInput data) {
+    pool.remove(data.hashCode());
+  }
+
+  /**
+   * Creates a cache if not already present and returns it.
+   * @param data   the slice to create a cache for.
+   * @param offset same as the offset that will also be used for creating an {@link IndexedDISI}.
+   * @param length same af the length that will also be used for creating an {@link IndexedDISI}.
+   * @param cost same af the cost that will also be used for creating an {@link IndexedDISI}.
+   * @return a cache for the given slice+offset+length or null if not suitable for caching.
+   */
+  public static IndexedDISICache getCache(IndexInput data, long offset, long length, long cost) throws IOException {
+    if (length < MIN_LENGTH_FOR_CACHING) {
+      return null;
+    }
+    Map<Long, IndexedDISICache> caches = pool.computeIfAbsent(data.hashCode(), key -> new HashMap<>());
+
+    long key = data.hashCode() + offset + length + cost;
+    IndexedDISICache cache = caches.get(key);
+    if (cache == null) {
+      cache = new IndexedDISICache(data.slice("docs", offset, length),
+          BLOCK_CACHING_ENABLED, DENSE_CACHING_ENABLED);
+      caches.put(key, cache);
+    }
+    return cache;
+  }
 }

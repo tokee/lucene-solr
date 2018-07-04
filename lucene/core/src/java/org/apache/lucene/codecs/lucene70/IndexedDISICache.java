@@ -68,6 +68,8 @@ import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
  * The total overhead for the rank cache is currently also numDocs/32 bits or numDocs/8 bytes
  * as the rank-representation is not sparse itself, using empty entries for sub-blocks of type
  * ALL or SPARSE. // TODO: Support sparse rank structures
+ *
+ * See https://issues.apache.org/jira/browse/LUCENE-8374 for details
  */
 public class IndexedDISICache {
 

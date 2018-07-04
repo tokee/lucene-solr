@@ -50,6 +50,7 @@ import org.apache.lucene.util.RoaringDocIdSet;
 final class IndexedDISI extends DocIdSetIterator {
 
   static final int MAX_ARRAY_LENGTH = (1 << 12) - 1;
+  public static boolean CACHING_ENABLED = true; // TODO: Primarily a default for Proof Of Concept
 
   private static void flush(int block, FixedBitSet buffer, int cardinality, IndexOutput out) throws IOException {
     assert block >= 0 && block < 65536;
@@ -101,7 +102,11 @@ final class IndexedDISI extends DocIdSetIterator {
   private final IndexedDISICache cache;
 
   IndexedDISI(IndexInput in, long offset, long length, long cost) throws IOException {
-    this(in.slice("docs", offset, length), cost, null);
+    this(in, offset, length, cost, CACHING_ENABLED);
+  }
+
+  IndexedDISI(IndexInput in, long offset, long length, long cost, boolean useCaching) throws IOException {
+    this(in, offset, length, cost, useCaching ? IndexedDISICacheFactory.getCache(in, offset, length, cost) : null);
   }
 
   IndexedDISI(IndexInput in, long offset, long length, long cost, IndexedDISICache cache) throws IOException {

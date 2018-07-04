@@ -262,6 +262,7 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
   @Override
   public void close() throws IOException {
     data.close();
+    IndexedDISICacheFactory.release(data);
   }
 
   private static class NumericEntry {
