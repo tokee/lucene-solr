@@ -36,7 +36,7 @@ import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
 /**
  * Caching of IndexedDISI with two strategies:
  *
- * A lookup table for block blockCache & index and a rank structure for DENSE block lookups.
+ * A lookup table for block blockCache and index and a rank structure for DENSE block lookups.
  *
  * The lookup table is an array of {@code long}s with an entry for each block (65536 bits).
  * Each long entry consists of 2 logical parts:
@@ -119,7 +119,7 @@ public class IndexedDISICache {
   /**
    * If available, returns a position within the underlying {@link IndexInput} for the start of the block
    * containing the wanted bit (the target) or the next non-EMPTY block, if the block representing the bit is empty.
-   * @param targetBlock the index for the block to resolve (docID >> BLOCK_BITS).
+   * @param targetBlock the index for the block to resolve (docID / 65536).
    * @return the offset for the block for target or -1 if it cannot be resolved.
    */
   public long getFilePointerForBlock(int targetBlock) {
@@ -129,7 +129,7 @@ public class IndexedDISICache {
 
   /**
    * If available, returns the index; number of set bits before the wanted block.
-   * @param targetBlock the block to resolve (docID >> BLOCK_BITS).
+   * @param targetBlock the block to resolve (docID / 65536).
    * @return the index for the block or -1 if it cannot be resolved.
    */
   public int getIndexForBlock(int targetBlock) {
@@ -142,7 +142,7 @@ public class IndexedDISICache {
   /**
    * Given a target (docID), this method returns the docID
    * @param target the docID for which an index is wanted.
-   * @return the docID where the rank is known. This will be <= target.
+   * @return the docID where the rank is known. This will be lte target.
    */
   // TODO: This method requires way too much knowledge of the intrinsics of the cache. Usage should be simplified
   public int denseRankPosition(int target) {
