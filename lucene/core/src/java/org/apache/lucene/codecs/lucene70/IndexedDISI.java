@@ -175,9 +175,9 @@ final class IndexedDISI extends DocIdSetIterator {
 
   private void advanceBlock(int targetBlock) throws IOException {
     long offset = cache.getFilePointerForBlock(targetBlock>>IndexedDISICache.BLOCK_BITS);
-    int origo = cache.getOrigoForBlock(targetBlock>>IndexedDISICache.BLOCK_BITS);
+    int origo = cache.getIndexForBlock(targetBlock>>IndexedDISICache.BLOCK_BITS);
     if (origo != -1 && offset != -1 && offset > slice.getFilePointer()) {
-      //System.out.println("Seeking to " + offset + " for targetBlock " + (targetBlock>>IndexedDISICache.BLOCK_BITS) + " with origo " + origo);
+   //   System.out.println("Seeking to " + offset + " for targetBlock " + (targetBlock>>IndexedDISICache.BLOCK_BITS) + " with origo " + origo);
       this.nextBlockIndex = origo-1; // -1 to compensate for the always-added 1 in readBlockHeader
       slice.seek(offset);
       readBlockHeader();
