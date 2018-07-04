@@ -42,7 +42,7 @@ import org.apache.lucene.store.IndexInput;
 public class IndexedDISICacheFactory {
   public static int MIN_LENGTH_FOR_CACHING = 65540; // The size of a single DENSE block
   public static boolean BLOCK_CACHING_ENABLED = true;
-  public static boolean DENSE_CACHING_ENABLED = true;
+  public static boolean DENSE_CACHING_ENABLED = false; // Not functioning yet
 
   // Map<IndexInput.hashCode, Map<key, cache>>
   private static final Map<Integer, Map<Long, IndexedDISICache>> pool = new HashMap<>();
@@ -72,6 +72,7 @@ public class IndexedDISICacheFactory {
     long key = data.hashCode() + offset + length + cost;
     IndexedDISICache cache = caches.get(key);
     if (cache == null) {
+      // TODO: Avoid overlapping builds of the same cache
       cache = new IndexedDISICache(data.slice("docs", offset, length),
           BLOCK_CACHING_ENABLED, DENSE_CACHING_ENABLED);
       caches.put(key, cache);

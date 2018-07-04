@@ -220,8 +220,10 @@ public class IndexedDISICache {
             setBits += Long.bitCount(slice.readLong());
           }
         }
+        assert slice.getFilePointer() == nextBlockOffset;
+      } else {
+        slice.seek(nextBlockOffset);
       }
-      assert slice.getFilePointer() == nextBlockOffset;
     }
 
     freezeCaches(fillBlockCache, fillRankCache, largestBlock);

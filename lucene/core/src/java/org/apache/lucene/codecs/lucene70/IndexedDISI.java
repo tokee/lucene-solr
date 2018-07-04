@@ -127,6 +127,7 @@ final class IndexedDISI extends DocIdSetIterator {
   }
 
   private int block = -1;
+  private long blockStart; // Used with the DENSE cache
   private long blockEnd;
   private int nextBlockIndex = -1;
   Method method;
@@ -197,6 +198,7 @@ final class IndexedDISI extends DocIdSetIterator {
   }
 
   private void readBlockHeader() throws IOException {
+    blockStart = slice.getFilePointer();
     block = Short.toUnsignedInt(slice.readShort()) << 16;
     assert block >= 0;
     final int numValues = 1 + Short.toUnsignedInt(slice.readShort());
