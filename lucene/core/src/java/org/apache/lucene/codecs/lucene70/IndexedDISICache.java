@@ -174,7 +174,8 @@ public class IndexedDISICache {
   // TODO: This method requires way too much knowledge of the intrinsics of the cache. Usage should be simplified
   public int getRankInBlock(int rankPosition) {
     assert rankPosition == denseRankPosition(rankPosition);
-    return rank == null ? -1 : rank[rankPosition >> RANK_BLOCK_BITS];
+    int rankIndex = rankPosition >> RANK_BLOCK_BITS;
+    return rank == null || rankIndex >= rank.length ? -1 : rank[rankIndex];
   }
 
   // TODO: Add a method that updates the slice-position and returns doc & index (maybe as a long?
@@ -280,8 +281,8 @@ public class IndexedDISICache {
       System.arraycopy(blockCache, 0, newBC, 0, newBC.length);
       blockCache = newBC;
     }
-    if (fillRankCache && rank.length/RANKS_PER_BLOCK > largestBlock) {
-      char[] newRank = new char[largestBlock/RANKS_PER_BLOCK];
+    if (fillRankCache && rank.length > largestBlock*RANKS_PER_BLOCK) {
+      char[] newRank = new char[(largestBlock+1)*RANKS_PER_BLOCK];
       System.arraycopy(rank, 0, newRank, 0, newRank.length);
       rank = newRank;
     }

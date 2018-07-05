@@ -163,13 +163,30 @@ public class TestIndexedDISI extends LuceneTestCase {
 
   public void testExplorativeTestCachedDense() throws IOException {
     try (Directory dir = newDirectory()) {
-      int maxDoc = 10*65536; // 10 blocks
+      int maxDoc = 100*65536; // 10 blocks
       FixedBitSet set = new FixedBitSet(maxDoc);
-      for (int block = 0 ; block < 10 ; block += 2) { // Ensure gaps
-        for (int i = 0; i < 65536; i += 2) { // Set every other to ensure dense
-          set.set((block << 16) | i);
+      for (int block = 0 ; block < 100 ; block++) {
+        switch (block % 4) {
+          case 0: break; // EMPTY
+          case 1: {
+            for (int i = 0; i < 65536; i++) { // ALL
+              set.set((block << 16) | i);
+            }
+            break;
+          }
+          case 2: {
+            for (int i = 0; i < 65536; i += 2) { // DENSE
+              set.set((block << 16) | i);
+            }
+            break;
+          }
+          case 3: {
+            for (int i = 0; i < 65536; i += 5000) { // SPARSE
+              set.set((block << 16) | i);
+            }
+            break;
+          }
         }
-          //set.set((block << 16) & 5); // SPARSE
       }
 
       final int cardinality = set.cardinality();
@@ -179,16 +196,19 @@ public class TestIndexedDISI extends LuceneTestCase {
         length = out.getFilePointer();
       }
 
-      int step = 65536+1;
-      try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
+      for (int step: new int[] {1, 10, 100, 1000, 10000, 100000}) {
+        try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
 //        IndexedDISICache cache = new IndexedDISICache(in.slice("docs", 0L, length), true, true);
-        IndexedDISI disi = new IndexedDISI(in, 0L, length, cardinality, true);
-        BitSetIterator disi2 = new BitSetIterator(set, cardinality);
-        assertAdvanceEquality(disi, disi2, step);
+          IndexedDISI disi = new IndexedDISI(in, 0L, length, cardinality, true);
+          BitSetIterator disi2 = new BitSetIterator(set, cardinality);
+          assertAdvanceEquality(disi, disi2, step);
+//        assertAdvanceExactRandomized(disi, disi2, set.cardinality(), step);
+        }
       }
     }
   }
 
+  // Fails with -Dtests.seed=FB11DD18EE18E34A
   public void testRandom() throws IOException {
     try (Directory dir = newDirectory()) {
       for (int i = 0; i < 10; ++i) {
