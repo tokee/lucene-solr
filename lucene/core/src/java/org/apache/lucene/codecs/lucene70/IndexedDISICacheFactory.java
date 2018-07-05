@@ -44,7 +44,7 @@ public class IndexedDISICacheFactory {
   public static boolean BLOCK_CACHING_ENABLED = true;
   public static boolean DENSE_CACHING_ENABLED = false; // Not functioning yet
 
-  private static boolean DEBUG = false; // TODO: Remove this when code has stabilized
+  private static boolean DEBUG = true; // TODO: Remove this when code has stabilized
 
   // Map<IndexInput.hashCode, Map<key, cache>>
   private static final Map<Integer, Map<Long, IndexedDISICache>> pool = new HashMap<>();

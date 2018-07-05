@@ -27,6 +27,7 @@ package org.apache.lucene.codecs.lucene70;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.store.IndexInput;
@@ -109,7 +110,7 @@ public class IndexedDISICache {
       return; // Nothing to do
     }
 
-    fillCaches(in, createBlockCache, createRankCache);
+    updateCaches(in, createBlockCache, createRankCache);
   }
 
   private IndexedDISICache() {
@@ -178,16 +179,39 @@ public class IndexedDISICache {
 
   // TODO: Add a method that updates the slice-position and returns doc & index (maybe as a long?
 
-  private void fillCaches(IndexInput slice, boolean fillBlockCache, boolean fillRankCache)
+  private void updateCaches(IndexInput slice, boolean fillBlockCache, boolean fillRankCache)
       throws IOException {
     final long startOffset = slice.getFilePointer();
 
     final long startTime = System.nanoTime();
-    int statBlockALL = 0;
-    int statBlockDENSE = 0;
-    int statBlockSPARSE = 0;
+    AtomicInteger statBlockALL = new AtomicInteger(0);
+    AtomicInteger statBlockDENSE = new AtomicInteger(0);
+    AtomicInteger statBlockSPARSE = new AtomicInteger(0);
 
     // Fill phase
+    int largestBlock;
+    try {
+      largestBlock = fillCache(slice, fillBlockCache, fillRankCache, statBlockALL, statBlockDENSE, statBlockSPARSE);
+    } catch (Exception e) { // TODO: Development debug only. Remove when stable
+      creationStats = "Exception filling cache with slice of length " + slice.getFilePointer();
+      System.err.println(creationStats);
+      e.printStackTrace();
+      blockCache = null;
+      rank = null;
+      slice.seek(startOffset); // Leave it as we found it
+      return;
+    }
+
+    freezeCaches(fillBlockCache, fillRankCache, largestBlock);
+
+    slice.seek(startOffset); // Leave it as we found it
+    creationStats = String.format("blocks=%d (ALL=%d, DENSE=%d, SPARSE=%d, EMPTY=%d), time=%dms, block=%b, rank=%b",
+        largestBlock+1, statBlockALL.get(), statBlockDENSE.get(), statBlockSPARSE.get(),
+        (largestBlock+1-statBlockALL.get()-statBlockDENSE.get()-statBlockSPARSE.get()),
+        (System.nanoTime()-startTime)/1000000, fillBlockCache, fillRankCache);
+  }
+
+  private int fillCache(IndexInput slice, boolean fillBlockCache, boolean fillRankCache, AtomicInteger statBlockALL, AtomicInteger statBlockDENSE, AtomicInteger statBlockSPARSE) throws IOException {
     int largestBlock = -1;
     long index = 0;
     while (slice.getFilePointer() < slice.length()) {
@@ -199,9 +223,9 @@ public class IndexedDISICache {
       assert blockIndex > largestBlock;
       if (blockIndex == DocIdSetIterator.NO_MORE_DOCS >>> 16) { // End reached
         assert Short.toUnsignedInt(slice.readShort()) == (DocIdSetIterator.NO_MORE_DOCS & 0xFFFF);
-        continue;
+        // TODO: We should be at the end here, but using continue instead of break throws a read-past-EOF-exception with a local test corpus
+        break;
       }
-
       largestBlock = blockIndex;
 
       if (fillBlockCache) {
@@ -211,18 +235,18 @@ public class IndexedDISICache {
       index += numValues;
 
       if (numValues <= MAX_ARRAY_LENGTH) { // SPARSE
-        statBlockSPARSE++;
+        statBlockSPARSE.incrementAndGet();
         slice.seek(slice.getFilePointer() + (numValues << 1));
         continue;
       }
       if (numValues == 65536) { // ALL
-        statBlockALL++;
+        statBlockALL.incrementAndGet();
         // Already at next block offset
         continue;
       }
 
       // The block is DENSE
-      statBlockDENSE++;
+      statBlockDENSE.incrementAndGet();
       long nextBlockOffset = slice.getFilePointer() + (1 << 13);
       if (fillRankCache) {
         int setBits = 0;
@@ -240,13 +264,7 @@ public class IndexedDISICache {
         slice.seek(nextBlockOffset);
       }
     }
-
-    freezeCaches(fillBlockCache, fillRankCache, largestBlock);
-
-    slice.seek(startOffset); // Leave it as we found it
-    creationStats = String.format("blocks=%d (ALL=%d, DENSE=%d, SPARSE=%d, EMPTY=%d), time=%dms, block=%b, rank=%b",
-        largestBlock+1, statBlockALL, statBlockDENSE, statBlockSPARSE, (largestBlock+1-statBlockALL-statBlockDENSE-statBlockSPARSE),
-        (System.nanoTime()-startTime)/1000000, fillBlockCache, fillRankCache);
+    return largestBlock;
   }
 
   private void freezeCaches(boolean fillBlockCache, boolean fillRankCache, int largestBlock) {
