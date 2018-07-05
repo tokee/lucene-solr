@@ -184,6 +184,63 @@ public class TestIndexedDISI extends LuceneTestCase {
     }
   }
 
+  public void testCacheSpeed() throws IOException {
+    for (int size: new int[]{10_000, 100_000, 1_000_000, 10_000_000, 100_000_000}) {
+      FixedBitSet set = new FixedBitSet(size);
+      for (int i = 0 ; i < size ; i+=3) {
+        set.set(i); // Quite DENSE
+      }
+      for (int step: new int[]{1, 9, 99, 999, 9_999, 99_999, 999_999, 9_999_999}) {
+        if (step > size) {
+          continue;
+        }
+        measureCacheSpeed("Dense", set, step);
+      }
+    }
+  }
+
+  // TODO (Toke): Remove when stable
+  // This microbenchmark is just for sanity checking and not intended to provide realistic measurements
+  private void measureCacheSpeed(String designation, FixedBitSet set, int step) throws IOException {
+
+    final int cardinality = set.cardinality();
+    long length;
+    try (Directory dir = newDirectory()) {
+      try (IndexOutput out = dir.createOutput("foo", IOContext.DEFAULT)) {
+        IndexedDISI.writeBitSet(new BitSetIterator(set, cardinality), out);
+        length = out.getFilePointer();
+      }
+
+      try (IndexInput inVanilla1 = dir.openInput("foo", IOContext.DEFAULT);
+           IndexInput inCached1 = dir.openInput("foo", IOContext.DEFAULT);
+           IndexInput inVanilla2 = dir.openInput("foo", IOContext.DEFAULT);
+           IndexInput inCached2 = dir.openInput("foo", IOContext.DEFAULT)) {
+        IndexedDISI vanilla1 = new IndexedDISI(inVanilla1, 0L, length, cardinality, false);
+        IndexedDISI cached1 = new IndexedDISI(inCached1, 0L, length, cardinality, true);
+        IndexedDISI vanilla2 = new IndexedDISI(inVanilla2, 0L, length, cardinality, false);
+        IndexedDISI cached2 = new IndexedDISI(inCached2, 0L, length, cardinality, true);
+
+        final long v1NS = stepTime(vanilla1, step);
+        final long c1NS = stepTime(cached1, step);
+        final long v2NS = stepTime(vanilla2, step);
+        final long c2NS = stepTime(cached2, step);
+        System.out.println(String.format("%20s: length=%10d, step=%10d, v1=%10dns, c1=%10dns, v2=%10dns, c2=%10dns, ",
+            designation, set.length(), step, v1NS, c1NS, v2NS, c2NS));
+      }
+    }
+  }
+
+  // TODO (Toke): Remove when stable
+  private long stepTime(IndexedDISI disi, int step) throws IOException {
+    final long startTime = System.nanoTime();
+    int target = 0;
+    while (disi.advance(target) != DocIdSetIterator.NO_MORE_DOCS) {
+      target += step;
+    }
+    return System.nanoTime()-startTime;
+  }
+
+  // TODO (Toke): Remove when stable
   public void testExplorativeTestCachedDense() throws IOException {
     try (Directory dir = newDirectory()) {
       int maxDoc = 100*65536; // 10 blocks
