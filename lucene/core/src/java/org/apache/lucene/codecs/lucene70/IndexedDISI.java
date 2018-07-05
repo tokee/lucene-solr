@@ -290,7 +290,7 @@ final class IndexedDISI extends DocIdSetIterator {
         }
 
         // If possible, skip ahead using the rank cache
-        rankSkip(disi, target);
+        disi.rankSkip(disi, target);
 
         for (int i = disi.wordIndex + 1; i <= targetWordIndex; ++i) {
           disi.word = disi.slice.readLong();
@@ -344,7 +344,7 @@ final class IndexedDISI extends DocIdSetIterator {
 
         // If possible, skip ahead using the rank cache
         // TODO: Enable when stable
-        rankSkip(disi, target);
+        disi.rankSkip(disi, target);
 
         for (int i = disi.wordIndex + 1; i <= targetWordIndex; ++i) {
           disi.word = disi.slice.readLong();
@@ -357,55 +357,6 @@ final class IndexedDISI extends DocIdSetIterator {
         return (leftBits & 1L) != 0;
       }
 
-      /**
-       * If the distance between the current position and the target is > 8 words, the rank cache will
-       * be used to guarantee a worst-case of 1 rank-lookup and 7 word-read-and-count-bits operations.
-       * Note: This does not guarantee a skip up to target, only up to nearest rank boundary. It is the
-       * responsibility of the caller to iterate further to reach target.
-       * @param disi standard DISI.
-       * @param target the wanted docID for which to calculate set-flag and index.
-       * @throws IOException if a disi seek failed.
-       */
-      private void rankSkip(IndexedDISI disi, int target) throws IOException {
-        final int targetInBlock = target & 0xFFFF;
-        final int targetWordIndex = targetInBlock >>> 6;
-
-        // If the distance between the current position and the target is >= 8
-        // then it pays to use the rank to jump
-        if (!(disi.cache.hasRank() && targetWordIndex - disi.wordIndex >= IndexedDISICache.RANK_BLOCK_LONGS)) {
-          return;
-        }
-
-        int rankPos = disi.cache.denseRankPosition(target);
-        if (rankPos == -1) {
-          return;
-        }
-        int rank = disi.cache.getRankInBlock(rankPos);
-        if (rank == -1) {
-          System.out.println("Rank -1 for target=" + target);
-          return;
-        }
-        int rankIndex = disi.denseOrigoIndex + rank;
-        int rankWordIndex = (rankPos & 0xFFFF) >> 6;
-        long rankOffset = disi.blockStart + 4 + (rankWordIndex * 8);
-
-        long mark = disi.slice.getFilePointer();
-        disi.slice.seek(rankOffset);
-        long rankWord = disi.slice.readLong();
-        int rankNOO = rankIndex + Long.bitCount(rankWord);
-        rankOffset += Long.BYTES;
-
-
-        //disi.slice.seek(mark);
-        disi.wordIndex = rankWordIndex;
-        disi.word = rankWord;
-        disi.numberOfOnes = rankNOO;
-
-//            System.out.println("> rank denseOrigoIndex=" + disi.denseOrigoIndex +
-//                ", rank[" + (target >> IndexedDISICache.RANK_BLOCK_BITS) + "]=" + disi.cache.getRankInBlock(rankPos) +
-//                ", rankWordIndex=" + rankWordIndex + ", twi=" + targetWordIndex +
-//               ", offset=" + rankOffset + ", rankOnes=" + rankNOO + ", endIndex=" + rankIndex);
-      }
 
     },
     ALL {
@@ -431,4 +382,53 @@ final class IndexedDISI extends DocIdSetIterator {
     abstract boolean advanceExactWithinBlock(IndexedDISI disi, int target) throws IOException;
   }
 
+  /**
+   * If the distance between the current position and the target is > 8 words, the rank cache will
+   * be used to guarantee a worst-case of 1 rank-lookup and 7 word-read-and-count-bits operations.
+   * Note: This does not guarantee a skip up to target, only up to nearest rank boundary. It is the
+   * responsibility of the caller to iterate further to reach target.
+   * @param disi standard DISI.
+   * @param target the wanted docID for which to calculate set-flag and index.
+   * @throws IOException if a disi seek failed.
+   */
+  private void rankSkip(IndexedDISI disi, int target) throws IOException {
+    final int targetInBlock = target & 0xFFFF;
+    final int targetWordIndex = targetInBlock >>> 6;
+
+    // If the distance between the current position and the target is >= 8
+    // then it pays to use the rank to jump
+    if (!(disi.cache.hasRank() && targetWordIndex - disi.wordIndex >= IndexedDISICache.RANK_BLOCK_LONGS)) {
+      return;
+    }
+
+    int rankPos = disi.cache.denseRankPosition(target);
+    if (rankPos == -1) {
+      return;
+    }
+    int rank = disi.cache.getRankInBlock(rankPos);
+    if (rank == -1) {
+      System.out.println("Rank -1 for target=" + target);
+      return;
+    }
+    int rankIndex = disi.denseOrigoIndex + rank;
+    int rankWordIndex = (rankPos & 0xFFFF) >> 6;
+    long rankOffset = disi.blockStart + 4 + (rankWordIndex * 8);
+
+    long mark = disi.slice.getFilePointer();
+    disi.slice.seek(rankOffset);
+    long rankWord = disi.slice.readLong();
+    int rankNOO = rankIndex + Long.bitCount(rankWord);
+    rankOffset += Long.BYTES;
+
+
+    //disi.slice.seek(mark);
+    disi.wordIndex = rankWordIndex;
+    disi.word = rankWord;
+    disi.numberOfOnes = rankNOO;
+
+//            System.out.println("> rank denseOrigoIndex=" + disi.denseOrigoIndex +
+//                ", rank[" + (target >> IndexedDISICache.RANK_BLOCK_BITS) + "]=" + disi.cache.getRankInBlock(rankPos) +
+//                ", rankWordIndex=" + rankWordIndex + ", twi=" + targetWordIndex +
+//               ", offset=" + rankOffset + ", rankOnes=" + rankNOO + ", endIndex=" + rankIndex);
+  }
 }
