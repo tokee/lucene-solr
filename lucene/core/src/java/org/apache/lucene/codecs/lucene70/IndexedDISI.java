@@ -145,6 +145,8 @@ final class IndexedDISI extends DocIdSetIterator {
   private int wordIndex = -1;
   // number of one bits encountered so far, including those of `word`
   private int numberOfOnes;
+  // Used with rank for jumps inside of DENSE
+  private int denseOrigoIndex;
 
   // ALL variables
   private int gap;
@@ -218,6 +220,7 @@ final class IndexedDISI extends DocIdSetIterator {
       blockEnd = slice.getFilePointer() + (1 << 13);
       wordIndex = -1;
       numberOfOnes = index + 1;
+      denseOrigoIndex = numberOfOnes;
     }
   }
 
@@ -282,21 +285,23 @@ final class IndexedDISI extends DocIdSetIterator {
         final int targetInBlock = target & 0xFFFF;
         final int targetWordIndex = targetInBlock >>> 6;
 
-        // If the distance between the current position and the target is >= 8
-        // then it pays to use the rank to jump
-        if (disi.cache.hasRank() && targetWordIndex - disi.wordIndex > IndexedDISICache.RANK_BLOCK_LONGS) {
-          int rankPos = disi.cache.denseRankPosition(target);
-          if (rankPos != -1) {
-            int rankIndex = (disi.block << IndexedDISICache.RANK_BLOCK_BITS) + disi.cache.getRankInBlock(rankPos);
-            // TODO: Set the wordIndex to rankPos >> 6
-            // TODO: Set the slicer offset to origo + wordIndex << 3
-            // TODO: Set the numberOfOnes to numberOfOnesOrigo + rankPos
-          }
+        if (target == (target >> 9 << 9)) {
+//          System.out.println("-----");
         }
+
+        // If possible, skip ahead using the rank cache
+        rankSkip(disi, target);
 
         for (int i = disi.wordIndex + 1; i <= targetWordIndex; ++i) {
           disi.word = disi.slice.readLong();
           disi.numberOfOnes += Long.bitCount(disi.word);
+          // Read @ 249 with offset=2004
+        //  System.out.println("Read @ " + i + " with offset=" + disi.slice.getFilePointer());
+        }
+        if (target == (target >> 9 << 9)) {
+//          System.out.println("coarse index=" + disi.index + ", wordIndex=" + disi.wordIndex +
+//              ", targetWordIndex=" + targetWordIndex+ ", ones=" + disi.numberOfOnes +
+//              ", offset=" + disi.slice.getFilePointer());
         }
         disi.wordIndex = targetWordIndex;
 
@@ -304,24 +309,43 @@ final class IndexedDISI extends DocIdSetIterator {
         if (leftBits != 0L) {
           disi.doc = target + Long.numberOfTrailingZeros(leftBits);
           disi.index = disi.numberOfOnes - Long.bitCount(leftBits);
+          if (target == (target >> 9 << 9)) {
+//            System.out.println("countStop=" + disi.index + ", wordIndex=" + disi.wordIndex);
+          }
           return true;
         }
+        if (target == (target >> 9 << 9)) {
+//          System.out.println("countOut=" + disi.index + ", wordIndex=" + disi.wordIndex);
+        }
 
+        // There were no set bits at the wanted position. Move forward until one is reached
         while (++disi.wordIndex < 1024) {
+          // This could use the rank cache to skip empty spaces >= 512 bits, but it seems unrealistic
+          // that such blocks would be DENSE
           disi.word = disi.slice.readLong();
           if (disi.word != 0) {
             disi.index = disi.numberOfOnes;
             disi.numberOfOnes += Long.bitCount(disi.word);
             disi.doc = disi.block | (disi.wordIndex << 6) | Long.numberOfTrailingZeros(disi.word);
+            if (target == (target >> 9 << 9)) {
+//              System.out.println("extra=" + disi.index + ", wordIndex=" + disi.wordIndex);
+            }
             return true;
           }
         }
+        // No set bits in the block at or after the wanted position.
         return false;
       }
+
       @Override
       boolean advanceExactWithinBlock(IndexedDISI disi, int target) throws IOException {
         final int targetInBlock = target & 0xFFFF;
         final int targetWordIndex = targetInBlock >>> 6;
+
+        // If possible, skip ahead using the rank cache
+        // TODO: Enable when stable
+        rankSkip(disi, target);
+
         for (int i = disi.wordIndex + 1; i <= targetWordIndex; ++i) {
           disi.word = disi.slice.readLong();
           disi.numberOfOnes += Long.bitCount(disi.word);
@@ -332,6 +356,57 @@ final class IndexedDISI extends DocIdSetIterator {
         disi.index = disi.numberOfOnes - Long.bitCount(leftBits);
         return (leftBits & 1L) != 0;
       }
+
+      /**
+       * If the distance between the current position and the target is > 8 words, the rank cache will
+       * be used to guarantee a worst-case of 1 rank-lookup and 7 word-read-and-count-bits operations.
+       * Note: This does not guarantee a skip up to target, only up to nearest rank boundary. It is the
+       * responsibility of the caller to iterate further to reach target.
+       * @param disi standard DISI.
+       * @param target the wanted docID for which to calculate set-flag and index.
+       * @throws IOException if a disi seek failed.
+       */
+      private void rankSkip(IndexedDISI disi, int target) throws IOException {
+        final int targetInBlock = target & 0xFFFF;
+        final int targetWordIndex = targetInBlock >>> 6;
+
+        // If the distance between the current position and the target is >= 8
+        // then it pays to use the rank to jump
+        if (!(disi.cache.hasRank() && targetWordIndex - disi.wordIndex >= IndexedDISICache.RANK_BLOCK_LONGS)) {
+          return;
+        }
+
+        int rankPos = disi.cache.denseRankPosition(target);
+        if (rankPos == -1) {
+          return;
+        }
+        int rank = disi.cache.getRankInBlock(rankPos);
+        if (rank == -1) {
+          System.out.println("Rank -1 for target=" + target);
+          return;
+        }
+        int rankIndex = disi.denseOrigoIndex + rank;
+        int rankWordIndex = (rankPos & 0xFFFF) >> 6;
+        long rankOffset = disi.blockStart + 4 + (rankWordIndex * 8);
+
+        long mark = disi.slice.getFilePointer();
+        disi.slice.seek(rankOffset);
+        long rankWord = disi.slice.readLong();
+        int rankNOO = rankIndex + Long.bitCount(rankWord);
+        rankOffset += Long.BYTES;
+
+
+        //disi.slice.seek(mark);
+        disi.wordIndex = rankWordIndex;
+        disi.word = rankWord;
+        disi.numberOfOnes = rankNOO;
+
+//            System.out.println("> rank denseOrigoIndex=" + disi.denseOrigoIndex +
+//                ", rank[" + (target >> IndexedDISICache.RANK_BLOCK_BITS) + "]=" + disi.cache.getRankInBlock(rankPos) +
+//                ", rankWordIndex=" + rankWordIndex + ", twi=" + targetWordIndex +
+//               ", offset=" + rankOffset + ", rankOnes=" + rankNOO + ", endIndex=" + rankIndex);
+      }
+
     },
     ALL {
       @Override
