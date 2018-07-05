@@ -35,7 +35,7 @@ import org.apache.lucene.util.RamUsageEstimator;
 public class IndexedDISICacheFactory implements Accountable {
   public static int MIN_LENGTH_FOR_CACHING = 50; // Set this very low: Could be 9 EMPTY followed by a SPARSE
   public static boolean BLOCK_CACHING_ENABLED = true;
-  public static boolean DENSE_CACHING_ENABLED = false; // Not functioning yet
+  public static boolean DENSE_CACHING_ENABLED = true; // Not functioning yet
 
   private static boolean DEBUG = false; // TODO (Toke): Remove this when code has stabilized
 

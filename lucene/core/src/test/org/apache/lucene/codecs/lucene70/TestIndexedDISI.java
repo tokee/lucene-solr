@@ -190,7 +190,7 @@ public class TestIndexedDISI extends LuceneTestCase {
       for (int i = 0 ; i < size ; i+=3) {
         set.set(i); // Quite DENSE
       }
-      for (int step: new int[]{1, 9, 99, 999, 9_999, 99_999, 999_999, 9_999_999}) {
+      for (int step: new int[]{1, 9, 99, 999, 9_999, 99_999, 999_999, 9_999_999, 99_999_999}) {
         if (step > size) {
           continue;
         }
@@ -220,12 +220,13 @@ public class TestIndexedDISI extends LuceneTestCase {
         IndexedDISI vanilla2 = new IndexedDISI(inVanilla2, 0L, length, cardinality, false);
         IndexedDISI cached2 = new IndexedDISI(inCached2, 0L, length, cardinality, true);
 
-        final long v1NS = stepTime(vanilla1, step);
         final long c1NS = stepTime(cached1, step);
-        final long v2NS = stepTime(vanilla2, step);
+        final long v1NS = stepTime(vanilla1, step);
         final long c2NS = stepTime(cached2, step);
-        System.out.println(String.format("%20s: length=%10d, step=%10d, v1=%10dns, c1=%10dns, v2=%10dns, c2=%10dns, ",
-            designation, set.length(), step, v1NS, c1NS, v2NS, c2NS));
+        final long v2NS = stepTime(vanilla2, step);
+        System.out.println(String.format(
+            "%10s: length=%10d, step=%10d, v1=%10dns, c1=%10dns, v2=%10dns, c2=%10dns, c2/v2=%4d%%",
+            designation, set.length(), step, v1NS, c1NS, v2NS, c2NS, c2NS*100/v2NS));
       }
     }
   }
