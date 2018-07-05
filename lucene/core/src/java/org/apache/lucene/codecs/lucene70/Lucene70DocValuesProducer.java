@@ -117,8 +117,6 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
       if (info == null) {
         throw new CorruptIndexException("Invalid field number: " + fieldNumber, meta);
       }
-      // TODO (Toke): Remove this when stable
-      System.out.println("Reading DocValued field '" + info.name + "'");
       byte type = meta.readByte();
       if (type == Lucene70DocValuesFormat.NUMERIC) {
         numerics.put(info.name, readNumeric(meta));
