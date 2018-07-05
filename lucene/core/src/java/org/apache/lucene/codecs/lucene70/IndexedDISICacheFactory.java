@@ -31,6 +31,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.lucene.store.IndexInput;
+import org.apache.lucene.util.Accountable;
+import org.apache.lucene.util.RamUsageEstimator;
 
 /**
  * Creates and stores caches for {@link IndexedDISI}.
@@ -39,7 +41,7 @@ import org.apache.lucene.store.IndexInput;
  */
 // Note: This was hacked together with little understanding of overall caching principles for Lucene.
 // It probably belongs somewhere else and hopefully someone with a better understanding will refactor the code.
-public class IndexedDISICacheFactory {
+public class IndexedDISICacheFactory implements Accountable {
   public static int MIN_LENGTH_FOR_CACHING = 50; // Set this very low: Could be 9 EMPTY followed by a SPARSE
   public static boolean BLOCK_CACHING_ENABLED = true;
   public static boolean DENSE_CACHING_ENABLED = true; // Not functioning yet
@@ -54,7 +56,8 @@ public class IndexedDISICacheFactory {
    * @param data with {@link IndexedDISICache}s.
    */
   public static void release(IndexInput data) {
-    debug("Release cache called for data " + data.hashCode() + " with exists=" + pool.remove(data.hashCode()));
+    debug("Release cache called for data " + data.hashCode() +
+        " with exists=" + (pool.remove(data.hashCode()) != null));
   }
 
   /**
@@ -78,7 +81,7 @@ public class IndexedDISICacheFactory {
       cache = new IndexedDISICache(data.slice("docs", offset, length),
           BLOCK_CACHING_ENABLED, DENSE_CACHING_ENABLED);
       caches.put(key, cache);
-      debug("Created cache for " + data.toString() + ": " + cache.creationStats);
+      debug("Created cache for " + data.toString() + ": " + cache.creationStats + " (" + cache.ramBytesUsed() + " bytes)");
     }
     return cache;
   }
@@ -88,5 +91,18 @@ public class IndexedDISICacheFactory {
     if (DEBUG) {
       System.out.println(IndexedDISICacheFactory.class.getSimpleName() + ": " + message);
     }
+  }
+
+  @Override
+  public long ramBytesUsed() {
+    long mem = RamUsageEstimator.NUM_BYTES_OBJECT_REF + RamUsageEstimator.shallowSizeOf(pool);
+    for (Map.Entry<Integer, Map<Long, IndexedDISICache>> entry: pool.entrySet()) {
+      mem += RamUsageEstimator.shallowSizeOf(entry);
+      for (Map.Entry<Long, IndexedDISICache> cacheEntry: entry.getValue().entrySet()) {
+        mem += RamUsageEstimator.shallowSizeOf(cacheEntry);
+        mem += cacheEntry.getValue().ramBytesUsed();
+      }
+    }
+    return mem;
   }
 }

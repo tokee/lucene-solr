@@ -31,7 +31,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.store.IndexInput;
+import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.ArrayUtil;
+import org.apache.lucene.util.RamUsageEstimator;
 
 import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
 
@@ -73,7 +75,7 @@ import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
  *
  * See https://issues.apache.org/jira/browse/LUCENE-8374 for details
  */
-public class IndexedDISICache {
+public class IndexedDISICache implements Accountable {
 
   public static final int BLOCK = 65536;
   public static final int BLOCK_BITS = 16;
@@ -324,5 +326,13 @@ public class IndexedDISICache {
         }
       }*/
     }
+  }
+
+  @Override
+  public long ramBytesUsed() {
+    return (blockCache == null ? 0 : RamUsageEstimator.sizeOf(blockCache)) +
+        (rank == null ? 0 : RamUsageEstimator.sizeOf(rank)) +
+        RamUsageEstimator.NUM_BYTES_OBJECT_REF*3 +
+        RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + creationStats.length()*2;
   }
 }
