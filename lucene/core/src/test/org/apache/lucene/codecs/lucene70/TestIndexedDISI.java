@@ -188,7 +188,9 @@ public class TestIndexedDISI extends LuceneTestCase {
       }
     }
   }
-
+  // Toke: Failed with checkout 55611d3ceb67d243b6abd3d34d2ba39a659816dc for LUCENE-8374
+  // NOTE: test params are: codec=Asserting(Lucene70): {}, docValues:{}, maxPointsInLeafNode=421, maxMBSortInHeap=5.851145132201492, sim=Asserting(org.apache.lucene.search.similarities.AssertingSimilarity@6693ce1b), locale=en-ZA, timezone=America/Detroit
+  //NOTE: reproduce with: ant test  -Dtestcase=TestIndexedDISI -Dtests.method=testRandom -Dtests.seed=889DB9D1173BEEBC -Dtests.slow=true -Dtests.badapples=true -Dtests.locale=en-ZA -Dtests.timezone=America/Detroit -Dtests.asserts=true -Dtests.file.encoding=UTF-8
   public void testRandom() throws IOException {
     try (Directory dir = newDirectory()) {
       for (int i = 0; i < 10; ++i) {
@@ -246,26 +248,6 @@ public class TestIndexedDISI extends LuceneTestCase {
       }
     }
 
-    // Cached versions below
-/*
-    try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
-      IndexedDISICache cache = new IndexedDISICache(in.slice("docs", 0L, length), true, true);
-      IndexedDISI disi = new IndexedDISI(in, 0L, length, cardinality, cache);
-      BitSetIterator disi2 = new BitSetIterator(set, cardinality);
-      assertSingleStepEquality(disi, disi2);
-    }
-
-    // TODO: Fix fail below NOTE: reproduce with: ant test  -Dtestcase=TestIndexedDISI -Dtests.method=testRandom -Dtests.seed=EECC0255E9A6DF17 -Dtests.slow=true -Dtests.badapples=true -Dtests.locale=ar-SY -Dtests.timezone=America/Paramaribo -Dtests.asserts=true -Dtests.file.encoding=UTF-8
-
-    for (int step : new int[] {300000}) { // 300K to guarantee block-skip
-      try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
-        IndexedDISICache cache = new IndexedDISICache(in.slice("docs", 0L, length), true, true);
-        IndexedDISI disi = new IndexedDISI(in, 0L, length, cardinality, cache);
-        BitSetIterator disi2 = new BitSetIterator(set, cardinality);
-        assertAdvanceEquality(disi, disi2, step);
-      }
-    }
-  */
     dir.deleteFile("foo");
   }
 
