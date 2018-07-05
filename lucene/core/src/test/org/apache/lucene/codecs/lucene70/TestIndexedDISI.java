@@ -199,6 +199,32 @@ public class TestIndexedDISI extends LuceneTestCase {
     }
   }
 
+  public void testSpecificAssertionValidation() throws IOException {
+    int size = 15536;
+    FixedBitSet set = new FixedBitSet(size);
+    for (int i = 0 ; i < size ; i+=3) {
+      set.set(i); // Quite DENSE
+    }
+
+    final int cardinality = set.cardinality();
+    long length;
+    try (Directory dir = newDirectory()) {
+      try (IndexOutput out = dir.createOutput("foo", IOContext.DEFAULT)) {
+        IndexedDISI.writeBitSet(new BitSetIterator(set, cardinality), out);
+        length = out.getFilePointer();
+      }
+
+      try (IndexInput inVanilla1 = dir.openInput("foo", IOContext.DEFAULT)) {
+        IndexedDISI disi = new IndexedDISI(inVanilla1, 0L, length, cardinality, false);
+
+        int target = 0;
+        while (disi.advance(target) != DocIdSetIterator.NO_MORE_DOCS) {
+          target += 1;
+        }
+      }
+    }
+  }
+
   // TODO (Toke): Remove when stable
   // This microbenchmark is just for sanity checking and not intended to provide realistic measurements
   private void measureCacheSpeed(String designation, FixedBitSet set, int step) throws IOException {
