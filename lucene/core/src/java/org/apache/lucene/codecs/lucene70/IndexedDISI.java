@@ -157,6 +157,7 @@ final class IndexedDISI extends DocIdSetIterator {
   @Override
   public int advance(int target) throws IOException {
     final long startTime = System.nanoTime();
+    final int initialDoc = doc;
 
     final int targetBlock = target & 0xFFFF0000;
     if (block < targetBlock) {
@@ -170,19 +171,21 @@ final class IndexedDISI extends DocIdSetIterator {
     }
     boolean found = method.advanceWithinBlock(this, block);
     assert found;
-    System.out.println("advance(" + doc + " -> " + target + ") in " + (System.nanoTime()-startTime) + "ns");
+    System.out.println("advance(" + initialDoc + " -> " + target + ") in " + (System.nanoTime()-startTime) + "ns");
     return doc;
   }
 
   public boolean advanceExact(int target) throws IOException {
     final long startTime = System.nanoTime();
+    final int initialDoc = doc;
+
     final int targetBlock = target & 0xFFFF0000;
     if (block < targetBlock) {
       advanceBlock(targetBlock);
     }
     boolean found = block == targetBlock && method.advanceExactWithinBlock(this, target);
     this.doc = target;
-    System.out.println("advance(" + doc + " -> " + target + ") in " + (System.nanoTime()-startTime) + "ns");
+    System.out.println("advanceExact(" + initialDoc + " -> " + target + ") in " + (System.nanoTime()-startTime) + "ns");
     return found;
   }
 
