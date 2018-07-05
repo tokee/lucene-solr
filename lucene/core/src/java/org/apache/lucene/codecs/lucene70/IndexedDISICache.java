@@ -265,6 +265,7 @@ public class IndexedDISICache {
         slice.seek(nextBlockOffset);
       }
     }
+    //maxDocID = ((largestBlock+1) << BLOCK_BITS)-1;
     return largestBlock;
   }
 

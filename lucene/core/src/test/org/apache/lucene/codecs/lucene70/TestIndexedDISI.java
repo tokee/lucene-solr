@@ -161,6 +161,29 @@ public class TestIndexedDISI extends LuceneTestCase {
     }
   }
 
+  public void testOneDocMissingFixed() throws IOException {
+    int maxDoc = 9699;
+    FixedBitSet set = new FixedBitSet(maxDoc);
+    set.set(0, maxDoc);
+    set.clear(1345);
+    try (Directory dir = newDirectory()) {
+
+      final int cardinality = set.cardinality();
+      long length;
+      try (IndexOutput out = dir.createOutput("foo", IOContext.DEFAULT)) {
+        IndexedDISI.writeBitSet(new BitSetIterator(set, cardinality), out);
+        length = out.getFilePointer();
+      }
+
+      int step = 16000;
+      try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
+        IndexedDISI disi = new IndexedDISI(in, 0L, length, cardinality);
+        BitSetIterator disi2 = new BitSetIterator(set, cardinality);
+        assertAdvanceEquality(disi, disi2, step);
+      }
+    }
+  }
+
   public void testExplorativeTestCachedDense() throws IOException {
     try (Directory dir = newDirectory()) {
       int maxDoc = 100*65536; // 10 blocks

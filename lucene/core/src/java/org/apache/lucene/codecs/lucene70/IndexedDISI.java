@@ -290,11 +290,13 @@ final class IndexedDISI extends DocIdSetIterator {
         }
 
         // If possible, skip ahead using the rank cache
-//        rankSkip(disi, target);
+        rankSkip(disi, target);
 
         for (int i = disi.wordIndex + 1; i <= targetWordIndex; ++i) {
           disi.word = disi.slice.readLong();
           disi.numberOfOnes += Long.bitCount(disi.word);
+          // Read @ 249 with offset=2004
+        //  System.out.println("Read @ " + i + " with offset=" + disi.slice.getFilePointer());
         }
         if (target == (target >> 9 << 9)) {
 //          System.out.println("coarse index=" + disi.index + ", wordIndex=" + disi.wordIndex +
@@ -342,7 +344,7 @@ final class IndexedDISI extends DocIdSetIterator {
 
         // If possible, skip ahead using the rank cache
         // TODO: Enable when stable
-//        rankSkip(disi, target);
+        rankSkip(disi, target);
 
         for (int i = disi.wordIndex + 1; i <= targetWordIndex; ++i) {
           disi.word = disi.slice.readLong();
@@ -378,9 +380,14 @@ final class IndexedDISI extends DocIdSetIterator {
         if (rankPos == -1) {
           return;
         }
-        int rankIndex = disi.denseOrigoIndex + disi.cache.getRankInBlock(rankPos);
+        int rank = disi.cache.getRankInBlock(rankPos);
+        if (rank == -1) {
+          System.out.println("Rank -1 for target=" + target);
+          return;
+        }
+        int rankIndex = disi.denseOrigoIndex + rank;
         int rankWordIndex = (rankPos & 0xFFFF) >> 6;
-        long rankOffset = disi.blockStart + 4 + rankWordIndex;
+        long rankOffset = disi.blockStart + 4 + (rankWordIndex * 8);
 
         long mark = disi.slice.getFilePointer();
         disi.slice.seek(rankOffset);
@@ -397,7 +404,7 @@ final class IndexedDISI extends DocIdSetIterator {
 //            System.out.println("> rank denseOrigoIndex=" + disi.denseOrigoIndex +
 //                ", rank[" + (target >> IndexedDISICache.RANK_BLOCK_BITS) + "]=" + disi.cache.getRankInBlock(rankPos) +
 //                ", rankWordIndex=" + rankWordIndex + ", twi=" + targetWordIndex +
-//                ", offset=" + rankOffset + ", rankOnes=" + rankNOO + ", endIndex=" + rankIndex);
+//               ", offset=" + rankOffset + ", rankOnes=" + rankNOO + ", endIndex=" + rankIndex);
       }
 
     },
