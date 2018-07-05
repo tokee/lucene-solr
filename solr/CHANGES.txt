@@ -67,6 +67,8 @@ Upgrade Notes
 * LUCENE-7976: TieredMergePolicy now respects maxSegmentSizeMB by default when executing
   findForcedMerges (optimize) and findForcedDeletesMerges (expungeDeletes) (Erick Erickson)
 
+* SOLR-12395: SignificantTermsQParserPlugin's name is now 'significantTerms' and its old name 'sigificantTerms' is deprecated.
+
 New Features
 ----------------------
 
@@ -99,6 +101,8 @@ New Features
 * SOLR-12530: Ability to disable configset upload via -Dconfigset.upload.enabled=false startup parameter
   (Ishan Chattopadhyaya)
 
+* SOLR-12495: An #EQUALS function for replica in autoscaling policy to equally distribute replicas (noble)
+
 Bug Fixes
 ----------------------
 
@@ -129,6 +133,14 @@ Bug Fixes
 
 * SOLR-12427: Improve error message for invalid 'start', 'rows' parameters. (Munendra S N via Jason Gerlowski)
 
+* SOLR-12395: Make 'significantTerms' the SignificantTermsQParserPlugin's name and deprecate its old 'sigificantTerms' name.
+  (Tobias Kässmann, Christine Poerschke)
+
+* SOLR-12533 Collection collection fails if metrics are called during core creation (Peter Cseh, Mano Kovacs)
+
+* SOLR-2834: Fix SolrJ Field and Document analyzes for types that include CharacterFilter (Alexandre Rafalovitch)
+
+
 Optimizations
 ----------------------
 
@@ -151,6 +163,8 @@ Other Changes
 * SOLR-12208: Renamed the autoscaling variable 'INDEX.sizeInBytes' to 'INDEX.sizeInGB' (noble)
 
 * SOLR-12468: Upgrade Jetty to 9.4.11.v20180605 (Michael Braun, shalin)
+
+* SOLR-12527: factor out a test-framework/ConfigRequest class (Christine Poerschke)
 
 ==================  7.4.0 ==================
 
@@ -427,7 +441,7 @@ Bug Fixes
 * SOLR-12416: When creating a time routed alias, the router.autoDeleteAge option wasn't considered.
   (Joachim Sauer via David Smiley)
 
-* SOLR-12450: Don't allow referal to external resources in various config files.
+* SOLR-12450: Don't allow referal to external resources in various config files (CVE-2018-8026).
   (Yuyang Xiao, Uwe Schindler)
 
 Optimizations

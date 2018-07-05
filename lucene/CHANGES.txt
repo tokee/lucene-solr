@@ -129,6 +129,8 @@ API Changes:
 
 Bug Fixes:
 
+* LUCENE-8380: UTF8TaxonomyWriterCache inconsistency. (Ruslan Torobaev, Dawid Weiss)
+
 * LUCENE-8164: IndexWriter silently accepts broken payload. This has been fixed
   via LUCENE-8165 since we are now checking for offset+length going out of bounds.
   (Robert Muir, Nhat Nyugen, Simon Willnauer)
@@ -136,6 +138,10 @@ Bug Fixes:
 * LUCENE-8370: Reproducing 
   TestLucene{54,70}DocValuesFormat.testSortedSetVariableLengthBigVsStoredFields()
   failures (Erick Erickson)
+
+* LUCENE-8376, LUCENE-8371: ConditionalTokenFilter.end() would not propagate correctly
+  if the last token in the stream was subsequently dropped; FixedShingleFilter did
+  not set position increment in end() (Alan Woodward)
 
 Changes in Runtime Behavior:
 
@@ -158,6 +164,12 @@ Bug Fixes:
  * LUCENE-8365: Fix ArrayIndexOutOfBoundsException in UnifiedHighlighter. This fixes 
    a "off by one" error in the UnifiedHighlighter's code that is only triggered when
    two nested SpanNearQueries contain the same term. (Marc-Andre Morissette via Simon Willnauer)
+
+ * LUCENE-8381: Fix IndexWriter incorrectly interprets hard-deletes as soft-deletes
+   while wrapping reader for merges. (Simon Willnauer, Nhat Nguyen)
+
+ * LUCENE-8384: Fix missing advance docValues generation while handling docValues
+   update in PendingSoftDeletes. (Simon Willnauer, Nhat Nguyen)
 
 ======================= Lucene 7.4.0 =======================
 
