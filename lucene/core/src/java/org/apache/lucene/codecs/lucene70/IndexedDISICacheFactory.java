@@ -46,7 +46,7 @@ public class IndexedDISICacheFactory implements Accountable {
   public static boolean BLOCK_CACHING_ENABLED = true;
   public static boolean DENSE_CACHING_ENABLED = true; // Not functioning yet
 
-  private static boolean DEBUG = true; // TODO: Remove this when code has stabilized
+  private static boolean DEBUG = true; // TODO (Toke): Remove this when code has stabilized
 
   // Map<IndexInput.hashCode, Map<key, cache>>
   private static final Map<Integer, Map<Long, IndexedDISICache>> pool = new HashMap<>();
@@ -86,7 +86,7 @@ public class IndexedDISICacheFactory implements Accountable {
     return cache;
   }
 
-  // TODO: Definitely not the way to do it. Connect to InputStream or just remove it fully when IndexedDISICache is stable
+  // TODO (Toke): Definitely not the way to do it. Connect to InputStream or just remove it fully when IndexedDISICache is stable
   private static void debug(String message) {
     if (DEBUG) {
       System.out.println(IndexedDISICacheFactory.class.getSimpleName() + ": " + message);

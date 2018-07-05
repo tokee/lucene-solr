@@ -50,7 +50,7 @@ import org.apache.lucene.util.RoaringDocIdSet;
 final class IndexedDISI extends DocIdSetIterator {
 
   static final int MAX_ARRAY_LENGTH = (1 << 12) - 1;
-  public static boolean CACHING_ENABLED = true; // TODO: Primarily a default for Proof Of Concept
+  public static boolean CACHING_ENABLED = true; // TODO (Toke): Primarily a default for Proof Of Concept
 
   private static void flush(int block, FixedBitSet buffer, int cardinality, IndexOutput out) throws IOException {
     assert block >= 0 && block < 65536;
@@ -341,7 +341,6 @@ final class IndexedDISI extends DocIdSetIterator {
         final int targetWordIndex = targetInBlock >>> 6;
 
         // If possible, skip ahead using the rank cache
-        // TODO: Enable when stable
         disi.rankSkip(disi, target);
 
         for (int i = disi.wordIndex + 1; i <= targetWordIndex; ++i) {

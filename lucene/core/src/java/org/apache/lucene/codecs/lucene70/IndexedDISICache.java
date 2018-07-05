@@ -71,7 +71,7 @@ import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
  *
  * The total overhead for the rank cache is currently also numDocs/32 bits or numDocs/8 bytes
  * as the rank-representation is not sparse itself, using empty entries for sub-blocks of type
- * ALL or SPARSE. // TODO: Support sparse rank structures
+ * ALL or SPARSE. // TODO: Support sparse rank structures to avoid overhead for non-DENSE blocks
  *
  * See https://issues.apache.org/jira/browse/LUCENE-8374 for details
  */
@@ -180,8 +180,6 @@ public class IndexedDISICache implements Accountable {
     return rank == null || rankIndex >= rank.length ? -1 : rank[rankIndex];
   }
 
-  // TODO: Add a method that updates the slice-position and returns doc & index (maybe as a long?
-
   private void updateCaches(IndexInput slice, boolean fillBlockCache, boolean fillRankCache)
       throws IOException {
     final long startOffset = slice.getFilePointer();
@@ -195,7 +193,7 @@ public class IndexedDISICache implements Accountable {
     int largestBlock;
     try {
       largestBlock = fillCache(slice, fillBlockCache, fillRankCache, statBlockALL, statBlockDENSE, statBlockSPARSE);
-    } catch (Exception e) { // TODO: Development debug only. Remove when stable
+    } catch (Exception e) { // TODO (Toke): Development debug only. Remove when stable
       creationStats = "Exception filling cache with slice of length " + slice.getFilePointer();
       System.err.println(creationStats);
       e.printStackTrace();
@@ -226,7 +224,6 @@ public class IndexedDISICache implements Accountable {
       assert blockIndex > largestBlock;
       if (blockIndex == DocIdSetIterator.NO_MORE_DOCS >>> 16) { // End reached
         assert Short.toUnsignedInt(slice.readShort()) == (DocIdSetIterator.NO_MORE_DOCS & 0xFFFF);
-        // TODO: We should be at the end here, but using continue instead of break throws a read-past-EOF-exception with a local test corpus
         break;
       }
       largestBlock = blockIndex;
