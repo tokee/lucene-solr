@@ -14,15 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-/* $Id:$
- *
- * WordWar.
- * Copyright (C) 2012 Toke Eskildsen, te@ekot.dk
- *
- * This is confidential source code. Unless an explicit written permit has been obtained,
- * distribution, compiling and all other use of this code is prohibited.
- */
 package org.apache.lucene.codecs.lucene70;
 
 import java.io.IOException;
