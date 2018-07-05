@@ -208,7 +208,6 @@ public class TestIndexedDISI extends LuceneTestCase {
     }
   }
 
-  // Fails with -Dtests.seed=FB11DD18EE18E34A
   public void testRandom() throws IOException {
     try (Directory dir = newDirectory()) {
       for (int i = 0; i < 10; ++i) {

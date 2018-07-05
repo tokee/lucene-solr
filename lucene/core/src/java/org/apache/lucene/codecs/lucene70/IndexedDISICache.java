@@ -281,7 +281,7 @@ public class IndexedDISICache {
       System.arraycopy(blockCache, 0, newBC, 0, newBC.length);
       blockCache = newBC;
     }
-    if (fillRankCache && rank.length > largestBlock*RANKS_PER_BLOCK) {
+    if (fillRankCache && rank.length > (largestBlock+1)*RANKS_PER_BLOCK) {
       char[] newRank = new char[(largestBlock+1)*RANKS_PER_BLOCK];
       System.arraycopy(rank, 0, newRank, 0, newRank.length);
       rank = newRank;
