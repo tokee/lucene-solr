@@ -196,6 +196,8 @@ public class TestIndexedDISI extends LuceneTestCase {
         }
         measureCacheSpeed("Dense", set, step);
       }
+
+      // TODO: Test random, very empty and mix of EMPTY, SPARSE, DENSE & ALL to test
     }
   }
 
@@ -291,9 +293,7 @@ public class TestIndexedDISI extends LuceneTestCase {
       }
     }
   }
-  // Toke: Failed with checkout 55611d3ceb67d243b6abd3d34d2ba39a659816dc for LUCENE-8374
-  // NOTE: test params are: codec=Asserting(Lucene70): {}, docValues:{}, maxPointsInLeafNode=421, maxMBSortInHeap=5.851145132201492, sim=Asserting(org.apache.lucene.search.similarities.AssertingSimilarity@6693ce1b), locale=en-ZA, timezone=America/Detroit
-  //NOTE: reproduce with: ant test  -Dtestcase=TestIndexedDISI -Dtests.method=testRandom -Dtests.seed=889DB9D1173BEEBC -Dtests.slow=true -Dtests.badapples=true -Dtests.locale=en-ZA -Dtests.timezone=America/Detroit -Dtests.asserts=true -Dtests.file.encoding=UTF-8
+
   public void testRandom() throws IOException {
     try (Directory dir = newDirectory()) {
       for (int i = 0; i < 10; ++i) {
