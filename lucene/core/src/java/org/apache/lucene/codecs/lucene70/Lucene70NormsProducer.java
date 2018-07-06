@@ -49,6 +49,7 @@ final class Lucene70NormsProducer extends NormsProducer implements Cloneable {
   private Map<Integer, IndexInput> disiInputs;
   private Map<Integer, RandomAccessInput> dataInputs;
 
+
   Lucene70NormsProducer(SegmentReadState state, String dataCodec, String dataExtension, String metaCodec, String metaExtension) throws IOException {
     maxDoc = state.segmentInfo.maxDoc();
     String metaName = IndexFileNames.segmentFileName(state.segmentInfo.name, state.segmentSuffix, metaExtension);
@@ -293,7 +294,8 @@ final class Lucene70NormsProducer extends NormsProducer implements Cloneable {
     } else {
       // sparse
       final IndexInput disiInput = getDisiInput(field, entry);
-      final IndexedDISI disi = new IndexedDISI(disiInput, entry.numDocsWithField);
+      // TODO (Toke): Review if it makes sense to use caching here - aren't there already skip structures in place?
+      final IndexedDISI disi = new IndexedDISI(data.hashCode(), disiInput, entry.numDocsWithField);
       if (entry.bytesPerNorm == 0) {
         return new SparseNormsIterator(disi) {
           @Override
@@ -342,6 +344,7 @@ final class Lucene70NormsProducer extends NormsProducer implements Cloneable {
   @Override
   public void close() throws IOException {
     data.close();
+    IndexedDISICacheFactory.release(data);
   }
 
   @Override

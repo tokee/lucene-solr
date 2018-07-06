@@ -63,8 +63,8 @@ public class IndexedDISICacheFactory implements Accountable {
     if (length < MIN_LENGTH_FOR_CACHING) {
       return null;
     }
-    Map<Long, IndexedDISICache> caches = pool.computeIfAbsent(data.hashCode(), key -> new HashMap<>());
 
+    Map<Long, IndexedDISICache> caches = pool.computeIfAbsent(data.hashCode(), poolHash -> new HashMap<>());
     long key = data.hashCode() + offset + length + cost;
     IndexedDISICache cache = caches.get(key);
     if (cache == null) {
@@ -77,8 +77,35 @@ public class IndexedDISICacheFactory implements Accountable {
     return cache;
   }
 
+  /**
+   * Creates a cache if not already present and returns it.
+   * @param poolHash the key for the map of caches in the {@link #pool}.
+   * @param slice    the input slice.
+   * @param cost     same af the cost that will also be used for creating an {@link IndexedDISI}.
+   * @return a cache for the given slice+offset+length or null if not suitable for caching.
+   */
+  public static IndexedDISICache getCache(int poolHash, IndexInput slice, long cost) throws IOException {
+    final long offset = slice.getFilePointer();
+    final long length = slice.length();
+    if (length < MIN_LENGTH_FOR_CACHING) {
+      return null;
+    }
+    final long cacheHash = poolHash + offset + length + cost;
+
+    Map<Long, IndexedDISICache> caches = pool.computeIfAbsent(poolHash, key -> new HashMap<>());
+
+    IndexedDISICache cache = caches.get(cacheHash);
+    if (cache == null) {
+      // TODO: Avoid overlapping builds of the same cache
+      cache = new IndexedDISICache(slice, BLOCK_CACHING_ENABLED, DENSE_CACHING_ENABLED);
+      caches.put(cacheHash, cache);
+      debug("Created cache for " + slice.toString() + ": " + cache.creationStats + " (" + cache.ramBytesUsed() + " bytes)");
+    }
+    return cache;
+  }
+
   // TODO (Toke): Definitely not the way to do it. Connect to InputStream or just remove it fully when IndexedDISICache is stable
-  private static void debug(String message) {
+  public static void debug(String message) {
     if (DEBUG) {
       System.out.println(IndexedDISICacheFactory.class.getSimpleName() + ": " + message);
     }
@@ -96,4 +123,5 @@ public class IndexedDISICacheFactory implements Accountable {
     }
     return mem;
   }
+
 }

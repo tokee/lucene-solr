@@ -52,6 +52,9 @@ final class IndexedDISI extends DocIdSetIterator {
   static final int MAX_ARRAY_LENGTH = (1 << 12) - 1;
   public static boolean CACHING_ENABLED = true; // TODO (Toke): Primarily a default for Proof Of Concept
 
+  // If true, IndexedDISI from Lucene70NormsProducer are also cached. If CACHING_ENABLED is false, this has no effect
+  public static boolean ALSO_CACHE_NORMS = true; // TODO (Toke): Primarily a default for Proof Of Concept
+
   private static void flush(int block, FixedBitSet buffer, int cardinality, IndexOutput out) throws IOException {
     assert block >= 0 && block < 65536;
     out.writeShort((short) block);
@@ -117,6 +120,15 @@ final class IndexedDISI extends DocIdSetIterator {
   // see eg. Lucene70 norms producer's merge instance
   IndexedDISI(IndexInput slice, long cost) throws IOException {
     this(slice, cost, null);
+    IndexedDISICacheFactory.debug(
+        "Non-cached direct slice IndexedDISI with length " + slice.length() + ": " + slice.toString());
+  }
+
+  IndexedDISI(int hash, IndexInput slice, long cost) throws IOException {
+    this(hash, slice, cost, CACHING_ENABLED && ALSO_CACHE_NORMS);
+  }
+  IndexedDISI(int hash, IndexInput slice, long cost, boolean useCaching) throws IOException {
+    this(slice, cost, useCaching ? IndexedDISICacheFactory.getCache(hash, slice, cost) : null);
   }
   // This constructor allows to pass the slice directly in case it helps reuse
   // see eg. Lucene70 norms producer's merge instance
