@@ -37,7 +37,7 @@ public class IndexedDISICacheFactory implements Accountable {
   public static boolean BLOCK_CACHING_ENABLED = true;
   public static boolean DENSE_CACHING_ENABLED = true; // Not functioning yet
 
-  private static boolean DEBUG = true; // TODO (Toke): Remove this when code has stabilized
+  static boolean DEBUG = true; // TODO (Toke): Remove this when code has stabilized
 
   // Map<IndexInput.hashCode, Map<key, cache>>
   private static final Map<Integer, Map<Long, IndexedDISICache>> pool = new HashMap<>();

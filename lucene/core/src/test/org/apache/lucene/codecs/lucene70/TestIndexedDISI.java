@@ -19,6 +19,7 @@ package org.apache.lucene.codecs.lucene70;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.store.Directory;
@@ -184,27 +185,57 @@ public class TestIndexedDISI extends LuceneTestCase {
     }
   }
 
-  public void testCacheSpeed() throws IOException {
-    for (int size: new int[]{10_000, 100_000, 1_000_000, 10_000_000, 100_000_000}) {
+  final int[] SIZES = new int[]{10_000, 100_000, 1_000_000, 10_000_000, 100_000_000};
+  final int[] STEPS = new int[]{1, 9, 99, 999, 9_999, 99_999, 999_999, 9_999_999, 99_999_999};
+  public void testCacheSpeedDense() throws IOException {
+    IndexedDISICacheFactory.DEBUG = false; // No chattiness as we want a clean output
+    for (int size: SIZES) {
       FixedBitSet set = new FixedBitSet(size);
-      for (int i = 0 ; i < size ; i+=3) {
+      for (int i = 0; i < size; i += 3) {
         set.set(i); // Quite DENSE
       }
-      for (int step: new int[]{1, 9, 99, 999, 9_999, 99_999, 999_999, 9_999_999, 99_999_999}) {
-        if (step > size) {
-          continue;
-        }
-        measureCacheSpeed("Dense", set, step);
-      }
-
-      // TODO: Test random, very empty and mix of EMPTY, SPARSE, DENSE & ALL to test
+      measureCacheSpeed("Dense", set, STEPS);
     }
+  }
+
+  public void testCacheVaryingDensity() throws IOException {
+    IndexedDISICacheFactory.DEBUG = false; // No chattiness as we want a clean output
+    for (int size: SIZES) {
+      FixedBitSet set = new FixedBitSet(size);
+      set.clear(0, set.length());
+      for (int maxSkip: STEPS) {
+        for (int i = 0; i < size; i += random().nextInt(maxSkip)+1) {
+          set.set(i);
+        }
+        measureCacheSpeed("R-dense(" + (maxSkip+1) + ")", set, STEPS);
+      }
+    }
+  }
+
+  public void testCacheSpeedNearFull() throws IOException {
+    IndexedDISICacheFactory.DEBUG = false; // No chattiness as we want a clean output
+    for (int size: SIZES) {
+      FixedBitSet set = new FixedBitSet(size);
+      set.set(0, set.length());
+      set.clear(set.length() - 1);
+      measureCacheSpeed("Near full", set, STEPS);
+    }
+  }
+
+  private void measureCacheSpeed(String designation, FixedBitSet set, int[] steps) throws IOException {
+    for (int step: new int[]{1, 9, 99, 999, 9_999, 99_999, 999_999, 9_999_999, 99_999_999}) {
+      if (step > set.length()) {
+        continue;
+      }
+      measureCacheSpeed(designation, set, step);
+    }
+
   }
 
   // TODO (Toke): Remove when stable
   // This microbenchmark is just for sanity checking and not intended to provide realistic measurements
   private void measureCacheSpeed(String designation, FixedBitSet set, int step) throws IOException {
-
+    final double MSD = 1000000.0;
     final int cardinality = set.cardinality();
     long length;
     try (Directory dir = newDirectory()) {
@@ -226,9 +257,9 @@ public class TestIndexedDISI extends LuceneTestCase {
         final long v1NS = stepTime(vanilla1, step);
         final long c2NS = stepTime(cached2, step);
         final long v2NS = stepTime(vanilla2, step);
-        System.out.println(String.format(
-            "%10s: length=%10d, step=%10d, v1=%10dns, c1=%10dns, v2=%10dns, c2=%10dns, c2/v2=%4d%%",
-            designation, set.length(), step, v1NS, c1NS, v2NS, c2NS, c2NS*100/v2NS));
+        System.out.println(String.format(Locale.ENGLISH,
+            "%-20s: length=%10d, step=%10d, v1=[%6.2f, %6.2f]ms, c1=[%6.2f, %6.2f]ms, c2/v2=%4d%%",
+            designation, set.length(), step, v1NS/MSD, v2NS/MSD, c1NS/MSD, c2NS/MSD, c2NS*100/v2NS));
       }
     }
   }
