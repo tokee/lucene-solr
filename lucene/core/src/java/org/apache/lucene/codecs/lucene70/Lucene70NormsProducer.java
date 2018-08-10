@@ -295,7 +295,7 @@ final class Lucene70NormsProducer extends NormsProducer implements Cloneable {
       // sparse
       final IndexInput disiInput = getDisiInput(field, entry);
       // TODO (Toke): Review if it makes sense to use caching here - aren't there already skip structures in place?
-      final IndexedDISI disi = new IndexedDISI(data.hashCode(), disiInput, entry.numDocsWithField);
+      final IndexedDISI disi = new IndexedDISI(data.hashCode(), disiInput, entry.numDocsWithField, field.name);
       if (entry.bytesPerNorm == 0) {
         return new SparseNormsIterator(disi) {
           @Override

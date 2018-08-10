@@ -82,6 +82,7 @@ public class IndexedDISICache implements Accountable {
   private long[] blockCache = null; // One every 65536 docs, contains index & slice position
   private char[] rank;              // One every 512 docs
   public String creationStats = ""; // TODO: Definitely not the way to keep the stats, but where to send them?
+  public String name; // Identifier for debug, log & inspection
 
   // Flags for not-yet-defined-values used during building
   private static final long BLOCK_EMPTY_INDEX = ~0L << BLOCK_INDEX_SHIFT;
@@ -93,7 +94,7 @@ public class IndexedDISICache implements Accountable {
    *
    * @param in positioned at the start of the logical underlying bitmap.
    */
-  IndexedDISICache(IndexInput in, boolean createBlockCache, boolean createRankCache) throws IOException {
+  IndexedDISICache(IndexInput in, boolean createBlockCache, boolean createRankCache, String name) throws IOException {
     if (createBlockCache) {
       blockCache = new long[16];    // Will be extended when needed
       Arrays.fill(blockCache, BLOCK_EMPTY);
@@ -102,14 +103,16 @@ public class IndexedDISICache implements Accountable {
     if (!createBlockCache && !createRankCache) {
       return; // Nothing to do
     }
-
+    this.name = name;
     updateCaches(in, createBlockCache, createRankCache);
   }
 
   private IndexedDISICache() {
     this.blockCache = null;
     this.rank = null;
+    this.name = "";
   }
+  // TODO: EMPTY works poorly with name, but creating multiple empty's with different names seems wasteful
   public static final IndexedDISICache EMPTY = new IndexedDISICache();
 
   /**
@@ -197,7 +200,9 @@ public class IndexedDISICache implements Accountable {
     freezeCaches(fillBlockCache, fillRankCache, largestBlock);
 
     slice.seek(startOffset); // Leave it as we found it
-    creationStats = String.format("blocks=%d (ALL=%d, DENSE=%d, SPARSE=%d, EMPTY=%d), time=%dms, block=%b, rank=%b",
+    creationStats = String.format(
+        "name=%s, blocks=%d (ALL=%d, DENSE=%d, SPARSE=%d, EMPTY=%d), time=%dms, block=%b, rank=%b",
+        name,
         largestBlock+1, statBlockALL.get(), statBlockDENSE.get(), statBlockSPARSE.get(),
         (largestBlock+1-statBlockALL.get()-statBlockDENSE.get()-statBlockSPARSE.get()),
         (System.nanoTime()-startTime)/1000000, fillBlockCache, fillRankCache);

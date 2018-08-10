@@ -35,12 +35,20 @@ import org.apache.lucene.util.RamUsageEstimator;
 public class IndexedDISICacheFactory implements Accountable {
   public static int MIN_LENGTH_FOR_CACHING = 50; // Set this very low: Could be 9 EMPTY followed by a SPARSE
   public static boolean BLOCK_CACHING_ENABLED = true;
-  public static boolean DENSE_CACHING_ENABLED = true; // Not functioning yet
+  public static boolean DENSE_CACHING_ENABLED = true;
 
   static boolean DEBUG = true; // TODO (Toke): Remove this when code has stabilized
 
   // Map<IndexInput.hashCode, Map<key, cache>>
   private static final Map<Integer, Map<Long, IndexedDISICache>> pool = new HashMap<>();
+
+  static {
+    if (DEBUG) {
+      System.out.println(IndexedDISICacheFactory.class.getSimpleName() +
+          ": LUCENE-8374 beta patch enabled with block_caching=" + BLOCK_CACHING_ENABLED +
+          ", dense_caching=" + DENSE_CACHING_ENABLED);
+    }
+  }
 
   /**
    * Releases all caches associated with the given data.
@@ -57,9 +65,10 @@ public class IndexedDISICacheFactory implements Accountable {
    * @param offset same as the offset that will also be used for creating an {@link IndexedDISI}.
    * @param length same af the length that will also be used for creating an {@link IndexedDISI}.
    * @param cost same af the cost that will also be used for creating an {@link IndexedDISI}.
+   * @param name human readable designation, typically a field name. Used for debug, log and inspection.
    * @return a cache for the given slice+offset+length or null if not suitable for caching.
    */
-  public static IndexedDISICache getCache(IndexInput data, long offset, long length, long cost) throws IOException {
+  public static IndexedDISICache getCache(IndexInput data, long offset, long length, long cost, String name) throws IOException {
     if (length < MIN_LENGTH_FOR_CACHING) {
       return null;
     }
@@ -70,7 +79,7 @@ public class IndexedDISICacheFactory implements Accountable {
     if (cache == null) {
       // TODO: Avoid overlapping builds of the same cache
       cache = new IndexedDISICache(data.slice("docs", offset, length),
-          BLOCK_CACHING_ENABLED, DENSE_CACHING_ENABLED);
+          BLOCK_CACHING_ENABLED, DENSE_CACHING_ENABLED, name);
       caches.put(key, cache);
       debug("Created cache for " + data.toString() + ": " + cache.creationStats + " (" + cache.ramBytesUsed() + " bytes)");
     }
@@ -82,9 +91,10 @@ public class IndexedDISICacheFactory implements Accountable {
    * @param poolHash the key for the map of caches in the {@link #pool}.
    * @param slice    the input slice.
    * @param cost     same af the cost that will also be used for creating an {@link IndexedDISI}.
+   * @param name human readable designation, typically a field name. Used for debug, log and inspection.
    * @return a cache for the given slice+offset+length or null if not suitable for caching.
    */
-  public static IndexedDISICache getCache(int poolHash, IndexInput slice, long cost) throws IOException {
+  public static IndexedDISICache getCache(int poolHash, IndexInput slice, long cost, String name) throws IOException {
     final long offset = slice.getFilePointer();
     final long length = slice.length();
     if (length < MIN_LENGTH_FOR_CACHING) {
@@ -97,7 +107,7 @@ public class IndexedDISICacheFactory implements Accountable {
     IndexedDISICache cache = caches.get(cacheHash);
     if (cache == null) {
       // TODO: Avoid overlapping builds of the same cache
-      cache = new IndexedDISICache(slice, BLOCK_CACHING_ENABLED, DENSE_CACHING_ENABLED);
+      cache = new IndexedDISICache(slice, BLOCK_CACHING_ENABLED, DENSE_CACHING_ENABLED, name);
       caches.put(cacheHash, cache);
       debug("Created cache for " + slice.toString() + ": " + cache.creationStats + " (" + cache.ramBytesUsed() + " bytes)");
     }

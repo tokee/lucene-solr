@@ -50,10 +50,12 @@ import org.apache.lucene.util.RoaringDocIdSet;
 final class IndexedDISI extends DocIdSetIterator {
 
   static final int MAX_ARRAY_LENGTH = (1 << 12) - 1;
+  static final String NO_NAME = "n/a";
   public static boolean CACHING_ENABLED = true; // TODO (Toke): Primarily a default for Proof Of Concept
 
   // If true, IndexedDISI from Lucene70NormsProducer are also cached. If CACHING_ENABLED is false, this has no effect
   public static boolean ALSO_CACHE_NORMS = true; // TODO (Toke): Primarily a default for Proof Of Concept
+  public final String name;
 
   private static void flush(int block, FixedBitSet buffer, int cardinality, IndexOutput out) throws IOException {
     assert block >= 0 && block < 65536;
@@ -105,34 +107,59 @@ final class IndexedDISI extends DocIdSetIterator {
   private final IndexedDISICache cache;
 
   IndexedDISI(IndexInput in, long offset, long length, long cost) throws IOException {
-    this(in, offset, length, cost, CACHING_ENABLED);
+    this(in, offset, length, cost, NO_NAME);
+  }
+
+  IndexedDISI(IndexInput in, long offset, long length, long cost, String name) throws IOException {
+    this(in, offset, length, cost, CACHING_ENABLED, name);
   }
 
   IndexedDISI(IndexInput in, long offset, long length, long cost, boolean useCaching) throws IOException {
-    this(in, offset, length, cost, useCaching ? IndexedDISICacheFactory.getCache(in, offset, length, cost) : null);
+    this(in, offset, length, cost, useCaching, NO_NAME);
+  }
+
+  IndexedDISI(IndexInput in, long offset, long length, long cost, boolean useCaching, String name) throws IOException {
+    this(in, offset, length, cost, useCaching ? IndexedDISICacheFactory.getCache(in, offset, length, cost, name) : null, name);
   }
 
   IndexedDISI(IndexInput in, long offset, long length, long cost, IndexedDISICache cache) throws IOException {
-    this(in.slice("docs", offset, length), cost, cache);
+    this(in, offset, length, cost, cache, NO_NAME);
   }
 
+  IndexedDISI(IndexInput in, long offset, long length, long cost, IndexedDISICache cache, String name) throws IOException {
+    this(in.slice("docs", offset, length), cost, cache, name);
+  }
+
+  IndexedDISI(IndexInput slice, long cost) throws IOException {
+    this(slice, cost, NO_NAME);
+  }
   // This constructor allows to pass the slice directly in case it helps reuse
   // see eg. Lucene70 norms producer's merge instance
-  IndexedDISI(IndexInput slice, long cost) throws IOException {
-    this(slice, cost, null);
+  IndexedDISI(IndexInput slice, long cost, String name) throws IOException {
+    this(slice, cost, null, name);
     IndexedDISICacheFactory.debug(
         "Non-cached direct slice IndexedDISI with length " + slice.length() + ": " + slice.toString());
   }
 
   IndexedDISI(int hash, IndexInput slice, long cost) throws IOException {
-    this(hash, slice, cost, CACHING_ENABLED && ALSO_CACHE_NORMS);
+    this(hash, slice, cost, NO_NAME);
+  }
+  IndexedDISI(int hash, IndexInput slice, long cost, String name) throws IOException {
+    this(hash, slice, cost, CACHING_ENABLED && ALSO_CACHE_NORMS, name);
   }
   IndexedDISI(int hash, IndexInput slice, long cost, boolean useCaching) throws IOException {
-    this(slice, cost, useCaching ? IndexedDISICacheFactory.getCache(hash, slice, cost) : null);
+    this(hash, slice, cost, useCaching, NO_NAME);
+  }
+  IndexedDISI(int hash, IndexInput slice, long cost, boolean useCaching, String name) throws IOException {
+    this(slice, cost, useCaching ? IndexedDISICacheFactory.getCache(hash, slice, cost, name) : null, name);
+  }
+  IndexedDISI(IndexInput slice, long cost, IndexedDISICache cache) throws IOException {
+    this(slice, cost, cache, NO_NAME);
   }
   // This constructor allows to pass the slice directly in case it helps reuse
   // see eg. Lucene70 norms producer's merge instance
-  IndexedDISI(IndexInput slice, long cost, IndexedDISICache cache) throws IOException {
+  IndexedDISI(IndexInput slice, long cost, IndexedDISICache cache, String name) {
+    this.name = name;
     this.slice = slice;
     this.cost = cost;
     this.cache = cache == null ? IndexedDISICache.EMPTY : cache;
