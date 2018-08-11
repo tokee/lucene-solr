@@ -18,7 +18,11 @@ package org.apache.lucene.index;
 
 
 import java.io.IOException;
+import java.nio.file.Paths;
+import java.util.HashSet;
+import java.util.Set;
 
+import org.apache.lucene.codecs.lucene70.IndexedDISICacheFactory;
 import org.apache.lucene.document.BinaryDocValuesField;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
@@ -29,6 +33,7 @@ import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.document.StringField;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.LuceneTestCase;
@@ -124,9 +129,9 @@ public class TestDocValues extends LuceneTestCase {
     iw.close();
     dir.close();
   }
-  
+
   /**
-   * field with numeric docvalues
+   * Triggers varying bits per value codec representation for numeric.
    */
   public void testNumericFieldVaryingBPV() throws Exception {
     Directory dir = newDirectory();
@@ -144,7 +149,7 @@ public class TestDocValues extends LuceneTestCase {
       }
     }
     iw.flush();
-    iw.forceMerge(1);
+    iw.forceMerge(1, true);
     iw.commit();
     DirectoryReader dr = DirectoryReader.open(iw);
     LeafReader r = getOnlyLeafReader(dr);
@@ -164,6 +169,103 @@ public class TestDocValues extends LuceneTestCase {
     dr.close();
     iw.close();
     dir.close();
+  }
+
+  // TODO (Toke): Remove this when LUCENE-8374 is ready for release
+  // TODO (Toke): Force the test to use the Lucene70 codec
+  // IMPORTANT: This _does not yet_ trigger the varying BPS codec part, so it it measuring absolutely wrong
+  public void testNumericRetrievalSpeed() throws IOException {
+    final int RUNS = 3;
+    final int QUERIES = 500000;
+    final int DOCS_PER_DPV = 66000;
+
+    boolean oldDebug = IndexedDISICacheFactory.DEBUG;
+    IndexedDISICacheFactory.DEBUG = false;
+
+    System.out.println("Generating plain index");
+    Directory dirPlain = new MMapDirectory(Paths.get(System.getProperty("java.io.tmpdir"), "plain_" + random().nextInt()));
+    generateVaryingBPVIndex(dirPlain, 2, 3, 24, DOCS_PER_DPV, false);
+    System.out.println("Generating optimized index");
+    Directory dirOptimize = new MMapDirectory(Paths.get(System.getProperty("java.io.tmpdir"), "optimized_" + random().nextInt()));
+    generateVaryingBPVIndex(dirOptimize, 2, 3, 24, DOCS_PER_DPV, true);
+
+    IndexedDISICacheFactory.DEBUG = false;
+    System.out.println("Running performance tests");
+    for (int run = 0 ; run < RUNS ; run++) {
+      numericRetrievalSpeed(dirPlain, false, 10, QUERIES, false);
+      numericRetrievalSpeed(dirPlain, false, 10, QUERIES, true);
+      numericRetrievalSpeed(dirOptimize, true, 10, QUERIES, false);
+      numericRetrievalSpeed(dirOptimize, true, 10, QUERIES, true);
+      System.out.println("----------------------");
+    }
+
+    dirPlain.close();
+    dirOptimize.close();
+    IndexedDISICacheFactory.DEBUG = oldDebug;
+  }
+
+  public void numericRetrievalSpeed(
+      Directory dir, boolean optimize, int runs, int queries, boolean lucene8374) throws IOException {
+
+    IndexedDISICacheFactory.BLOCK_CACHING_ENABLED = lucene8374;
+    IndexedDISICacheFactory.DENSE_CACHING_ENABLED = lucene8374;
+    IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED = lucene8374;
+
+    DirectoryReader dr = DirectoryReader.open(dir);
+    int maxDoc = dr.maxDoc();
+    final Set<String> fields = new HashSet<>();
+    fields.add("dv");
+
+    // Performance
+    long best = Long.MAX_VALUE;
+    long sum = -1;
+    for (int run = 0 ; run < runs ; run++) {
+      long runTime = -System.nanoTime();
+      for (int q = 0 ; q < queries ; q++) {
+        final int docID = random().nextInt(maxDoc-1);
+
+        int readerIndex = dr.readerIndex(docID);
+        LeafReader reader = dr.leaves().get(readerIndex).reader();
+        NumericDocValues numDV = reader.getNumericDocValues("dv");
+        if (!numDV.advanceExact(docID-dr.readerBase(readerIndex))) {
+          //System.err.println("Expected numeric doc value for docID=" + docID);
+          continue;
+        }
+        sum += numDV.longValue();
+      }
+      runTime += System.nanoTime();
+      best = Math.min(best, runTime);
+    }
+    double dps = queries / (best/1000000.0/1000);
+    System.out.println(String.format("docs=%d, optimize=%5b, lucene8374=%5b, docs/s=%.0fK",
+        maxDoc, optimize, lucene8374, dps/1000));
+    assertFalse("There should be at least 1 long value", sum == -1);
+
+    dr.close();
+  }
+
+  private void generateVaryingBPVIndex(
+      Directory dir, int bpvMin, int bpvStep, int bpvMax, int docsPerBPV, boolean optimize) throws IOException {
+    IndexWriter iw = new IndexWriter(dir, newIndexWriterConfig(null));
+    int id = 0;
+    for (int bpv = bpvMin ; bpv < bpvMax+1 ; bpv += bpvStep) {
+      for (int i = 0 ; i < docsPerBPV ; i++) {
+        Document doc = new Document();
+        int max = 1 << (bpv - 1);
+        int value =  random().nextInt(max) | max;
+        doc.add(new StringField("id", Integer.toString(id++), Field.Store.YES));
+        if (id % 87 != 0) { // Ensure sparse
+          doc.add(new NumericDocValuesField("dv", value));
+        }
+        iw.addDocument(doc);
+      }
+    }
+    iw.flush();
+    if (optimize) {
+      iw.forceMerge(1, true);
+    }
+    iw.commit();
+    iw.close();
   }
 
   /**
