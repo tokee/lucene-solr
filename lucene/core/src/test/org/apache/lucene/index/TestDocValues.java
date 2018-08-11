@@ -27,6 +27,7 @@ import org.apache.lucene.document.SortedDocValuesField;
 import org.apache.lucene.document.SortedNumericDocValuesField;
 import org.apache.lucene.document.SortedSetDocValuesField;
 import org.apache.lucene.document.StringField;
+import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IOUtils;
@@ -124,7 +125,48 @@ public class TestDocValues extends LuceneTestCase {
     dir.close();
   }
   
-  /** 
+  /**
+   * field with numeric docvalues
+   */
+  public void testNumericFieldVaryingBPV() throws Exception {
+    Directory dir = newDirectory();
+    IndexWriter iw = new IndexWriter(dir, newIndexWriterConfig(null));
+    long generatedSum = 0;
+    for (int bpv = 2 ; bpv < 24 ; bpv+=3) {
+      for (int i = 0 ; i < 66000 ; i++) {
+        Document doc = new Document();
+        int max = 1 << (bpv - 1);
+        int value =  random().nextInt(max) | max;
+        generatedSum += value;
+        //System.out.println("--- " + value);
+        doc.add(new NumericDocValuesField("foo", value));
+        iw.addDocument(doc);
+      }
+    }
+    iw.flush();
+    iw.forceMerge(1);
+    iw.commit();
+    DirectoryReader dr = DirectoryReader.open(iw);
+    LeafReader r = getOnlyLeafReader(dr);
+
+    // ok
+    NumericDocValues numDV = DocValues.getNumeric(r, "foo");
+
+    assertNotNull(numDV);
+    long sum = 0;
+    while (numDV.nextDoc() != DocIdSetIterator.NO_MORE_DOCS) {
+      sum += numDV.longValue();
+    }
+    assertEquals("The sum of retrieved values should match the input", generatedSum, sum);
+
+//    assertNotNull(DocValues.getSortedNumeric(r, "foo"));
+
+    dr.close();
+    iw.close();
+    dir.close();
+  }
+
+  /**
    * field with binary docvalues
    */
   public void testBinaryField() throws Exception {

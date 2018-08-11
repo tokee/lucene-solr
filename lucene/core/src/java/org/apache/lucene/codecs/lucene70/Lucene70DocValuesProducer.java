@@ -465,7 +465,6 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
         };
       } else {
         if (entry.blockShift >= 0) {
-          System.out.println("Block shift " + entry.blockShift + " with maxDoc " + maxDoc);
           // dense but split into blocks of different bits per value
           return new DenseNumericDocValues(maxDoc) {
             final VaryingBPVReader vBPVReader = new VaryingBPVReader(entry);
@@ -512,7 +511,6 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
       } else {
         if (entry.blockShift >= 0) {
           // sparse and split into blocks of different bits per value
-          System.out.println("*********** Sparse & split");
           return new SparseNumericDocValues(disi) {
             final VaryingBPVReader vBPVReader = new VaryingBPVReader(entry);
 
@@ -580,6 +578,16 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
         int bitsPerValue;
         // TODO (Toke): Introduce jump table
         do {
+          // We delay cache generation to access-time to avoid non-used cashes
+          // Unfortunately merging causes the cache to be created - can this be avoided?
+          IndexedDISICacheFactory.VaryingBPVJumpTable cache =
+              IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED ?
+              IndexedDISICacheFactory.getVBPVJumpTable(data.hashCode(), entry.name, slice, entry.valuesLength) :
+              null;
+          if (cache != null) {
+            blockEndOffset = cache.getBlockOffset(block);
+            this.block = block-1;
+          }
           offset = blockEndOffset;
           bitsPerValue = slice.readByte(offset++);
           delta = slice.readLong(offset);
