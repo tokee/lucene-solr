@@ -55,8 +55,10 @@ public class IndexedDISICacheFactory implements Accountable {
    * @param data with {@link IndexedDISICache}s.
    */
   public static void release(IndexInput data) {
-    debug("Release cache called for data " + data.hashCode() +
-        " with exists=" + (pool.remove(data.hashCode()) != null));
+    if (pool.remove(data.hashCode()) != null) {
+      debug("Release cache called for data " + data.hashCode() +
+          " with existing cache");
+    }
   }
 
   /**
