@@ -546,67 +546,6 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
     }
   }
 
-  /**
-   * Reader for longs split into blocks of different bits per values.
-   * The longs are requested by index and must be accessed in monotonically increasing order.
-   */
-  // Note: The order requirement goes away when using caching.
-  private class VaryingBPVReader {
-    final RandomAccessInput slice;
-    final NumericEntry entry;
-    final int shift;
-    final long mul;
-    final int mask;
-
-    long block = -1;
-    long delta;
-    long offset;
-    long blockEndOffset;
-    LongValues values;
-
-    VaryingBPVReader(NumericEntry entry) throws IOException {
-      this.entry = entry;
-      slice = data.randomAccessSlice(entry.valuesOffset, entry.valuesLength);
-      shift = entry.blockShift;
-      mul = entry.gcd;
-      mask = (1 << shift) - 1;
-    }
-
-    long getLongValue(long index) throws IOException {
-      final long block = index >>> shift;
-      if (this.block != block) {
-        int bitsPerValue;
-        // TODO (Toke): Introduce jump table
-        do {
-          // We delay cache generation to access-time to avoid non-used cashes
-          // Unfortunately merging causes the cache to be created - can this be avoided?
-          IndexedDISICacheFactory.VaryingBPVJumpTable cache =
-              IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED ?
-              IndexedDISICacheFactory.getVBPVJumpTable(data.hashCode(), entry.name, slice, entry.valuesLength) :
-              null;
-          if (cache != null) {
-            blockEndOffset = cache.getBlockOffset(block);
-            this.block = block-1;
-          }
-          offset = blockEndOffset;
-          bitsPerValue = slice.readByte(offset++);
-          delta = slice.readLong(offset);
-          offset += Long.BYTES;
-          if (bitsPerValue == 0) {
-            blockEndOffset = offset;
-          } else {
-            final int length = slice.readInt(offset);
-            offset += Integer.BYTES;
-            blockEndOffset = offset + length;
-          }
-          this.block++;
-        } while (this.block != block);
-        values = bitsPerValue == 0 ? LongValues.ZEROES : DirectReader.getInstance(slice, bitsPerValue, offset);
-      }
-      return mul * values.get(index & mask) + delta;
-    }
-  }
-
   private LongValues getNumericValues(NumericEntry entry) throws IOException {
     if (entry.bitsPerValue == 0) {
       return new LongValues() {
@@ -1438,4 +1377,64 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
     CodecUtil.checksumEntireFile(data);
   }
 
+  /**
+   * Reader for longs split into blocks of different bits per values.
+   * The longs are requested by index and must be accessed in monotonically increasing order.
+   */
+  // Note: The order requirement goes away when using caching.
+  private class VaryingBPVReader {
+    final RandomAccessInput slice;
+    final NumericEntry entry;
+    final int shift;
+    final long mul;
+    final int mask;
+
+    long block = -1;
+    long delta;
+    long offset;
+    long blockEndOffset;
+    LongValues values;
+
+    VaryingBPVReader(NumericEntry entry) throws IOException {
+      this.entry = entry;
+      slice = data.randomAccessSlice(entry.valuesOffset, entry.valuesLength);
+      shift = entry.blockShift;
+      mul = entry.gcd;
+      mask = (1 << shift) - 1;
+    }
+
+    long getLongValue(long index) throws IOException {
+      final long block = index >>> shift;
+      if (this.block != block) {
+        int bitsPerValue;
+        // TODO (Toke): Introduce jump table
+        do {
+          // We delay cache generation to access-time to avoid non-used cashes
+          // Unfortunately merging causes the cache to be created - can this be avoided?
+          IndexedDISICacheFactory.VaryingBPVJumpTable cache =
+              IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED ?
+              IndexedDISICacheFactory.getVBPVJumpTable(data.hashCode(), entry.name, slice, entry.valuesLength) :
+              null;
+          if (cache != null) {
+            blockEndOffset = cache.getBlockOffset(block);
+            this.block = block-1;
+          }
+          offset = blockEndOffset;
+          bitsPerValue = slice.readByte(offset++);
+          delta = slice.readLong(offset);
+          offset += Long.BYTES;
+          if (bitsPerValue == 0) {
+            blockEndOffset = offset;
+          } else {
+            final int length = slice.readInt(offset);
+            offset += Integer.BYTES;
+            blockEndOffset = offset + length;
+          }
+          this.block++;
+        } while (this.block != block);
+        values = bitsPerValue == 0 ? LongValues.ZEROES : DirectReader.getInstance(slice, bitsPerValue, offset);
+      }
+      return mul * values.get(index & mask) + delta;
+    }
+  }
 }
