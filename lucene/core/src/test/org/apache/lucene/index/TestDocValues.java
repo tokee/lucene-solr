@@ -19,9 +19,9 @@ package org.apache.lucene.index;
 
 import java.io.IOException;
 import java.nio.file.Paths;
-import java.util.HashSet;
-import java.util.Set;
 
+import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.lucene70.IndexedDISICacheFactory;
 import org.apache.lucene.document.BinaryDocValuesField;
 import org.apache.lucene.document.Document;
@@ -172,36 +172,51 @@ public class TestDocValues extends LuceneTestCase {
   }
 
   // TODO (Toke): Remove this when LUCENE-8374 is ready for release
-  // TODO (Toke): Force the test to use the Lucene70 codec
-  // IMPORTANT: This _does not yet_ trigger the varying BPS codec part, so it it measuring absolutely wrong
+  // IMPORTANT: This _does not yet_ guarantee triggering of the varying_BPC codec part, so that part is rarely measured
   public void testNumericRetrievalSpeed() throws IOException {
-    final int RUNS = 2;
+    final int MAJOR_RUNS = 1;
+    final int INNER_RUNS = 10;
+    final int[] DOCS_PER_BPV = new int[]{100, 10_000, 500_000, 2_000_000};
     final int[] QUERIES = new int[]{10, 100, 1_000, 10_000, 100_000};
-    final int[] DOCS_PER_BPV = new int[]{10, 100, 1_000, 10_000, 100_000, 6_600_000};
 
     boolean oldDebug = IndexedDISICacheFactory.DEBUG;
 
     for (int docsPerBPV: DOCS_PER_BPV) {
       IndexedDISICacheFactory.DEBUG = false;
-      System.out.println("Generating plain index");
+      int estSize = (24-2)/3*docsPerBPV;
+      System.out.println("Generating plain & optimized indexes with ~" + estSize + " documents");
       Directory dirPlain = new MMapDirectory(Paths.get(System.getProperty("java.io.tmpdir"), "plain_" + random().nextInt()));
       generateVaryingBPVIndex(dirPlain, 2, 3, 24, docsPerBPV, false);
-      System.out.println("Generating optimized index");
+
       Directory dirOptimize = new MMapDirectory(Paths.get(System.getProperty("java.io.tmpdir"), "optimized_" + random().nextInt()));
       generateVaryingBPVIndex(dirOptimize, 2, 3, 24, docsPerBPV, true);
 
-      IndexedDISICacheFactory.DEBUG = false;
       // Disk cache warm
-      numericRetrievalSpeed(dirPlain, false, 1, 10_000, false, false);
-      numericRetrievalSpeed(dirOptimize, true, 1, 10_000, true, false);
+      final double[] NONE = new double[]{-1d, -1d};
+
+      System.out.println("Warming disk cache plain");
+      numericRetrievalSpeed(dirPlain, 5, 1000, true, true, true, false, NONE);
+      System.out.println("Warming disk cache optimized");
+      numericRetrievalSpeed(dirOptimize, 5, 1000, true, true, true, false, NONE);
+
       System.out.println("Running performance tests");
-      for (int run = 0; run < RUNS; run++) {
+      cacheNote("Multi-segment", dirPlain);
+      cacheNote("Single-segment", dirOptimize);
+
+      for (int run = 0; run < MAJOR_RUNS; run++) {
+        System.out.println(DV_PERFORMANCE_HEADER);
         for (int queries: QUERIES) {
-          numericRetrievalSpeed(dirPlain, false, 10, queries, false, true);
-          numericRetrievalSpeed(dirPlain, false, 10, queries, true, true);
-          numericRetrievalSpeed(dirOptimize, true, 10, queries, false, true);
-          numericRetrievalSpeed(dirOptimize, true, 10, queries, true, true);
-          System.out.println("");
+          for (boolean optimize: new boolean[]{false, true}) {
+            Directory dir = optimize ? dirOptimize : dirPlain;
+            double[] basePlain = numericRetrievalSpeed(dir, INNER_RUNS, queries, false, false, false, true, NONE);
+            numericRetrievalSpeed(dir, INNER_RUNS, queries, true, false, false, true, basePlain);
+            numericRetrievalSpeed(dir, INNER_RUNS, queries, false, true, false, true, basePlain);
+            numericRetrievalSpeed(dir, INNER_RUNS, queries, false, false, true, true, basePlain);
+            numericRetrievalSpeed(dir, INNER_RUNS, queries, true, true, true, true, basePlain);
+            // Run baseline again and compare to old to observe measuring skews due to warming and chance
+            numericRetrievalSpeed(dir, INNER_RUNS, queries, false, false, false, true, basePlain);
+            System.out.println("");
+          }
         }
         System.out.println("----------------------");
       }
@@ -212,26 +227,35 @@ public class TestDocValues extends LuceneTestCase {
     IndexedDISICacheFactory.DEBUG = oldDebug;
   }
 
-  // Returns best docs/s
-  private double numericRetrievalSpeed(
-      Directory dir, boolean optimize, int runs, int queries, boolean lucene8374, boolean print) throws IOException {
+  private void cacheNote(String designation, Directory dir) throws IOException {
+    boolean[] capabilities = getCacheability(dir);
+    if (!(capabilities[0] && capabilities[1] && capabilities[2])) {
+      System.out.println(String.format(
+          "* Note: %s index can only get caches for block=%b, dense=%b, vBPV=%b",
+          designation, capabilities[0], capabilities[1], capabilities[2]));
+    }
+  }
 
-    IndexedDISICacheFactory.BLOCK_CACHING_ENABLED = lucene8374;
-    IndexedDISICacheFactory.DENSE_CACHING_ENABLED = lucene8374;
-    IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED = lucene8374;
+  public static final String DV_PERFORMANCE_HEADER = "  docs segments requests block dense  vBPV worst_r/s best_r/s  worst/base best/base";
+  public static final String DV_PERFORMANCE_PATTERN = "%6s %8s %8s %5s %5s %5s %9s %8s %10.0f%% %9.0f%%";
+
+  // Returns [worst, best] docs/s
+  private double[] numericRetrievalSpeed(
+      Directory dir, int runs, int requests, boolean block, boolean dense, boolean vBPV, boolean print, double[] base) throws IOException {
+
+    IndexedDISICacheFactory.BLOCK_CACHING_ENABLED = block;
+    IndexedDISICacheFactory.DENSE_CACHING_ENABLED = dense;
+    IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED = vBPV;
 
     DirectoryReader dr = DirectoryReader.open(dir);
     int maxDoc = dr.maxDoc();
-    final Set<String> fields = new HashSet<>();
-    fields.add("dv");
 
-    // Performance
     long best = Long.MAX_VALUE;
     long worst = -1;
     long sum = -1;
     for (int run = 0 ; run < runs ; run++) {
       long runTime = -System.nanoTime();
-      for (int q = 0 ; q < queries ; q++) {
+      for (int q = 0 ; q < requests ; q++) {
         final int docID = random().nextInt(maxDoc-1);
 
         int readerIndex = dr.readerIndex(docID);
@@ -247,21 +271,61 @@ public class TestDocValues extends LuceneTestCase {
       best = Math.min(best, runTime);
       worst = Math.max(worst, runTime);
     }
-    double bestDPS = queries / (best/1000000.0/1000);
-    double worstDPS = queries / (worst/1000000.0/1000);
+    double worstDPS = requests / (worst/1000000.0/1000);
+    double bestDPS = requests / (best/1000000.0/1000);
+    double worstRelative = base[0] < 0 ? 100 : worstDPS*100/base[0];
+    double bestRelative = base[1] < 0 ? 100 : bestDPS*100/base[1];
     if (print) {
-      System.out.println(String.format("docs=%d, optimize=%5b, lucene8374=%5b, queries=%5s, worst/best docs/s=%5.0fK /%5.0fK",
-          maxDoc, optimize, lucene8374, queries < 1000 ? queries : (queries / 1000) + "K", worstDPS / 1000, bestDPS / 1000));
+      System.out.println(String.format(DV_PERFORMANCE_PATTERN,
+          shorten(maxDoc), dr.leaves().size(), shorten(requests),
+          block ? "block" : "", dense ? "dense" : "", vBPV ? "vBPV" : "",
+          shortenKB((int) worstDPS), shortenKB((int) bestDPS), worstRelative, bestRelative));
     }
     assertFalse("There should be at least 1 long value", sum == -1);
 
     dr.close();
-    return bestDPS;
+    return new double[]{worstDPS, bestDPS};
+  }
+
+  // returns [block, dense, vBPV]
+  private boolean[] getCacheability(Directory dir) throws IOException {
+
+    IndexedDISICacheFactory.BLOCK_CACHING_ENABLED = true;
+    IndexedDISICacheFactory.DENSE_CACHING_ENABLED = true;
+    IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED = true;
+
+    try (DirectoryReader dr = DirectoryReader.open(dir)) {
+      int maxDoc = dr.maxDoc();
+
+      for (int run = 0; run < 100; run++) {
+        final int docID = run * 100 / maxDoc;
+
+        int readerIndex = dr.readerIndex(docID);
+        LeafReader reader = dr.leaves().get(readerIndex).reader();
+        NumericDocValues numDV = reader.getNumericDocValues("dv");
+        numDV.advanceExact(docID - dr.readerBase(readerIndex));
+      }
+      return new boolean[]{
+          IndexedDISICacheFactory.getDISIBlocksWithOffsetsCount() > 0,
+          IndexedDISICacheFactory.getDISIBlocksWithRankCount() > 0,
+          IndexedDISICacheFactory.getVaryingBPVCount() > 0};
+    }
+  }
+
+  private String shortenKB(int requests) {
+    return requests >= 1_000 ? requests/1_000+"K" : requests+"";
+  }
+  private String shorten(int requests) {
+    return requests >= 1_000_000 ? requests/1_000_000+"M" : requests >= 1_000 ? requests/1_000+"K" : requests+"";
   }
 
   private void generateVaryingBPVIndex(
       Directory dir, int bpvMin, int bpvStep, int bpvMax, int docsPerBPV, boolean optimize) throws IOException {
-    IndexWriter iw = new IndexWriter(dir, newIndexWriterConfig(null));
+
+    IndexWriterConfig iwc = new IndexWriterConfig(new StandardAnalyzer());
+    iwc.setCodec(Codec.forName("Lucene70"));
+    IndexWriter iw = new IndexWriter(dir, iwc);
+
     int id = 0;
     for (int bpv = bpvMin ; bpv < bpvMax+1 ; bpv += bpvStep) {
       for (int i = 0 ; i < docsPerBPV ; i++) {

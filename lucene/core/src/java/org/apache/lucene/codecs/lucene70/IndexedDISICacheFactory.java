@@ -18,6 +18,7 @@ package org.apache.lucene.codecs.lucene70;
 
 
 import java.io.IOException;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -60,10 +61,10 @@ public class IndexedDISICacheFactory implements Accountable {
    */
   public static void release(IndexInput data) {
     if (disiPool.remove(data.hashCode()) != null) {
-      debug("Release cache called for disiPool data " + data.hashCode() + " with existing cache");
+      //debug("Release cache called for disiPool data " + data.hashCode() + " with existing cache");
     }
     if (vBPVPool.remove(data.hashCode()) != null) {
-      debug("Release cache called for vBPVPool data " + data.hashCode() + " with existing cache");
+      //debug("Release cache called for vBPVPool data " + data.hashCode() + " with existing cache");
     }
   }
 
@@ -86,6 +87,20 @@ public class IndexedDISICacheFactory implements Accountable {
       debug("Created packed numeric jump table for " + name + ": " + jumpTable.creationStats + " (" + jumpTable.ramBytesUsed() + " bytes)");
     }
     return jumpTable;
+  }
+
+  public static long getDISIBlocksWithOffsetsCount() {
+    return disiPool.values().stream().map(Map::values).flatMap(Collection::stream).
+        filter(IndexedDISICache::hasOffsets).count();
+  }
+
+  public static long getDISIBlocksWithRankCount() {
+    return disiPool.values().stream().map(Map::values).flatMap(Collection::stream).
+        filter(IndexedDISICache::hasRank).count();
+  }
+
+  public static long getVaryingBPVCount() {
+    return vBPVPool.values().stream().map(Map::values).count();
   }
 
   /**
