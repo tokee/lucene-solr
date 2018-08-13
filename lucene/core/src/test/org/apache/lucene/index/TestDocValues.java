@@ -303,7 +303,10 @@ public class TestDocValues extends LuceneTestCase {
         int readerIndex = dr.readerIndex(docID);
         LeafReader reader = dr.leaves().get(readerIndex).reader();
         NumericDocValues numDV = reader.getNumericDocValues("dv");
-        numDV.advanceExact(docID - dr.readerBase(readerIndex));
+        if (numDV.advanceExact(docID - dr.readerBase(readerIndex))) {
+          numDV.longValue();
+        }
+
       }
       return new boolean[]{
           IndexedDISICacheFactory.getDISIBlocksWithOffsetsCount() > 0,
