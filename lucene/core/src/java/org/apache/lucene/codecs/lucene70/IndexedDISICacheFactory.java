@@ -51,7 +51,7 @@ public class IndexedDISICacheFactory implements Accountable {
     if (DEBUG) {
       System.out.println(IndexedDISICacheFactory.class.getSimpleName() +
           ": LUCENE-8374 beta patch enabled with block_caching=" + BLOCK_CACHING_ENABLED +
-          ", dense_caching=" + DENSE_CACHING_ENABLED);
+          ", dense_caching=" + DENSE_CACHING_ENABLED + ", cBPV_caching=" + VARYINGBPV_CACHING_ENABLED);
     }
   }
 
@@ -186,7 +186,7 @@ public class IndexedDISICacheFactory implements Accountable {
   }
 
   /**
-   * Jump table used by {@link Lucene70DocValuesProducer.VaryingBPVReader} to avoid iterating all blocks from
+   * Jump table used by Lucene70DocValuesProducer.VaryingBPVReader to avoid iterating all blocks from
    * current to wanted index. The jump table holds offsets for all blocks.
    */
   public static class VaryingBPVJumpTable implements Accountable {
