@@ -43,8 +43,12 @@ import org.apache.lucene.util.IOUtils;
 final class Lucene70NormsProducer extends NormsProducer {
   // metadata maps (just file pointers and minimal stuff)
   private final Map<Integer,NormsEntry> norms = new HashMap<>();
-  private final IndexInput data;
   private final int maxDoc;
+  private IndexInput data;
+  private boolean merging;
+  private Map<Integer, IndexInput> disiInputs;
+  private Map<Integer, RandomAccessInput> dataInputs;
+
 
   Lucene70NormsProducer(SegmentReadState state, String dataCodec, String dataExtension, String metaCodec, String metaExtension) throws IOException {
     maxDoc = state.segmentInfo.maxDoc();
@@ -245,7 +249,8 @@ final class Lucene70NormsProducer extends NormsProducer {
       }
     } else {
       // sparse
-      final IndexedDISI disi = new IndexedDISI(data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.numDocsWithField);
+      // TODO (Toke): Review if it makes sense to use caching here - aren't there already skip structures in place?
+      final IndexedDISI disi = new IndexedDISI(data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.numDocsWithField, field.name);
       if (entry.bytesPerNorm == 0) {
         return new SparseNormsIterator(disi) {
           @Override
@@ -294,6 +299,7 @@ final class Lucene70NormsProducer extends NormsProducer {
   @Override
   public void close() throws IOException {
     data.close();
+    IndexedDISICacheFactory.release(data);
   }
 
   @Override
