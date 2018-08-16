@@ -208,7 +208,9 @@ public class IndexedDISICache implements Accountable {
         (System.nanoTime()-startTime)/1000000, fillBlockCache, fillRankCache);
   }
 
-  private int fillCache(IndexInput slice, boolean fillBlockCache, boolean fillRankCache, AtomicInteger statBlockALL, AtomicInteger statBlockDENSE, AtomicInteger statBlockSPARSE) throws IOException {
+  private int fillCache(IndexInput slice, boolean fillBlockCache, boolean fillRankCache,
+                        AtomicInteger statBlockALL, AtomicInteger statBlockDENSE, AtomicInteger statBlockSPARSE)
+      throws IOException {
     int largestBlock = -1;
     long index = 0;
     while (slice.getFilePointer() < slice.length()) {
