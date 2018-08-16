@@ -24,7 +24,7 @@ import org.apache.lucene.search.DocIdSetIterator;
 
 /**
  * Wrapper for OpenBitSet which creates and exposes a rank cache.
- * </p><p>
+ *
  * The rankCache has a long for every 2048 bits and thus has an overhead of 3.17%.
  * Performance is O(1):
  * 1 lookup in cache,
@@ -33,9 +33,9 @@ import org.apache.lucene.search.DocIdSetIterator;
  *
  * Note: {@link #buildRankCache()} must be called once after the bit set has been created or changed and before
  * calling {@link #rank(long)}.
- * </p>
+ *
  * The design is based heavily on the article
- * Space-Efficient, High-Performance Rank & Select Structures on Uncompressed Bit Sequences
+ * Space-Efficient, High-Performance Rank and Select Structures on Uncompressed Bit Sequences
  * by Dong Zhou, David G. Andersen, Michael Kaminsky, Carnegie Mellon University, Intel Labs
  * http://www.cs.cmu.edu/~dga/papers/zhou-sea2013.pdf
  */
