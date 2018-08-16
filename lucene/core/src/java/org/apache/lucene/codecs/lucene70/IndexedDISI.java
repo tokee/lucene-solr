@@ -443,7 +443,7 @@ final class IndexedDISI extends DocIdSetIterator {
     }
     int rank = disi.cache.getRankInBlock(rankPos);
     if (rank == -1) {
-      System.out.println("Rank -1 for target=" + target);
+      //System.out.println("Rank -1 for target=" + target);
       return;
     }
     int rankIndex = disi.denseOrigoIndex + rank;

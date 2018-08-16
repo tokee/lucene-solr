@@ -25,6 +25,7 @@ import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.util.Accountable;
 import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.RamUsageEstimator;
+import org.apache.lucene.util.packed.PackedInts;
 
 import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
 
@@ -62,7 +63,7 @@ import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
  *
  * The total overhead for the rank cache is currently also numDocs/32 bits or numDocs/8 bytes
  * as the rank-representation is not sparse itself, using empty entries for sub-blocks of type
- * ALL or SPARSE. // TODO: Support sparse rank structures to avoid overhead for non-DENSE blocks
+ * ALL or SPARSE.
  *
  * See https://issues.apache.org/jira/browse/LUCENE-8374 for details
  */
@@ -80,7 +81,7 @@ public class IndexedDISICache implements Accountable {
   public static final int RANKS_PER_BLOCK = BLOCK/RANK_BLOCK;
 
   private long[] blockCache = null; // One every 65536 docs, contains index & slice position
-  private char[] rank;              // One every 512 docs
+  private PackedInts.Reader rank;   // One every 512 docs, sparsely represented as not all blocks are DENSE
   public String creationStats = ""; // TODO: Definitely not the way to keep the stats, but where to send them?
   public String name; // Identifier for debug, log & inspection
 
@@ -99,7 +100,6 @@ public class IndexedDISICache implements Accountable {
       blockCache = new long[16];    // Will be extended when needed
       Arrays.fill(blockCache, BLOCK_EMPTY);
     }
-    rank = createRankCache ? new char[256] : null; // Will be extended when needed
     if (!createBlockCache && !createRankCache) {
       return; // Nothing to do
     }
@@ -171,7 +171,7 @@ public class IndexedDISICache implements Accountable {
   public int getRankInBlock(int rankPosition) {
     assert rankPosition == denseRankPosition(rankPosition);
     int rankIndex = rankPosition >> RANK_BLOCK_BITS;
-    return rank == null || rankIndex >= rank.length ? -1 : rank[rankIndex];
+    return rank == null || rankIndex >= rank.size() ? -1 : (int) rank.get(rankIndex);
   }
 
   private void updateCaches(IndexInput slice, boolean fillBlockCache, boolean fillRankCache)
@@ -211,8 +211,10 @@ public class IndexedDISICache implements Accountable {
   private int fillCache(IndexInput slice, boolean fillBlockCache, boolean fillRankCache,
                         AtomicInteger statBlockALL, AtomicInteger statBlockDENSE, AtomicInteger statBlockSPARSE)
       throws IOException {
+    char[] buildRank = new char[256];
     int largestBlock = -1;
     long index = 0;
+    int rankIndex = -1;
     while (slice.getFilePointer() < slice.length()) {
       final long startFilePointer = slice.getFilePointer();
 
@@ -250,9 +252,9 @@ public class IndexedDISICache implements Accountable {
         int setBits = 0;
         int rankOrigo = blockIndex << 16 >> 9; // Double shift for clarity: The compiler will simplify it
         for (int rankDelta = 0 ; rankDelta < RANKS_PER_BLOCK ; rankDelta++) { // 128 rank-entries in a block
-          final int rankIndex = rankOrigo + rankDelta;
-          rank = ArrayUtil.grow(rank, rankIndex+1);
-          rank[rankIndex] = (char)setBits;
+          rankIndex = rankOrigo + rankDelta;
+          buildRank = ArrayUtil.grow(buildRank, rankIndex+1);
+          buildRank[rankIndex] = (char)setBits;
           for (int i = 0 ; i < 512/64 ; i++) { // 8 longs for each rank-entry
             setBits += Long.bitCount(slice.readLong());
           }
@@ -262,6 +264,17 @@ public class IndexedDISICache implements Accountable {
         slice.seek(nextBlockOffset);
       }
     }
+    // Compress the buildRank as it is potentially very sparse
+    if (rankIndex < 0) {
+      rank = null;
+    } else {
+      PackedInts.Mutable ranks = PackedInts.getMutable(rankIndex, 16, PackedInts.DEFAULT); // Char = 16 bit
+      for (int i = 0 ; i < rankIndex ; i++) {
+        ranks.set(i, buildRank[i]);
+      }
+      rank = LongCompressor.compress(ranks);
+    }
+
     //maxDocID = ((largestBlock+1) << BLOCK_BITS)-1;
     return largestBlock;
   }
@@ -279,11 +292,11 @@ public class IndexedDISICache implements Accountable {
       System.arraycopy(blockCache, 0, newBC, 0, newBC.length);
       blockCache = newBC;
     }
-    if (fillRankCache && rank.length > (largestBlock+1)*RANKS_PER_BLOCK) {
+/*    if (fillRankCache && rank.s > (largestBlock+1)*RANKS_PER_BLOCK) {
       char[] newRank = new char[(largestBlock+1)*RANKS_PER_BLOCK];
       System.arraycopy(rank, 0, newRank, 0, newRank.length);
       rank = newRank;
-    }
+    }*/
 
     // Replace non-defined values with usable ones
     if (fillBlockCache) {
@@ -326,7 +339,7 @@ public class IndexedDISICache implements Accountable {
   @Override
   public long ramBytesUsed() {
     return (blockCache == null ? 0 : RamUsageEstimator.sizeOf(blockCache)) +
-        (rank == null ? 0 : RamUsageEstimator.sizeOf(rank)) +
+        (rank == null ? 0 : rank.ramBytesUsed()) +
         RamUsageEstimator.NUM_BYTES_OBJECT_REF*3 +
         RamUsageEstimator.NUM_BYTES_OBJECT_HEADER + creationStats.length()*2;
   }

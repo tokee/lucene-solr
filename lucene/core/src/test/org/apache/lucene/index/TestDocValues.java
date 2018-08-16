@@ -172,7 +172,8 @@ public class TestDocValues extends LuceneTestCase {
   }
 
   // TODO (Toke): Remove this when LUCENE-8374 is ready for release
-  // IMPORTANT: This _does not yet_ guarantee triggering of the varying_BPC codec part, so that part is rarely measured
+  // Note: vBPV only helps for segments with > 16384 values for the DV-field
+  @Slow
   public void testNumericRetrievalSpeed() throws IOException {
     final int MAJOR_RUNS = 1;
     final int INNER_RUNS = 10;

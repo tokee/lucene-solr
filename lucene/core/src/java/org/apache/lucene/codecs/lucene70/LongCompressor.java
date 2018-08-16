@@ -17,16 +17,18 @@
 package org.apache.lucene.codecs.lucene70;
 
 import org.apache.lucene.util.MathUtil;
+import org.apache.lucene.util.RankBitSet;
 import org.apache.lucene.util.packed.PackedInts;
 
 /**
- * Utility class for generating compressed read-only in-memory representations of long-arrays.
+ * Utility class for generating compressed read-only in-memory representations of longs.
  * The representation is optimized towards random access.
  * The representation always applies delta-to-minvalue and greatest-common-divisor compression.
  * Depending on the number of 0-entries and the length of the array, a sparse representation
  * is used, using rank to improve access speed. This can be turned off.
  */
 // TODO: Consider how negative numbers are handled and if they should be supported at all
+// TODO (Toke): Consider if this belongs in the util namespace alongside RankBitSet
 public class LongCompressor {
 
   /**
@@ -43,15 +45,15 @@ public class LongCompressor {
    */
   public static final double DEFAULT_MIN_ZERO_VALUES_FRACTION_FOR_SPARSE = 0.2;
 
-  public static PackedInts.Reader compress(long[] values) {
-    return compress(values, values.length);
+  public static PackedInts.Reader compress(PackedInts.Reader values) {
+    return compress(values, values.size());
   }
 
-  public static PackedInts.Reader compress(long[] values, int length) {
-    return compress(values, values.length, true);
+  public static PackedInts.Reader compress(PackedInts.Reader values, int length) {
+    return compress(values, values.size(), true);
   }
 
-  public static PackedInts.Reader compress(long[] values, int length, boolean allowSparse) {
+  public static PackedInts.Reader compress(PackedInts.Reader values, int length, boolean allowSparse) {
     return compress(values, length, allowSparse,
         DEFAULT_MIN_TOTAL_VALUES_FOR_SPARSE,
         DEFAULT_MIN_ZERO_VALUES_FOR_SPARSE,
@@ -59,7 +61,7 @@ public class LongCompressor {
   }
 
   public static PackedInts.Reader compress(
-      long[] values, int length, boolean allowSparse,
+      PackedInts.Reader values, int length, boolean allowSparse,
       int minTotalSparse, int minZeroSparse, double minZeroFractionSparse) {
     if (length == 0) {
       return PackedInts.getMutable(0, 1, PackedInts.DEFAULT);
@@ -68,53 +70,84 @@ public class LongCompressor {
     final long min = getMin(values, length);
     final long gcd = getGCD(values, length, min);
     final long maxCompressed = getMax(values, length, min, gcd);
-    PackedInts.Mutable inner =
-        PackedInts.getMutable(length, PackedInts.bitsRequired(maxCompressed), PackedInts.DEFAULT);
-    for (int i = 0 ; i < length ; i++) {
-      inner.set(i, (values[i]-min)/gcd);
+//    System.out.println("min=" + min + ", gcd=" +gcd + ", macC=" + maxCompressed);
+
+    if (!isSparseCandidate(values, length, min, gcd, allowSparse,
+        minTotalSparse, minZeroSparse, minZeroFractionSparse)) {
+      PackedInts.Mutable inner =
+          PackedInts.getMutable(length, PackedInts.bitsRequired(maxCompressed), PackedInts.DEFAULT);
+      for (int i = 0 ; i < length ; i++) {
+        inner.set(i, (values.get(i)-min)/gcd);
+      }
+      return new CompressedReader(inner, min, gcd);
     }
 
-    //final boolean useSparse = isSparseCandidate(values, length, min, allowSparse,
-    //    minTotalSparse, minZeroSparse, minZeroFractionSparse);
-    // TODO (Toke): Implement sparse representation with rank (see the sparse faceting project for easy-to-adapt code)
-    
-    return new CompressedReader(inner, min, gcd);
+    // Sparsify
+    RankBitSet rank = new RankBitSet(length);
+    final int zeroCount = countZeroes(values, length, min, gcd);
+    PackedInts.Mutable inner =
+        PackedInts.getMutable(values.size()-zeroCount, PackedInts.bitsRequired(maxCompressed), PackedInts.DEFAULT);
+    int valueIndex = 0;
+    for (int i = 0 ; i < length ; i++) {
+      long value = (values.get(i)-min)/gcd;
+      if (value != 0) {
+        rank.set(i);
+        //System.out.println("vali=" + valueIndex + ", zer=" + zeroCount + ", max=" + maxCompressed + ", val=" + value + ", raw=" + values.get(i) + ", min=" + min + ", gcd=" + gcd);
+        inner.set(valueIndex++, value);
+      }
+    }
+    rank.buildRankCache();
+    return new CompressedReader(inner, min, gcd, rank);
   }
 
   private static boolean isSparseCandidate(
-      long[] values, int length, long zeroValue, boolean allowSparse,
+      PackedInts.Reader values, int length, long min, long gcd, boolean allowSparse,
       int minTotalSparse, int minZeroSparse, double minZeroFractionSparse) {
     if (!allowSparse || minTotalSparse < length) {
       return false;
     }
+    int zeroCount = countZeroes(values, length, min, gcd);
+    return minZeroSparse < zeroCount && minZeroFractionSparse < 1.0*zeroCount/length;
+  }
+
+  private static int countZeroes(PackedInts.Reader values, int length, long min, long gcd) {
     int zeroCount = 0;
     for (int i = 0 ; i < length ; i++) {
-      if (values[i] == zeroValue) {
+      if ((values.get(i)-min)/gcd == 0) {
         zeroCount++;
       }
     }
-    return minZeroSparse < zeroCount && minZeroFractionSparse < 1.0*zeroCount/length;
+    return zeroCount;
   }
 
   static class CompressedReader extends PackedInts.Reader {
     private final PackedInts.Reader inner;
     final long min;
     final long gcd;
+    final RankBitSet rank;
 
     public CompressedReader(PackedInts.Reader inner, long min, long gcd) {
+      this(inner, min, gcd, null);
+    }
+
+    public CompressedReader(PackedInts.Reader inner, long min, long gcd, RankBitSet rank) {
       this.inner = inner;
       this.min = min;
       this.gcd = gcd;
+      this.rank = rank;
     }
 
     @Override
     public int size() {
-      return inner.size();
+      return rank == null ? inner.size() : rank.length();
     }
 
     @Override
     public long get(int docID) {
-      return (inner.get(docID)+min)*gcd;
+      // No rank: The value at the index
+      // Rank but no set bit: min*gcd
+      // Rank and set bit: (The value at the rank + min) * gcd
+      return (rank == null ? inner.get(docID) : rank.get(docID) ? inner.get(rank.rank(docID)) : 0) * gcd + min;
     }
 
     @Override
@@ -123,22 +156,29 @@ public class LongCompressor {
     }
   }
 
-  private static long getMin(long[] values, int length) {
+  private static long getMin(PackedInts.Reader values, int length) {
     long min = Long.MAX_VALUE;
     for (int i = 0 ; i < length ; i++) {
-      if (min > values[i]) {
-        min = values[i];
+      if (min > values.get(i)) {
+        min = values.get(i);
       }
     }
     return min;
   }
 
-  private static long getGCD(final long[] values, final int length, final long min) {
+  private static long getGCD(final PackedInts.Reader values, final int length, final long min) {
     // GCD-code adjusted form Lucene70DocValuesConsumer
-    long gcd = values[0];
+    long gcd = -1;
 
-    for (int i = 1 ; i < length ; i++) {
-      long value = values[i]-min;
+    for (int i = 0 ; i < length ; i++) {
+      long value = values.get(i)-min;
+      if (value == 0) {
+        continue;
+      }
+      if (gcd == -1) {
+        gcd = value;
+        continue;
+      }
 
       if (value < Long.MIN_VALUE / 2 || value > Long.MAX_VALUE / 2) {
         // in that case v - minValue might overflow and make the GCD computation return
@@ -153,13 +193,13 @@ public class LongCompressor {
         break;
       }
     }
-    return gcd;
+    return gcd == -1 ? 1 : gcd;
   }
 
-  private static long getMax(final long[] values, final int length, final long min, final long gcd) {
+  private static long getMax(final PackedInts.Reader values, final int length, final long min, final long gcd) {
     long max = Long.MIN_VALUE;
     for (int i = 0 ; i < length ; i++) {
-      long value = (values[i]-min)/gcd;
+      long value = (values.get(i)-min)/gcd;
       if (value > max) {
         max = value;
       }

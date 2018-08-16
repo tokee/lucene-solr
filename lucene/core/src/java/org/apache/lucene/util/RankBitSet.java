@@ -61,6 +61,10 @@ public class RankBitSet extends BitSet {
   private final FixedBitSet inner;
   private final int wlen; // Number of words (longs with FixedBitSet) in inner
 
+  public RankBitSet(int numBits) {
+    this(new FixedBitSet(numBits));
+  }
+
   public RankBitSet(FixedBitSet inner) {
     this.inner = inner;
     wlen = inner.getBits().length;
