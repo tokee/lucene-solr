@@ -43,7 +43,7 @@ public class LongCompressor {
   /**
    * The minimum fraction of the data set that must be zero for sparse to be active.
    */
-  public static final double DEFAULT_MIN_ZERO_VALUES_FRACTION_FOR_SPARSE = 0.2;
+  public static final double DEFAULT_MIN_ZERO_VALUES_FRACTION_FOR_SPARSE = 0.2; // 20% (just guessing of a value here)
 
   public static PackedInts.Reader compress(PackedInts.Reader values) {
     return compress(values, values.size());
@@ -71,6 +71,7 @@ public class LongCompressor {
     final long gcd = getGCD(values, length, min);
     final long maxCompressed = getMax(values, length, min, gcd);
 //    System.out.println("min=" + min + ", gcd=" +gcd + ", macC=" + maxCompressed);
+    // TODO: Add abort-early if it becomes apparent that no space saving is possible - this requires check for zeroes
 
     if (!isSparseCandidate(values, length, min, gcd, allowSparse,
         minTotalSparse, minZeroSparse, minZeroFractionSparse)) {
@@ -79,7 +80,13 @@ public class LongCompressor {
       for (int i = 0 ; i < length ; i++) {
         inner.set(i, (values.get(i)-min)/gcd);
       }
-      return new CompressedReader(inner, min, gcd);
+      PackedInts.Reader comp = new CompressedReader(inner, min, gcd);
+      //System.out.println(String.format(
+      //    "LongCompresson: Non-sparse compression from %dKB to %dKB with min=%d, gcd=%d, maxCompressed=%d, " +
+      //        "zeroes=%d/%d",
+      //    values.ramBytesUsed()/1024, comp.ramBytesUsed()/1024, min, gcd, maxCompressed,
+      //    countZeroes(values, length, min, gcd), values.size()));
+      return comp;
     }
 
     // Sparsify
@@ -97,16 +104,26 @@ public class LongCompressor {
       }
     }
     rank.buildRankCache();
-    return new CompressedReader(inner, min, gcd, rank);
+    PackedInts.Reader comp = new CompressedReader(inner, min, gcd, rank);
+    //System.out.println(String.format(
+    //    "LongCompresson: Sparse compression from %dKB to %dKB with min=%d, gcd=%d, maxCompressed=%d, " +
+    //        "zeroes=%d/%d",
+    //    values.ramBytesUsed()/1024, comp.ramBytesUsed()/1024, min, gcd, maxCompressed,
+    //    countZeroes(values, length, min, gcd), values.size()));
+    return comp;
   }
 
   private static boolean isSparseCandidate(
       PackedInts.Reader values, int length, long min, long gcd, boolean allowSparse,
       int minTotalSparse, int minZeroSparse, double minZeroFractionSparse) {
-    if (!allowSparse || minTotalSparse < length) {
+    if (!allowSparse || minTotalSparse > length) {
+      System.out.println("*fail* allow=" + allowSparse + ", minTotalSparze<length=" + minTotalSparse + "<" + length);
       return false;
     }
     int zeroCount = countZeroes(values, length, min, gcd);
+    System.out.println("*check* minZeroSparse < zeroCount " + minZeroSparse + " < " + zeroCount +
+        " && minZeroFractionSparse < 1.0*zeroCount/length; " + minZeroFractionSparse + " < 1.0*" + zeroCount + "/" +
+        length + " ---> " + (minZeroSparse < zeroCount && minZeroFractionSparse < 1.0*zeroCount/length));
     return minZeroSparse < zeroCount && minZeroFractionSparse < 1.0*zeroCount/length;
   }
 
@@ -152,7 +169,7 @@ public class LongCompressor {
 
     @Override
     public long ramBytesUsed() {
-      return inner.ramBytesUsed();
+      return inner.ramBytesUsed() + (rank == null ? 0 : rank.ramBytesUsed());
     }
   }
 
