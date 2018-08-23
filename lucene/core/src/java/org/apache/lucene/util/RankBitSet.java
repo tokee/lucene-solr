@@ -23,7 +23,7 @@ import java.util.Collection;
 import org.apache.lucene.search.DocIdSetIterator;
 
 /**
- * Wrapper for OpenBitSet which creates and exposes a rank cache.
+ * Wrapper for OpenBitSet which creates and exposes a rank cache. The rank-cache scales to 2 billion bits.
  *
  * The rankCache has a long for every 2048 bits and thus has an overhead of 3.17%.
  * Performance is O(1):
@@ -39,6 +39,9 @@ import org.apache.lucene.search.DocIdSetIterator;
  * by Dong Zhou, David G. Andersen, Michael Kaminsky, Carnegie Mellon University, Intel Labs
  * http://www.cs.cmu.edu/~dga/papers/zhou-sea2013.pdf
  */
+// TODO: If the total number of set bits is <= 65535, a faster rank cache is a short for every 512 bits
+// Extending the rank beyond 2 billion bits would likely be done by dividing the bitmap into blocks of 2b bits
+// and introducing yet another table with a rank-origo for each block
 public class RankBitSet extends BitSet {
   public static final int  LOWER_BITS = 32; // Must be capable of addressing full Java array
   public static final long LOWER_MASK = ~(~1L << (LOWER_BITS-1));

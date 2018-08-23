@@ -35,6 +35,8 @@ import org.apache.lucene.util.RamUsageEstimator;
  */
 // Note: This was hacked together with little understanding of overall caching principles for Lucene.
 // It probably belongs somewhere else and hopefully someone with a better understanding will refactor the code.
+// Maybe Lucene70NormsProducer and Lucene70DocValuesProducer instances should each contain an instance, which would be
+// freed along with the producer-instances?
 public class IndexedDISICacheFactory implements Accountable {
   public static int MIN_LENGTH_FOR_CACHING = 50; // Set this very low: Could be 9 EMPTY followed by a SPARSE
   public static boolean BLOCK_CACHING_ENABLED = true;
