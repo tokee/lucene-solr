@@ -200,9 +200,7 @@ public class TestDocValues extends LuceneTestCase {
       System.out.println("Warming disk cache optimized");
       numericRetrievalSpeed(dirOptimize, 5, 1000, true, true, true, false, NONE);
 
-      System.out.println("Running performance tests");
-      cacheNote("Multi-segment", dirPlain);
-      cacheNote("Single-segment", dirOptimize);
+      System.out.println("Running performance tests (note: Indexes < 16K docs are unlikely to have usable LUCENE-8374 caches)");
 
       for (int run = 0; run < MAJOR_RUNS; run++) {
         System.out.println(DV_PERFORMANCE_HEADER);
@@ -222,19 +220,18 @@ public class TestDocValues extends LuceneTestCase {
         System.out.println("----------------------");
       }
 
-      dirPlain.close();
-      dirOptimize.close();
+      deleteAndClose(dirPlain);
+      deleteAndClose(dirOptimize);
     }
     IndexedDISICacheFactory.DEBUG = oldDebug;
   }
 
-  private void cacheNote(String designation, Directory dir) throws IOException {
-    boolean[] capabilities = getCacheability(dir);
-    if (!(capabilities[0] && capabilities[1] && capabilities[2])) {
-      System.out.println(String.format(
-          "* Note: %s index can only get caches for block=%b, dense=%b, vBPV=%b",
-          designation, capabilities[0], capabilities[1], capabilities[2]));
+  private void deleteAndClose(Directory dir) throws IOException {
+    String[] files = dir.listAll();
+    for (String file: files) {
+      dir.deleteFile(file);
     }
+    dir.close();
   }
 
   public static final String DV_PERFORMANCE_HEADER = "  docs segments requests block dense  vBPV worst_r/s best_r/s  worst/base best/base";
@@ -286,34 +283,6 @@ public class TestDocValues extends LuceneTestCase {
 
     dr.close();
     return new double[]{worstDPS, bestDPS};
-  }
-
-  // returns [block, dense, vBPV]
-  private boolean[] getCacheability(Directory dir) throws IOException {
-
-    IndexedDISICacheFactory.BLOCK_CACHING_ENABLED = true;
-    IndexedDISICacheFactory.DENSE_CACHING_ENABLED = true;
-    IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED = true;
-
-    try (DirectoryReader dr = DirectoryReader.open(dir)) {
-      int maxDoc = dr.maxDoc();
-
-      for (int run = 0; run < 100; run++) {
-        final int docID = run * 100 / maxDoc;
-
-        int readerIndex = dr.readerIndex(docID);
-        LeafReader reader = dr.leaves().get(readerIndex).reader();
-        NumericDocValues numDV = reader.getNumericDocValues("dv");
-        if (numDV.advanceExact(docID - dr.readerBase(readerIndex))) {
-          numDV.longValue();
-        }
-
-      }
-      return new boolean[]{
-          IndexedDISICacheFactory.getDISIBlocksWithOffsetsCount() > 0,
-          IndexedDISICacheFactory.getDISIBlocksWithRankCount() > 0,
-          IndexedDISICacheFactory.getVaryingBPVCount() > 0};
-    }
   }
 
   private String shortenKB(int requests) {

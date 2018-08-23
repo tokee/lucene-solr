@@ -45,6 +45,7 @@ final class Lucene70NormsProducer extends NormsProducer implements Cloneable {
   private final Map<Integer,NormsEntry> norms = new HashMap<>();
   private final int maxDoc;
   private IndexInput data;
+  private final IndexedDISICacheFactory disiCacheFactory = new IndexedDISICacheFactory();
   private boolean merging;
   private Map<Integer, IndexInput> disiInputs;
   private Map<Integer, RandomAccessInput> dataInputs;
@@ -295,7 +296,7 @@ final class Lucene70NormsProducer extends NormsProducer implements Cloneable {
       // sparse
       final IndexInput disiInput = getDisiInput(field, entry);
       // TODO (Toke): Review if it makes sense to use caching here - aren't there already skip structures in place?
-      final IndexedDISI disi = new IndexedDISI(data.hashCode(), disiInput, entry.numDocsWithField, field.name);
+      final IndexedDISI disi = disiCacheFactory.createCachedIndexedDISI(disiInput, entry.numDocsWithField, field.name);
       if (entry.bytesPerNorm == 0) {
         return new SparseNormsIterator(disi) {
           @Override
@@ -344,12 +345,12 @@ final class Lucene70NormsProducer extends NormsProducer implements Cloneable {
   @Override
   public void close() throws IOException {
     data.close();
-    IndexedDISICacheFactory.release(data);
+    disiCacheFactory.releaseAll();
   }
 
   @Override
   public long ramBytesUsed() {
-    return 64L * norms.size(); // good enough
+    return 64L * norms.size() + disiCacheFactory.ramBytesUsed(); // good enough
   }
 
   @Override

@@ -111,15 +111,7 @@ final class IndexedDISI extends DocIdSetIterator {
   }
 
   IndexedDISI(IndexInput in, long offset, long length, long cost, String name) throws IOException {
-    this(in, offset, length, cost, CACHING_ENABLED, name);
-  }
-
-  IndexedDISI(IndexInput in, long offset, long length, long cost, boolean useCaching) throws IOException {
-    this(in, offset, length, cost, useCaching, NO_NAME);
-  }
-
-  IndexedDISI(IndexInput in, long offset, long length, long cost, boolean useCaching, String name) throws IOException {
-    this(in, offset, length, cost, useCaching ? IndexedDISICacheFactory.getCache(in, offset, length, cost, name) : null, name);
+    this(in, offset, length, cost, null, name);
   }
 
   IndexedDISI(IndexInput in, long offset, long length, long cost, IndexedDISICache cache) throws IOException {
@@ -141,18 +133,6 @@ final class IndexedDISI extends DocIdSetIterator {
         "Non-cached direct slice IndexedDISI with length " + slice.length() + ": " + slice.toString());
   }
 
-  IndexedDISI(int hash, IndexInput slice, long cost) throws IOException {
-    this(hash, slice, cost, NO_NAME);
-  }
-  IndexedDISI(int hash, IndexInput slice, long cost, String name) throws IOException {
-    this(hash, slice, cost, CACHING_ENABLED && ALSO_CACHE_NORMS, name);
-  }
-  IndexedDISI(int hash, IndexInput slice, long cost, boolean useCaching) throws IOException {
-    this(hash, slice, cost, useCaching, NO_NAME);
-  }
-  IndexedDISI(int hash, IndexInput slice, long cost, boolean useCaching, String name) throws IOException {
-    this(slice, cost, useCaching ? IndexedDISICacheFactory.getCache(hash, slice, cost, name) : null, name);
-  }
   IndexedDISI(IndexInput slice, long cost, IndexedDISICache cache) throws IOException {
     this(slice, cost, cache, NO_NAME);
   }

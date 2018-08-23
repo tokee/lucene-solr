@@ -57,6 +57,7 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
   private final Map<String,SortedNumericEntry> sortedNumerics = new HashMap<>();
   private long ramBytesUsed;
   private final IndexInput data;
+  private final IndexedDISICacheFactory disiCacheFactory = new IndexedDISICacheFactory();
   private final int maxDoc;
 
   /** expert: instantiates a new reader */
@@ -262,7 +263,7 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
   @Override
   public void close() throws IOException {
     data.close();
-    IndexedDISICacheFactory.release(data);
+    disiCacheFactory.releaseAll();
   }
 
   // Highly debatable if this is a sane construct as the name is only used for debug/logging/inspection purposes
@@ -367,7 +368,7 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
 
   @Override
   public long ramBytesUsed() {
-    return ramBytesUsed;
+    return ramBytesUsed + disiCacheFactory.ramBytesUsed();
   }
 
   @Override
@@ -499,7 +500,7 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
       }
     } else {
       // sparse
-      final IndexedDISI disi = new IndexedDISI(
+      final IndexedDISI disi = disiCacheFactory.createCachedIndexedDISI(
           data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.numValues, entry.name);
       if (entry.bitsPerValue == 0) {
         return new SparseNumericDocValues(disi) {
@@ -718,7 +719,7 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
       }
     } else {
       // sparse
-      final IndexedDISI disi = new IndexedDISI(
+      final IndexedDISI disi = disiCacheFactory.createCachedIndexedDISI(
           data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.numDocsWithField, entry.name);
       if (entry.minLength == entry.maxLength) {
         // fixed length
@@ -820,7 +821,7 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
       };
     } else {
       // sparse
-      final IndexedDISI disi = new IndexedDISI(
+      final IndexedDISI disi = disiCacheFactory.createCachedIndexedDISI(
           data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.numDocsWithField, entry.name);
       return new BaseSortedDocValues(entry, data) {
 
@@ -1189,8 +1190,8 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
       };
     } else {
       // sparse
-      final IndexedDISI disi = new IndexedDISI(
-          data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.numDocsWithField, field.name);
+      final IndexedDISI disi = disiCacheFactory.createCachedIndexedDISI(
+          data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.numDocsWithField, entry.name);
       return new SortedNumericDocValues() {
 
         boolean set;
@@ -1316,8 +1317,8 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
       };
     } else {
       // sparse
-      final IndexedDISI disi = new IndexedDISI(
-          data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.numDocsWithField, field.name);
+      final IndexedDISI disi = disiCacheFactory.createCachedIndexedDISI(
+          data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.numDocsWithField, entry.name);
       return new BaseSortedSetDocValues(entry, data) {
 
         boolean set;
@@ -1412,9 +1413,7 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
           // We delay cache generation to access-time to avoid non-used cashes
           // Unfortunately merging causes the cache to be created - can this be avoided?
           IndexedDISICacheFactory.VaryingBPVJumpTable cache =
-              IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED ?
-              IndexedDISICacheFactory.getVBPVJumpTable(data.hashCode(), entry.name, slice, entry.valuesLength) :
-              null;
+              disiCacheFactory.getVBPVJumpTable(entry.name, slice, entry.valuesLength);
           if (cache != null) {
             blockEndOffset = cache.getBlockOffset(block);
             this.block = block-1;
