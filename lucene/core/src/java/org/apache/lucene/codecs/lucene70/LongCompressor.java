@@ -70,28 +70,24 @@ public class LongCompressor {
     final long min = getMin(values, length);
     final long gcd = getGCD(values, length, min);
     final long maxCompressed = getMax(values, length, min, gcd);
-//    System.out.println("min=" + min + ", gcd=" +gcd + ", macC=" + maxCompressed);
-    // TODO: Add abort-early if it becomes apparent that no space saving is possible - this requires check for zeroes
 
-    if (!isSparseCandidate(values, length, min, gcd, allowSparse,
-        minTotalSparse, minZeroSparse, minZeroFractionSparse)) {
+    int zeroCount;
+    if (!isPossiblySparseCandidate(length, allowSparse, minTotalSparse) ||
+        isSparseCandidate(values, length, true, minTotalSparse,
+            (zeroCount = countZeroes(values, length, min, gcd)), minZeroSparse, minZeroFractionSparse)) {
+      // TODO: Add abort-early if it becomes apparent that no space saving is possible
       PackedInts.Mutable inner =
           PackedInts.getMutable(length, PackedInts.bitsRequired(maxCompressed), PackedInts.DEFAULT);
       for (int i = 0 ; i < length ; i++) {
         inner.set(i, (values.get(i)-min)/gcd);
       }
       PackedInts.Reader comp = new CompressedReader(inner, min, gcd);
-      //System.out.println(String.format(
-      //    "LongCompresson: Non-sparse compression from %dKB to %dKB with min=%d, gcd=%d, maxCompressed=%d, " +
-      //        "zeroes=%d/%d",
-      //    values.ramBytesUsed()/1024, comp.ramBytesUsed()/1024, min, gcd, maxCompressed,
-      //    countZeroes(values, length, min, gcd), values.size()));
-      return comp;
+      // Sanity check that compression worked and if not, return the original input
+      return comp.ramBytesUsed() < values.ramBytesUsed() ? comp : values;
     }
 
     // Sparsify
     RankBitSet rank = new RankBitSet(length);
-    final int zeroCount = countZeroes(values, length, min, gcd);
     PackedInts.Mutable inner =
         PackedInts.getMutable(values.size()-zeroCount, PackedInts.bitsRequired(maxCompressed), PackedInts.DEFAULT);
     int valueIndex = 0;
@@ -99,32 +95,26 @@ public class LongCompressor {
       long value = (values.get(i)-min)/gcd;
       if (value != 0) {
         rank.set(i);
-        //System.out.println("vali=" + valueIndex + ", zer=" + zeroCount + ", max=" + maxCompressed + ", val=" + value + ", raw=" + values.get(i) + ", min=" + min + ", gcd=" + gcd);
         inner.set(valueIndex++, value);
       }
     }
     rank.buildRankCache();
     PackedInts.Reader comp = new CompressedReader(inner, min, gcd, rank);
-    //System.out.println(String.format(
-    //    "LongCompresson: Sparse compression from %dKB to %dKB with min=%d, gcd=%d, maxCompressed=%d, " +
-    //        "zeroes=%d/%d",
-    //    values.ramBytesUsed()/1024, comp.ramBytesUsed()/1024, min, gcd, maxCompressed,
-    //    countZeroes(values, length, min, gcd), values.size()));
-    return comp;
+    // Sanity check that compression worked and if not, return the original input
+    return comp.ramBytesUsed() < values.ramBytesUsed() ? comp : values;
   }
 
+  // Fast check
+  private static boolean isPossiblySparseCandidate(int length, boolean allowSparse, int minTotalSparse) {
+    return allowSparse && minTotalSparse <= length;
+  }
+
+  // Also fast, but requires zeroCount which is slow to calculate
   private static boolean isSparseCandidate(
-      PackedInts.Reader values, int length, long min, long gcd, boolean allowSparse,
-      int minTotalSparse, int minZeroSparse, double minZeroFractionSparse) {
-    if (!allowSparse || minTotalSparse > length) {
-      System.out.println("*fail* allow=" + allowSparse + ", minTotalSparze<length=" + minTotalSparse + "<" + length);
-      return false;
-    }
-    int zeroCount = countZeroes(values, length, min, gcd);
-    System.out.println("*check* minZeroSparse < zeroCount " + minZeroSparse + " < " + zeroCount +
-        " && minZeroFractionSparse < 1.0*zeroCount/length; " + minZeroFractionSparse + " < 1.0*" + zeroCount + "/" +
-        length + " ---> " + (minZeroSparse < zeroCount && minZeroFractionSparse < 1.0*zeroCount/length));
-    return minZeroSparse < zeroCount && minZeroFractionSparse < 1.0*zeroCount/length;
+      PackedInts.Reader values, int length, boolean allowSparse, int minTotalSparse,
+      int zeroCount, int minZeroSparse, double minZeroFractionSparse) {
+    return allowSparse && minTotalSparse <= length &&
+        minZeroSparse < zeroCount && minZeroFractionSparse < 1.0 * zeroCount / length;
   }
 
   private static int countZeroes(PackedInts.Reader values, int length, long min, long gcd) {
