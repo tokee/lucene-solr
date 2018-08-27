@@ -73,7 +73,7 @@ public class LongCompressor {
 
     int zeroCount;
     if (!isPossiblySparseCandidate(length, allowSparse, minTotalSparse) ||
-        isSparseCandidate(values, length, true, minTotalSparse,
+        !isSparseCandidate(values, length, true, minTotalSparse,
             (zeroCount = countZeroes(values, length, min, gcd)), minZeroSparse, minZeroFractionSparse)) {
       // TODO: Add abort-early if it becomes apparent that no space saving is possible
       PackedInts.Mutable inner =
