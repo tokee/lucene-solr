@@ -45,6 +45,7 @@ final class Lucene70NormsProducer extends NormsProducer {
   private final Map<Integer,NormsEntry> norms = new HashMap<>();
   private final int maxDoc;
   private IndexInput data;
+  private final IndexedDISICacheFactory disiCacheFactory = new IndexedDISICacheFactory();
   private boolean merging;
   private Map<Integer, IndexInput> disiInputs;
   private Map<Integer, RandomAccessInput> dataInputs;
@@ -250,7 +251,9 @@ final class Lucene70NormsProducer extends NormsProducer {
     } else {
       // sparse
       // TODO (Toke): Review if it makes sense to use caching here - aren't there already skip structures in place?
-      final IndexedDISI disi = new IndexedDISI(data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.numDocsWithField, field.name);
+      final IndexInput disiInput = data.slice("docs", entry.docsWithFieldOffset, entry.docsWithFieldLength);
+//      final IndexedDISI disi = new IndexedDISI(data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.numDocsWithField, field.name);
+      final IndexedDISI disi = disiCacheFactory.createCachedIndexedDISI(disiInput, entry.numDocsWithField, field.name);
       if (entry.bytesPerNorm == 0) {
         return new SparseNormsIterator(disi) {
           @Override
@@ -299,12 +302,12 @@ final class Lucene70NormsProducer extends NormsProducer {
   @Override
   public void close() throws IOException {
     data.close();
-    IndexedDISICacheFactory.release(data);
+    disiCacheFactory.releaseAll();
   }
 
   @Override
   public long ramBytesUsed() {
-    return 64L * norms.size(); // good enough
+    return 64L * norms.size() + disiCacheFactory.ramBytesUsed(); // good enough
   }
 
   @Override

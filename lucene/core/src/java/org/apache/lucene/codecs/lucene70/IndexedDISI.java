@@ -111,15 +111,7 @@ final class IndexedDISI extends DocIdSetIterator {
   }
 
   IndexedDISI(IndexInput in, long offset, long length, long cost, String name) throws IOException {
-    this(in, offset, length, cost, CACHING_ENABLED, name);
-  }
-
-  IndexedDISI(IndexInput in, long offset, long length, long cost, boolean useCaching) throws IOException {
-    this(in, offset, length, cost, useCaching, NO_NAME);
-  }
-
-  IndexedDISI(IndexInput in, long offset, long length, long cost, boolean useCaching, String name) throws IOException {
-    this(in, offset, length, cost, useCaching ? IndexedDISICacheFactory.getCache(in, offset, length, cost, name) : null, name);
+    this(in, offset, length, cost, null, name);
   }
 
   IndexedDISI(IndexInput in, long offset, long length, long cost, IndexedDISICache cache) throws IOException {
@@ -141,18 +133,6 @@ final class IndexedDISI extends DocIdSetIterator {
         "Non-cached direct slice IndexedDISI with length " + slice.length() + ": " + slice.toString());
   }
 
-  IndexedDISI(int hash, IndexInput slice, long cost) throws IOException {
-    this(hash, slice, cost, NO_NAME);
-  }
-  IndexedDISI(int hash, IndexInput slice, long cost, String name) throws IOException {
-    this(hash, slice, cost, CACHING_ENABLED && ALSO_CACHE_NORMS, name);
-  }
-  IndexedDISI(int hash, IndexInput slice, long cost, boolean useCaching) throws IOException {
-    this(hash, slice, cost, useCaching, NO_NAME);
-  }
-  IndexedDISI(int hash, IndexInput slice, long cost, boolean useCaching, String name) throws IOException {
-    this(slice, cost, useCaching ? IndexedDISICacheFactory.getCache(hash, slice, cost, name) : null, name);
-  }
   IndexedDISI(IndexInput slice, long cost, IndexedDISICache cache) throws IOException {
     this(slice, cost, cache, NO_NAME);
   }
@@ -322,12 +302,23 @@ final class IndexedDISI extends DocIdSetIterator {
         final int targetInBlock = target & 0xFFFF;
         final int targetWordIndex = targetInBlock >>> 6;
 
+        if (target == (target >> 9 << 9)) {
+//          System.out.println("-----");
+        }
+
         // If possible, skip ahead using the rank cache
         disi.rankSkip(disi, target);
 
         for (int i = disi.wordIndex + 1; i <= targetWordIndex; ++i) {
           disi.word = disi.slice.readLong();
           disi.numberOfOnes += Long.bitCount(disi.word);
+          // Read @ 249 with offset=2004
+        //  System.out.println("Read @ " + i + " with offset=" + disi.slice.getFilePointer());
+        }
+        if (target == (target >> 9 << 9)) {
+//          System.out.println("coarse index=" + disi.index + ", wordIndex=" + disi.wordIndex +
+//              ", targetWordIndex=" + targetWordIndex+ ", ones=" + disi.numberOfOnes +
+//              ", offset=" + disi.slice.getFilePointer());
         }
         disi.wordIndex = targetWordIndex;
 
@@ -335,7 +326,13 @@ final class IndexedDISI extends DocIdSetIterator {
         if (leftBits != 0L) {
           disi.doc = target + Long.numberOfTrailingZeros(leftBits);
           disi.index = disi.numberOfOnes - Long.bitCount(leftBits);
+          if (target == (target >> 9 << 9)) {
+//            System.out.println("countStop=" + disi.index + ", wordIndex=" + disi.wordIndex);
+          }
           return true;
+        }
+        if (target == (target >> 9 << 9)) {
+//          System.out.println("countOut=" + disi.index + ", wordIndex=" + disi.wordIndex);
         }
 
         // There were no set bits at the wanted position. Move forward until one is reached
@@ -347,6 +344,9 @@ final class IndexedDISI extends DocIdSetIterator {
             disi.index = disi.numberOfOnes;
             disi.numberOfOnes += Long.bitCount(disi.word);
             disi.doc = disi.block | (disi.wordIndex << 6) | Long.numberOfTrailingZeros(disi.word);
+            if (target == (target >> 9 << 9)) {
+//              System.out.println("extra=" + disi.index + ", wordIndex=" + disi.wordIndex);
+            }
             return true;
           }
         }
@@ -423,7 +423,7 @@ final class IndexedDISI extends DocIdSetIterator {
     }
     int rank = disi.cache.getRankInBlock(rankPos);
     if (rank == -1) {
-      System.out.println("Rank -1 for target=" + target);
+      //System.out.println("Rank -1 for target=" + target);
       return;
     }
     int rankIndex = disi.denseOrigoIndex + rank;
