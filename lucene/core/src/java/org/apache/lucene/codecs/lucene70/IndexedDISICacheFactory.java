@@ -86,7 +86,7 @@ public class IndexedDISICacheFactory implements Accountable {
       jumpTable = new VaryingBPVJumpTable(slice, name, valuesLength);
       vBPVPool.put(name, jumpTable);
       debug("Created packed numeric jump table for " + name + ": " +
-          jumpTable.creationStats + " (" + jumpTable.ramBytesUsed() + " bytes)");
+          jumpTable.creationStats + " (total " + jumpTable.ramBytesUsed() + " bytes)");
     }
     return jumpTable;
   }
@@ -193,7 +193,7 @@ public class IndexedDISICacheFactory implements Accountable {
    * current to wanted index. The jump table holds offsets for all blocks.
    */
   public static class VaryingBPVJumpTable implements Accountable {
-    // TODO: It is much too heavy to use longs here for practically all indexes. Maybe a PackedInts representation?
+    // TODO: It is way overkill to use longs here for practically all indexes. Maybe a PackedInts representation?
     long[] offsets = new long[10];
     final String creationStats;
 

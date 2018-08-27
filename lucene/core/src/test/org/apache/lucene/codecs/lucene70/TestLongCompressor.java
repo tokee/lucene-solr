@@ -42,6 +42,17 @@ public class TestLongCompressor extends LuceneTestCase {
     }
   }
 
+  public void testVerySparse() {
+    final int SIZE = 674932;
+    final int EVERY = SIZE/896;
+    PackedInts.Mutable ranks = PackedInts.getMutable(674932, 16, PackedInts.DEFAULT);
+    for (int i = 0 ; i < SIZE; i+=EVERY) {
+      ranks.set(i, random().nextInt(65535));
+    }
+    PackedInts.Reader sparsed = LongCompressor.compress(ranks);
+    assertFalse("The input and the sparsed should not be the same", ranks == sparsed);
+  }
+
   private void longCompressorMonkeyTest(
       int run, int size, int minValue, int maxValue, double minChance, long randomSeed) {
     final String description = String.format("run=%d, size=%d, minValue=%d, maxValue=%d, minChance=%1.2f, seed=%d",

@@ -80,8 +80,8 @@ public class IndexedDISICache implements Accountable {
   public static final int RANK_BLOCK_BITS = 9;
   public static final int RANKS_PER_BLOCK = BLOCK/RANK_BLOCK;
 
-  private long[] blockCache = null; // One every 65536 docs, contains index & slice position
   private PackedInts.Reader rank;   // One every 512 docs, sparsely represented as not all blocks are DENSE
+  private long[] blockCache = null; // One every 65536 docs, contains index & slice position
   public String creationStats = ""; // TODO: Definitely not the way to keep the stats, but where to send them?
   public String name; // Identifier for debug, log & inspection
 
@@ -201,11 +201,13 @@ public class IndexedDISICache implements Accountable {
 
     slice.seek(startOffset); // Leave it as we found it
     creationStats = String.format(
-        "name=%s, blocks=%d (ALL=%d, DENSE=%d, SPARSE=%d, EMPTY=%d), time=%dms, block=%b, rank=%b",
+        "name=%s, blocks=%d (ALL=%d, DENSE=%d, SPARSE=%d, EMPTY=%d), time=%dms, block=%b (%d bytes), rank=%b (%d bytes)",
         name,
         largestBlock+1, statBlockALL.get(), statBlockDENSE.get(), statBlockSPARSE.get(),
         (largestBlock+1-statBlockALL.get()-statBlockDENSE.get()-statBlockSPARSE.get()),
-        (System.nanoTime()-startTime)/1000000, fillBlockCache, fillRankCache);
+        (System.nanoTime()-startTime)/1000000,
+        fillBlockCache, blockCache == null ? 0 : blockCache.length*Long.BYTES,
+        fillRankCache, rank == null ? 0 : rank.ramBytesUsed());
   }
 
   private int fillCache(IndexInput slice, boolean fillBlockCache, boolean fillRankCache,
@@ -215,6 +217,7 @@ public class IndexedDISICache implements Accountable {
     int largestBlock = -1;
     long index = 0;
     int rankIndex = -1;
+    int rankCountTemp = 0;
     while (slice.getFilePointer() < slice.length()) {
       final long startFilePointer = slice.getFilePointer();
 
@@ -255,6 +258,7 @@ public class IndexedDISICache implements Accountable {
           rankIndex = rankOrigo + rankDelta;
           buildRank = ArrayUtil.grow(buildRank, rankIndex+1);
           buildRank[rankIndex] = (char)setBits;
+          rankCountTemp++;
           for (int i = 0 ; i < 512/64 ; i++) { // 8 longs for each rank-entry
             setBits += Long.bitCount(slice.readLong());
           }
