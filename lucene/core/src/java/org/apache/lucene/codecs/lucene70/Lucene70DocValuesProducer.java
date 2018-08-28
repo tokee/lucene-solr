@@ -1408,15 +1408,15 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
       final long block = index >>> shift;
       if (this.block != block) {
         int bitsPerValue;
-        // TODO (Toke): Introduce jump table
         do {
-          // We delay cache generation to access-time to avoid non-used cashes
-          // Unfortunately merging causes the cache to be created - can this be avoided?
-          IndexedDISICacheFactory.VaryingBPVJumpTable cache =
-              disiCacheFactory.getVBPVJumpTable(entry.name, slice, entry.valuesLength);
-          if (cache != null) {
-            blockEndOffset = cache.getBlockOffset(block);
-            this.block = block-1;
+          // If the needed block is the one directly following the current block, it is cheaper to avoid the cache
+          if (block != this.block+1) {
+            IndexedDISICacheFactory.VaryingBPVJumpTable cache =
+                disiCacheFactory.getVBPVJumpTable(entry.name, slice, entry.valuesLength);
+            if (cache != null) {
+              blockEndOffset = cache.getBlockOffset(block);
+              this.block = block - 1;
+            }
           }
           offset = blockEndOffset;
           bitsPerValue = slice.readByte(offset++);
