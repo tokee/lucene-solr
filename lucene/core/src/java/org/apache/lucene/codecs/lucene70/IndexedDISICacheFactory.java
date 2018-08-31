@@ -59,12 +59,12 @@ public class IndexedDISICacheFactory implements Accountable {
 
   public IndexedDISI createCachedIndexedDISI(IndexInput data, long offset, long length, long cost, String name)
       throws IOException {
-    IndexedDISICache cache = getCache(data, offset, length, cost, name);
+    IndexedDISICache cache = getCache(data, offset, length, name);
     return new IndexedDISI(data, offset, length, cost, cache, name);
   }
 
-  public IndexedDISI createCachedIndexedDISI(IndexInput data, int cost, String name) throws IOException {
-    IndexedDISICache cache = getCache(data, cost, name);
+  public IndexedDISI createCachedIndexedDISI(IndexInput data, long key, int cost, String name) throws IOException {
+    IndexedDISICache cache = getCache(data, key, name);
     return new IndexedDISI(data, cost, cache, name);
   }
 
@@ -97,11 +97,10 @@ public class IndexedDISICacheFactory implements Accountable {
    * @param data   the slice to create a cache for.
    * @param offset same as the offset that will also be used for creating an {@link IndexedDISI}.
    * @param length same af the length that will also be used for creating an {@link IndexedDISI}.
-   * @param cost same af the cost that will also be used for creating an {@link IndexedDISI}.
    * @param name human readable designation, typically a field name. Used for debug, log and inspection.
    * @return a cache for the given slice+offset+length or null if not suitable for caching.
    */
-  public IndexedDISICache getCache(IndexInput data, long offset, long length, long cost, String name) throws IOException {
+  public IndexedDISICache getCache(IndexInput data, long offset, long length, String name) throws IOException {
     if (!(BLOCK_CACHING_ENABLED || DENSE_CACHING_ENABLED) || length < MIN_LENGTH_FOR_CACHING) {
       return null;
     }
@@ -121,18 +120,19 @@ public class IndexedDISICacheFactory implements Accountable {
   /**
    * Creates a cache if not already present and returns it.
    * @param slice    the input slice.
-   * @param cost     same af the cost that will also be used for creating an {@link IndexedDISI}.
+   * @param key identifier for the cache, unique within the segment that originated the slice.
+   *            Recommendation is offset+length for the slice, relative to the data mapping the segment.
+   *            Warning: Do not use slice.getFilePointer and slice.length as they are not guaranteed
+   *            to be unique within the segment (slice.getFilePointer is 0 when a sub-slice is created).
    * @param name human readable designation, typically a field name. Used for debug, log and inspection.
    * @return a cache for the given slice+offset+length or null if not suitable for caching.
    */
-  public IndexedDISICache getCache(IndexInput slice, long cost, String name) throws IOException {
-    final long offset = slice.getFilePointer();
+  public IndexedDISICache getCache(IndexInput slice, long key, String name) throws IOException {
     final long length = slice.length();
     if (length < MIN_LENGTH_FOR_CACHING) {
       return null;
     }
 
-    final long key = offset + length;
     IndexedDISICache cache = disiPool.get(key);
     if (cache == null) {
       // TODO: Avoid overlapping builds of the same cache
