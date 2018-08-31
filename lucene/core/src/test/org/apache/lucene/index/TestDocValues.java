@@ -174,7 +174,6 @@ public class TestDocValues extends LuceneTestCase {
   }
 
   // TODO (Toke): Remove this when LUCENE-8374 is ready for release
-  // TODO (Toke): Add test for sequential access to measure overhead of caching
   // Note: vBPV only helps for segments with > 16384 values for the DV-field
   @Slow
   public void testNumericRetrievalSpeed() throws IOException {
