@@ -51,10 +51,7 @@ final class IndexedDISI extends DocIdSetIterator {
 
   static final int MAX_ARRAY_LENGTH = (1 << 12) - 1;
   static final String NO_NAME = "n/a";
-  public static boolean CACHING_ENABLED = true; // TODO (Toke): Primarily a default for Proof Of Concept
 
-  // If true, IndexedDISI from Lucene70NormsProducer are also cached. If CACHING_ENABLED is false, this has no effect
-  public static boolean ALSO_CACHE_NORMS = true; // TODO (Toke): Primarily a default for Proof Of Concept
   public final String name;
 
   private static void flush(int block, FixedBitSet buffer, int cardinality, IndexOutput out) throws IOException {
@@ -202,16 +199,20 @@ final class IndexedDISI extends DocIdSetIterator {
   }
 
   private void advanceBlock(int targetBlock) throws IOException {
-    // TODO: If the wanted block is the next one, it is slightly faster to use the old skip code (the fallback below)
-    long offset = cache.getFilePointerForBlock(targetBlock>>IndexedDISICache.BLOCK_BITS);
-    int origo = cache.getIndexForBlock(targetBlock>>IndexedDISICache.BLOCK_BITS);
-    if (origo != -1 && offset != -1 && offset > slice.getFilePointer()) {
-   //   System.out.println("Seeking to " + offset + " for targetBlock " + (targetBlock>>IndexedDISICache.BLOCK_BITS) + " with origo " + origo);
-      this.nextBlockIndex = origo-1; // -1 to compensate for the always-added 1 in readBlockHeader
-      slice.seek(offset);
-      readBlockHeader();
-      return;
+    if (targetBlock >= block+2) { // 1 block skip is (slightly) faster to do without block jump table
+      long offset = cache.getFilePointerForBlock(targetBlock >> IndexedDISICache.BLOCK_BITS);
+      if (offset != -1 && offset > slice.getFilePointer()) {
+        int origo = cache.getIndexForBlock(targetBlock >> IndexedDISICache.BLOCK_BITS);
+        if (origo != -1) {
+          //   System.out.println("Seeking to " + offset + " for targetBlock " + (targetBlock>>IndexedDISICache.BLOCK_BITS) + " with origo " + origo);
+          this.nextBlockIndex = origo - 1; // -1 to compensate for the always-added 1 in readBlockHeader
+          slice.seek(offset);
+          readBlockHeader();
+          return;
+        }
+      }
     }
+    // TODO (Toke): Make sanity check debug for whether the cache is always used when targetBlock >= block+2
 
     // Fallback to non-cached
     do {
@@ -409,7 +410,6 @@ final class IndexedDISI extends DocIdSetIterator {
    * @param target the wanted docID for which to calculate set-flag and index.
    * @throws IOException if a disi seek failed.
    */
-  // FIXME: rankSkip does not take advantage of the current state of the IndexedDISI, so it is slow for sequential use
   private void rankSkip(IndexedDISI disi, int target) throws IOException {
     final int targetInBlock = target & 0xFFFF;
     final int targetWordIndex = targetInBlock >>> 6;

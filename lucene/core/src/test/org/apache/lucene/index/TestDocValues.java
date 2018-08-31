@@ -194,7 +194,6 @@ public class TestDocValues extends LuceneTestCase {
 
     for (int docsPerBPV: DOCS_PER_BPV) {
       IndexedDISICacheFactory.DEBUG = false;
-      int estSize = (24 - 2) / 3 * docsPerBPV;
       String POST_DESIGNATION =
           "bpvmin=" + BPV_MIN + "_bpvstep=" + BPV_STEP + "_bpvmax=" + BPV_MAX + "_docsperbpv=" + docsPerBPV;
       Path pathPlain = Paths.get(System.getProperty("java.io.tmpdir"),"plain_" + POST_DESIGNATION);
@@ -222,7 +221,7 @@ public class TestDocValues extends LuceneTestCase {
 
       System.out.println("Running performance tests (note: Indexes < 16K docs are unlikely to have usable LUCENE-8374 caches)");
 
-      for (boolean sequential : new boolean[]{true, false}) { // TODO (Toke): Add false
+      for (boolean sequential : new boolean[]{false, true}) {
         System.out.println("************** " + (sequential ? "Sequential" : "Random") + " access");
         for (int run = 0; run < MAJOR_RUNS; run++) {
           System.out.println(DV_PERFORMANCE_HEADER);
