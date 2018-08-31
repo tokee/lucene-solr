@@ -64,7 +64,8 @@ public class IndexedDISICacheFactory implements Accountable {
   }
 
   public IndexedDISI createCachedIndexedDISI(IndexInput data, int cost, String name) throws IOException {
-    return createCachedIndexedDISI(data, data.getFilePointer(), data.length(), cost, name);
+    IndexedDISICache cache = getCache(data, cost, name);
+    return new IndexedDISI(data, cost, cache, name);
   }
 
   /**
