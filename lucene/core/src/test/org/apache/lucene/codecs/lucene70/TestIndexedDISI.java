@@ -236,6 +236,7 @@ public class TestIndexedDISI extends LuceneTestCase {
   // This microbenchmark is just for sanity checking and not intended to provide realistic measurements
   private void measureCacheSpeed(String designation, FixedBitSet set, int step) throws IOException {
     final double MSD = 1000000.0;
+    final IndexedDISICacheFactory factory = new IndexedDISICacheFactory();
     final int cardinality = set.cardinality();
     long length;
     try (Directory dir = newDirectory()) {
@@ -248,17 +249,17 @@ public class TestIndexedDISI extends LuceneTestCase {
            IndexInput inCached1 = dir.openInput("foo", IOContext.DEFAULT);
            IndexInput inVanilla2 = dir.openInput("foo", IOContext.DEFAULT);
            IndexInput inCached2 = dir.openInput("foo", IOContext.DEFAULT)) {
-        IndexedDISI vanilla1 = new IndexedDISI(inVanilla1, 0L, length, cardinality, false);
-        IndexedDISI cached1 = new IndexedDISI(inCached1, 0L, length, cardinality, true);
-        IndexedDISI vanilla2 = new IndexedDISI(inVanilla2, 0L, length, cardinality, false);
-        IndexedDISI cached2 = new IndexedDISI(inCached2, 0L, length, cardinality, true);
+        IndexedDISI vanilla1 = new IndexedDISI(inVanilla1, 0L, length, cardinality);
+        IndexedDISI cached1 = factory.createCachedIndexedDISI(inCached1, 0L, length, cardinality, "cached1");
+        IndexedDISI vanilla2 = new IndexedDISI(inVanilla2, 0L, length, cardinality);
+        IndexedDISI cached2 = factory.createCachedIndexedDISI(inCached2, 0L, length, cardinality, "cached2");
 
         final long c1NS = stepTime(cached1, step);
         final long v1NS = stepTime(vanilla1, step);
         final long c2NS = stepTime(cached2, step);
         final long v2NS = stepTime(vanilla2, step);
         System.out.println(String.format(Locale.ENGLISH,
-            "%-20s: length=%10d, step=%10d, v1=[%6.2f, %6.2f]ms, c1=[%6.2f, %6.2f]ms, c2/v2=%4d%%",
+            "%-20s: length=%10d, step=%10d, v=[%6.2f, %6.2f]ms, c=[%6.2f, %6.2f]ms, c2/v2=%4d%%",
             designation, set.length(), step, v1NS/MSD, v2NS/MSD, c1NS/MSD, c2NS/MSD, c2NS*100/v2NS));
       }
     }
@@ -279,6 +280,7 @@ public class TestIndexedDISI extends LuceneTestCase {
 
   // TODO (Toke): Remove when stable
   public void testExplorativeTestCachedDense() throws IOException {
+    final IndexedDISICacheFactory factory = new IndexedDISICacheFactory();
     try (Directory dir = newDirectory()) {
       int maxDoc = 100*65536; // 10 blocks
       FixedBitSet set = new FixedBitSet(maxDoc);
@@ -316,7 +318,7 @@ public class TestIndexedDISI extends LuceneTestCase {
       for (int step: new int[] {1, 10, 100, 1000, 10000, 100000}) {
         try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
 //        IndexedDISICache cache = new IndexedDISICache(in.slice("docs", 0L, length), true, true);
-          IndexedDISI disi = new IndexedDISI(in, 0L, length, cardinality, true);
+          IndexedDISI disi = factory.createCachedIndexedDISI(in, 0L, length, cardinality, "foo");
           BitSetIterator disi2 = new BitSetIterator(set, cardinality);
           assertAdvanceEquality(disi, disi2, step);
 //        assertAdvanceExactRandomized(disi, disi2, set.cardinality(), step);

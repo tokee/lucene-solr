@@ -176,6 +176,7 @@ final class IndexedDISI extends DocIdSetIterator {
   @Override
   public int advance(int target) throws IOException {
     final int targetBlock = target & 0xFFFF0000;
+    // Note: The cache makes it easy to add support for random access. This has not been done as the API forbids it
     if (block < targetBlock) {
       advanceBlock(targetBlock);
     }
@@ -201,6 +202,7 @@ final class IndexedDISI extends DocIdSetIterator {
   }
 
   private void advanceBlock(int targetBlock) throws IOException {
+    // TODO: If the wanted block is the next one, it is slightly faster to use the old skip code (the fallback below)
     long offset = cache.getFilePointerForBlock(targetBlock>>IndexedDISICache.BLOCK_BITS);
     int origo = cache.getIndexForBlock(targetBlock>>IndexedDISICache.BLOCK_BITS);
     if (origo != -1 && offset != -1 && offset > slice.getFilePointer()) {
@@ -407,6 +409,7 @@ final class IndexedDISI extends DocIdSetIterator {
    * @param target the wanted docID for which to calculate set-flag and index.
    * @throws IOException if a disi seek failed.
    */
+  // FIXME: rankSkip does not take advantage of the current state of the IndexedDISI, so it is slow for sequential use
   private void rankSkip(IndexedDISI disi, int target) throws IOException {
     final int targetInBlock = target & 0xFFFF;
     final int targetWordIndex = targetInBlock >>> 6;

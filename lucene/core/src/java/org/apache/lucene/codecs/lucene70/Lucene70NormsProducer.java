@@ -252,8 +252,8 @@ final class Lucene70NormsProducer extends NormsProducer {
       // sparse
       // TODO (Toke): Review if it makes sense to use caching here - aren't there already skip structures in place?
       final IndexInput disiInput = data.slice("docs", entry.docsWithFieldOffset, entry.docsWithFieldLength);
-//      final IndexedDISI disi = new IndexedDISI(data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.numDocsWithField, field.name);
-      final IndexedDISI disi = disiCacheFactory.createCachedIndexedDISI(disiInput, entry.numDocsWithField, field.name);
+      final IndexedDISI disi = disiCacheFactory.createCachedIndexedDISI(
+          disiInput, entry.docsWithFieldOffset + entry.docsWithFieldLength, entry.numDocsWithField, field.name);
       if (entry.bytesPerNorm == 0) {
         return new SparseNormsIterator(disi) {
           @Override
