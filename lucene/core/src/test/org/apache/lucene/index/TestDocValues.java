@@ -173,6 +173,51 @@ public class TestDocValues extends LuceneTestCase {
     dir.close();
   }
 
+  // LUCENE-8374 had a bug where a vBPV-block with BPV==0 as the very end of the numeric DocValues mad it fail
+  public void testNumericEntryZeroes() throws IOException {
+    // Create corpus
+    Path zeroPath = Paths.get(System.getProperty("java.io.tmpdir"),"plain_" + random().nextInt());
+    Directory zeroDir = new MMapDirectory(zeroPath);
+    IndexWriterConfig iwc = new IndexWriterConfig(new StandardAnalyzer());
+    iwc.setCodec(Codec.forName("Lucene70"));
+    IndexWriter iw = new IndexWriter(zeroDir, iwc);
+
+    for (int id = 0 ; id < 2*16384 ; id++) { // 2 vBPV-blocks for the dv-field
+      Document doc = new Document();
+      doc.add(new StringField("id", Integer.toString(id), Field.Store.YES));
+
+      if (id < 16384) { // First vBPV-block just has semi-ramdom values
+        doc.add(new NumericDocValuesField("dv", id % 1000));
+      } else {          // Second block is all zeroes, resulting in an extreme "1-byte for the while block"-representation
+        doc.add(new NumericDocValuesField("dv", 0));
+      }
+      iw.addDocument(doc);
+    }
+    iw.flush();
+    iw.commit();
+    iw.forceMerge(1, true);
+    iw.close();
+
+    // Iterate corpus
+
+    // Ensure that LUCENE-8374 is enabled for vBPV
+    IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED = true;
+    DirectoryReader dr = DirectoryReader.open(zeroDir);
+    long sum = -1;
+    for (int id: new int[]{0, 1000, 16383, 16384, 16385, 2*16384-1}) {
+      int readerIndex = dr.readerIndex(id);
+      NumericDocValues numDV = dr.leaves().get(readerIndex).reader().getNumericDocValues("dv");
+      assertTrue("There should be a value for doc " + id, numDV.advanceExact(id));
+      sum += numDV.longValue() + 1;
+    }
+    assertNotSame("Sanity check: Sum should be > -1", -1, sum);
+
+    // Clean up
+
+    deleteAndClose(zeroDir);
+    Files.delete(zeroPath);
+  }
+
   // TODO (Toke): Remove this when LUCENE-8374 is ready for release
   // Note: vBPV only helps for segments with > 16384 values for the DV-field
   @Slow
