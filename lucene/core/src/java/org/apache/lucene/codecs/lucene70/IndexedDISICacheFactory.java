@@ -18,11 +18,11 @@ package org.apache.lucene.codecs.lucene70;
 
 
 import java.io.IOException;
-import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
-import java.util.function.Supplier;
+import java.util.Set;
 
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.RandomAccessInput;
@@ -61,47 +61,40 @@ public class IndexedDISICacheFactory implements Accountable {
    * @return human readable description of what is enabled, with error message if the enable-string could not be parsed.
    */
   public static String setEnabled(String switches) {
-    String[] tokens = switches.split(", *");
-    StringBuilder error = new StringBuilder();
-    NORMS_CACHING_ENABLED = false;
-    BLOCK_CACHING_ENABLED = false;
-    DENSE_CACHING_ENABLED = false;
-    VARYINGBPV_CACHING_ENABLED = false;
-    DEBUG = false;
-
-    for (String token: tokens) {
-      String keyValue[] = token.split("=");
-      String key = keyValue[0].toLowerCase(Locale.ENGLISH);
-      Boolean enabled = keyValue.length == 1 || Boolean.parseBoolean(keyValue[1]);
-      switch (key) {
-        case "norm":
-        case "norms": {
-          NORMS_CACHING_ENABLED = enabled;
-          break;
-        }
-        case "block": {
-          BLOCK_CACHING_ENABLED = enabled;
-          break;
-        }
-        case "dense": {
-          DENSE_CACHING_ENABLED = enabled;
-          break;
-        }
-        case "vbpv": {
-          VARYINGBPV_CACHING_ENABLED = enabled;
-          break;
-        }
-        case "debug": {
-          DEBUG = enabled;
-          break;
-        }
-        case "off":;
-        case "none":;
-        case "": break;
-        default: error.append(" Error(unknown lucene8374 toggle: '").append(token).append("')");
+    // Shortcuts
+    switch (switches) {
+      case "all":
+      case "true":
+      case "on": {
+        switches = "norm,block,dense,vbpv,debug";
+        break;
+      }
+      case "none":
+      case "false":
+      case "off": {
+        switches = "";
+        break;
       }
     }
-    return getEnabled() + error;
+
+    // Collect enabled
+    Set<String> enabled = new HashSet<>(10);
+    String[] tokens = switches.split(", *");
+    for (String token: tokens) {
+      String keyValue[] = token.split("=");
+      if (keyValue.length == 1 || Boolean.parseBoolean(keyValue[1])) {
+        enabled.add(keyValue[0].toLowerCase(Locale.ENGLISH));
+      }
+    }
+
+    // Toggle if needed
+    NORMS_CACHING_ENABLED = enabled.contains("norm") || enabled.contains("norms");
+    BLOCK_CACHING_ENABLED = enabled.contains("block");
+    DENSE_CACHING_ENABLED = enabled.contains("dense");
+    VARYINGBPV_CACHING_ENABLED = enabled.contains("vbpv");
+    DEBUG = enabled.contains("debug");;
+
+    return getEnabled();
   }
   public static String getEnabled() {
     return String.format("lucene8374(norms=%b, block=%b, dense=%b, vBPV=%b, debug=%b)",
