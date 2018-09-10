@@ -16,6 +16,7 @@
  */
 package org.apache.solr.request;
 
+import org.apache.lucene.codecs.lucene70.IndexedDISICacheFactory;
 import org.apache.solr.api.ApiBag;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.util.ValidatingJsonMap;
@@ -70,6 +71,11 @@ public abstract class SolrQueryRequestBase implements SolrQueryRequest, Closeabl
     this.params = this.origParams = params;
     this.requestTimer = requestTimer;
     this.startTime = System.currentTimeMillis();
+    // TODO (Toke): Remove all tracks of this cache switch hack before releasing LUCENE-7384
+    if (params.get("lucene8374", null) != null) {
+      System.out.println("Set static cache switches to " +
+          org.apache.lucene.codecs.lucene70.IndexedDISICacheFactory.setEnabled(params.get("lucene8374")));
+    }
   }
 
   public SolrQueryRequestBase(SolrCore core, SolrParams params) {

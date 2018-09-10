@@ -239,7 +239,7 @@ public class TestDocValues extends LuceneTestCase {
     //final int[] DOCS_PER_BPV = new int[]{100, 10_000, 500_000, 2_000_000};
     final int[] DOCS_PER_BPV = new int[]{5_000_000};
     //final int[] QUERIES = new int[]{10, 100, 1_000, 10_000, 100_000};
-    final int[] QUERIES = new int[]{1_000_000};
+    final int[] QUERIES = new int[]{100_000};
     final boolean LEAVE_TEST_INDEXES = true; // Indexes are stored in TMP. Remember to delete manually if set to true
 
     boolean oldDebug = IndexedDISICacheFactory.DEBUG;
@@ -348,6 +348,8 @@ public class TestDocValues extends LuceneTestCase {
     int lastDocID = 0;
     int lastReaderIndex = -1;
     NumericDocValues numDV = null;
+    // TODO: Add realistic simulation of top-X retrieval
+    // For real-world, top-10 or top-20 is likely to be used and those will be resolved in sorted order
     for (int run = 0 ; run < runs ; run++) {
       long runTime = -System.nanoTime();
       for (int q = 0 ; q < requests ; q++) {

@@ -20,6 +20,7 @@ package org.apache.lucene.codecs.lucene70;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -41,6 +42,9 @@ public class IndexedDISICacheFactory implements Accountable {
   public static int MIN_LENGTH_FOR_CACHING = 50; // Set this very low: Could be 9 EMPTY followed by a SPARSE
 
   // TODO (Toke): Remove this when code has stabilized
+  // The on/off switches are static as per-call switching would change a lot of logic in Lucene.
+  // They are intended for experimentation and expected to be removed after LUCENE-8374 stabilization.
+  public static boolean NORMS_CACHING_ENABLED = true;
   public static boolean BLOCK_CACHING_ENABLED = true;
   public static boolean DENSE_CACHING_ENABLED = true;
   public static boolean VARYINGBPV_CACHING_ENABLED = true;
@@ -49,11 +53,69 @@ public class IndexedDISICacheFactory implements Accountable {
   private final Map<Long, IndexedDISICache> disiPool = new HashMap<>();
   private final Map<String, VaryingBPVJumpTable> vBPVPool = new HashMap<>();
 
+  /**
+   * Debug-oriented setter for toggling lucene8374 caching.
+   * @param switches comma-separated list of caches to enable: norms, block, dense, vbpv, debug.
+   *                 Caches not mentioned in the list are disabled. Also supported are explicit flags, e.g.
+   *                 "norms=false,block=true"
+   * @return human readable description of what is enabled, with error message if the enable-string could not be parsed.
+   */
+  public static String setEnabled(String switches) {
+    String[] tokens = switches.split(", *");
+    StringBuilder error = new StringBuilder();
+    NORMS_CACHING_ENABLED = false;
+    BLOCK_CACHING_ENABLED = false;
+    DENSE_CACHING_ENABLED = false;
+    VARYINGBPV_CACHING_ENABLED = false;
+    DEBUG = false;
+
+    for (String token: tokens) {
+      String keyValue[] = token.split("=");
+      String key = keyValue[0].toLowerCase(Locale.ENGLISH);
+      Boolean enabled = keyValue.length == 1 || Boolean.parseBoolean(keyValue[1]);
+      switch (key) {
+        case "norm":
+        case "norms": {
+          NORMS_CACHING_ENABLED = enabled;
+          break;
+        }
+        case "block": {
+          BLOCK_CACHING_ENABLED = enabled;
+          break;
+        }
+        case "dense": {
+          DENSE_CACHING_ENABLED = enabled;
+          break;
+        }
+        case "vbpv": {
+          VARYINGBPV_CACHING_ENABLED = enabled;
+          break;
+        }
+        case "debug": {
+          DEBUG = enabled;
+          break;
+        }
+        case "off":;
+        case "none":;
+        case "": break;
+        default: error.append(" Error(unknown lucene8374 toggle: '").append(token).append("')");
+      }
+    }
+    return getEnabled() + error;
+  }
+  public static String getEnabled() {
+    return String.format("lucene8374(norms=%b, block=%b, dense=%b, vBPV=%b, debug=%b)",
+        NORMS_CACHING_ENABLED, BLOCK_CACHING_ENABLED, DENSE_CACHING_ENABLED, VARYINGBPV_CACHING_ENABLED, DEBUG);
+  }
+
   static {
     if (DEBUG) {
       System.out.println(IndexedDISICacheFactory.class.getSimpleName() +
-          ": LUCENE-8374 beta patch enabled with block_caching=" + BLOCK_CACHING_ENABLED +
-          ", dense_caching=" + DENSE_CACHING_ENABLED + ", cBPV_caching=" + VARYINGBPV_CACHING_ENABLED);
+          ": LUCENE-8374 beta patch enabled with default caching " +
+          "norms=" + NORMS_CACHING_ENABLED +
+          ", block=" + BLOCK_CACHING_ENABLED +
+          ", dense=" + DENSE_CACHING_ENABLED +
+          ", vBPV=" + VARYINGBPV_CACHING_ENABLED);
     }
   }
 
@@ -109,8 +171,9 @@ public class IndexedDISICacheFactory implements Accountable {
     IndexedDISICache cache = disiPool.get(key);
     if (cache == null) {
       // TODO: Avoid overlapping builds of the same cache
-      cache = new IndexedDISICache(data.slice("docs", offset, length),
-          BLOCK_CACHING_ENABLED, DENSE_CACHING_ENABLED, name);
+      // Both BLOCK & DENSE caches are created as they might be requested later for the field,
+      // regardless of whether they are requested now
+      cache = new IndexedDISICache(data.slice("docs", offset, length), true, true, name);
       disiPool.put(key, cache);
       debug("Created IndexedDISI cache for " + data.toString() + ": " + cache.creationStats + " (" + cache.ramBytesUsed() + " bytes)");
     }
@@ -129,14 +192,16 @@ public class IndexedDISICacheFactory implements Accountable {
    */
   public IndexedDISICache getCache(IndexInput slice, long key, String name) throws IOException {
     final long length = slice.length();
-    if (length < MIN_LENGTH_FOR_CACHING) {
+    if (!(BLOCK_CACHING_ENABLED || DENSE_CACHING_ENABLED) || length < MIN_LENGTH_FOR_CACHING) {
       return null;
     }
 
     IndexedDISICache cache = disiPool.get(key);
     if (cache == null) {
       // TODO: Avoid overlapping builds of the same cache
-      cache = new IndexedDISICache(slice, BLOCK_CACHING_ENABLED, DENSE_CACHING_ENABLED, name);
+      // Both BLOCK & DENSE caches are created as they might be requested later for the field,
+      // regardless of whether they are requested now
+      cache = new IndexedDISICache(slice, true, true, name);
       disiPool.put(key, cache);
       debug("Created cache for " + slice.toString() + ": " + cache.creationStats + " (" + cache.ramBytesUsed() + " bytes)");
     }
@@ -194,6 +259,8 @@ public class IndexedDISICacheFactory implements Accountable {
    * current to wanted index. The jump table holds offsets for all blocks.
    */
   public static class VaryingBPVJumpTable implements Accountable {
+    // Consider: Is there room for also storing the BPV? That would save the seek to the start of the block
+
     // TODO: It is way overkill to use longs here for practically all indexes. Maybe a PackedInts representation?
     long[] offsets = new long[10];
     final String creationStats;
@@ -206,7 +273,6 @@ public class IndexedDISICacheFactory implements Accountable {
       long blockEndOffset = 0;
 
       int bitsPerValue;
-      // TODO (Toke): Introduce jump table
       do {
         offset = blockEndOffset;
 
@@ -230,9 +296,13 @@ public class IndexedDISICacheFactory implements Accountable {
           name, offsets.length, (System.nanoTime()-startTime)/1000000);
     }
 
+    /**
+     * @param block the logical block in the vBPV structure ( valueindex/16384 ).
+     * @return the index slice offset for the vBPV block (1 block = 16384 values) or -1 if not available.
+     */
     public long getBlockOffset(long block) {
       // Technically a limitation in caching vs. VaryingBPVReader to limit to 2b blocks
-      return offsets[(int) block];
+      return IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED ? offsets[(int) block] : -1;
     }
 
     @Override
