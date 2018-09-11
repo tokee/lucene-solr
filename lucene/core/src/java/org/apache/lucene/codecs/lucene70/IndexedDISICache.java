@@ -112,7 +112,7 @@ public class IndexedDISICache implements Accountable {
     this.rank = null;
     this.name = "";
   }
-  // TODO: EMPTY works poorly with name, but creating multiple empty's with different names seems wasteful
+  // TODO: EMPTY works poorly with name, but creating multiple EMPTYs with different names seems wasteful
   public static final IndexedDISICache EMPTY = new IndexedDISICache();
 
   /**
@@ -122,7 +122,9 @@ public class IndexedDISICache implements Accountable {
    * @return the offset for the block for target or -1 if it cannot be resolved.
    */
   public long getFilePointerForBlock(int targetBlock) {
-    long offset = blockCache == null || blockCache.length <= targetBlock ? -1 : blockCache[targetBlock] & BLOCK_LOOKUP_MASK;
+    long offset = !IndexedDISICacheFactory.BLOCK_CACHING_ENABLED ||
+        blockCache == null || blockCache.length <= targetBlock ?
+        -1 : blockCache[targetBlock] & BLOCK_LOOKUP_MASK;
     return offset == BLOCK_EMPTY_LOOKUP ? -1 : offset;
   }
 
@@ -132,10 +134,11 @@ public class IndexedDISICache implements Accountable {
    * @return the index for the block or -1 if it cannot be resolved.
    */
   public int getIndexForBlock(int targetBlock) {
-    if (blockCache == null || blockCache.length <= targetBlock) {
+    if (!IndexedDISICacheFactory.BLOCK_CACHING_ENABLED || blockCache == null || blockCache.length <= targetBlock) {
       return -1;
     }
-    return (blockCache[targetBlock] & BLOCK_INDEX_MASK) == BLOCK_EMPTY_INDEX ? -1 : (int)(blockCache[targetBlock] >>> BLOCK_INDEX_SHIFT);
+    return (blockCache[targetBlock] & BLOCK_INDEX_MASK) == BLOCK_EMPTY_INDEX ?
+        -1 : (int)(blockCache[targetBlock] >>> BLOCK_INDEX_SHIFT);
   }
 
   /**
@@ -169,9 +172,12 @@ public class IndexedDISICache implements Accountable {
    */
   // TODO: This method requires way too much knowledge of the intrinsics of the cache. Usage should be simplified
   public int getRankInBlock(int rankPosition) {
+    if (!IndexedDISICacheFactory.DENSE_CACHING_ENABLED || rank == null) {
+      return -1;
+    }
     assert rankPosition == denseRankPosition(rankPosition);
     int rankIndex = rankPosition >> RANK_BLOCK_BITS;
-    return rank == null || rankIndex >= rank.size() ? -1 : (int) rank.get(rankIndex);
+    return rankIndex >= rank.size() ? -1 : (int) rank.get(rankIndex);
   }
 
   private void updateCaches(IndexInput slice, boolean fillBlockCache, boolean fillRankCache)

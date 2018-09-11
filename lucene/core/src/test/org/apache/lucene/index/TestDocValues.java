@@ -173,8 +173,20 @@ public class TestDocValues extends LuceneTestCase {
     dir.close();
   }
 
-  // LUCENE-8374 had a bug where a vBPV-block with BPV==0 as the very end of the numeric DocValues mad it fail
-  public void testNumericEntryZeroes() throws IOException {
+  // LUCENE-8374 had a bug where a vBPV-block with BPV==0 as the very end of the numeric DocValues made it fail
+  public void testNumericEntryZeroesLastBlock() throws IOException {
+    List<Long> docValues = new ArrayList<>(2*16384);
+    for (int id = 0 ; id < 2*16384 ; id++) { // 2 vBPV-blocks for the dv-field
+      if (id < 16384) { // First vBPV-block just has semi-ramdom values
+        docValues.add((long) (id % 1000));
+      } else {          // Second block is all zeroes, resulting in an extreme "1-byte for the while block"-representation
+        docValues.add(0L);
+      }
+    }
+    assertRandomAccessDV("Last block BPV=0", docValues);
+  }
+
+  private void assertRandomAccessDV(String designation, List<Long> docValues) throws IOException {
     // Create corpus
     Path zeroPath = Paths.get(System.getProperty("java.io.tmpdir"),"plain_" + random().nextInt());
     Directory zeroDir = new MMapDirectory(zeroPath);
@@ -182,15 +194,10 @@ public class TestDocValues extends LuceneTestCase {
     iwc.setCodec(Codec.forName("Lucene70"));
     IndexWriter iw = new IndexWriter(zeroDir, iwc);
 
-    for (int id = 0 ; id < 2*16384 ; id++) { // 2 vBPV-blocks for the dv-field
+    for (int id = 0 ; id < docValues.size() ; id++) {
       Document doc = new Document();
       doc.add(new StringField("id", Integer.toString(id), Field.Store.YES));
-
-      if (id < 16384) { // First vBPV-block just has semi-ramdom values
-        doc.add(new NumericDocValuesField("dv", id % 1000));
-      } else {          // Second block is all zeroes, resulting in an extreme "1-byte for the while block"-representation
-        doc.add(new NumericDocValuesField("dv", 0));
-      }
+      doc.add(new NumericDocValuesField("dv", docValues.get(id)));
       iw.addDocument(doc);
     }
     iw.flush();
@@ -198,22 +205,21 @@ public class TestDocValues extends LuceneTestCase {
     iw.forceMerge(1, true);
     iw.close();
 
-    // Iterate corpus
-
+    // Check
     // Ensure that LUCENE-8374 is enabled for vBPV
     IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED = true;
     DirectoryReader dr = DirectoryReader.open(zeroDir);
-    long sum = -1;
-    for (int id: new int[]{0, 1000, 16383, 16384, 16385, 2*16384-1}) {
+
+    for (int id = 0 ; id < docValues.size() ; id++) {
       int readerIndex = dr.readerIndex(id);
+      // We create a new reader each time as we want to test vBPV-skipping and not sequential iteration
       NumericDocValues numDV = dr.leaves().get(readerIndex).reader().getNumericDocValues("dv");
-      assertTrue("There should be a value for doc " + id, numDV.advanceExact(id));
-      sum += numDV.longValue() + 1;
+      assertTrue("There should be a value for docID " + id, numDV.advanceExact(id));
+      assertEquals("The value for docID " + id + " should be as expected",
+          docValues.get(id), Long.valueOf(numDV.longValue()));
     }
-    assertNotSame("Sanity check: Sum should be > -1", -1, sum);
 
     // Clean up
-
     deleteAndClose(zeroDir);
     Files.delete(zeroPath);
   }
@@ -238,7 +244,6 @@ public class TestDocValues extends LuceneTestCase {
 
     for (int docsPerBPV: DOCS_PER_BPV) {
       IndexedDISICacheFactory.DEBUG = false;
-      int estSize = (24 - 2) / 3 * docsPerBPV;
       String POST_DESIGNATION =
           "bpvmin=" + BPV_MIN + "_bpvstep=" + BPV_STEP + "_bpvmax=" + BPV_MAX + "_docsperbpv=" + docsPerBPV;
       Path pathPlain = Paths.get(System.getProperty("java.io.tmpdir"),"plain_" + POST_DESIGNATION);
@@ -341,6 +346,8 @@ public class TestDocValues extends LuceneTestCase {
     int lastDocID = 0;
     int lastReaderIndex = -1;
     NumericDocValues numDV = null;
+    // TODO: Add realistic simulation of top-X retrieval
+    // For real-world, top-10 or top-20 is likely to be used and those will be resolved in sorted order
     for (int run = 0 ; run < runs ; run++) {
       long runTime = -System.nanoTime();
       for (int q = 0 ; q < requests ; q++) {

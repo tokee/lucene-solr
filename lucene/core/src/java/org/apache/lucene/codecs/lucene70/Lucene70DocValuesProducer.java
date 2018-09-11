@@ -1405,11 +1405,13 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
         do {
           // If the needed block is the one directly following the current block, it is cheaper to avoid the cache
           if (block != this.block+1) {
-            IndexedDISICacheFactory.VaryingBPVJumpTable cache =
-                disiCacheFactory.getVBPVJumpTable(entry.name, slice, entry.valuesLength);
-            if (cache != null) {
-              blockEndOffset = cache.getBlockOffset(block);
+            IndexedDISICacheFactory.VaryingBPVJumpTable cache;
+            if ((cache = disiCacheFactory.getVBPVJumpTable(entry.name, slice, entry.valuesLength)) != null) {
+              long candidateOffset;
+              if ((candidateOffset = cache.getBlockOffset(block)) != -1) {
+                blockEndOffset = candidateOffset;
               this.block = block - 1;
+              }
             }
           }
           offset = blockEndOffset;

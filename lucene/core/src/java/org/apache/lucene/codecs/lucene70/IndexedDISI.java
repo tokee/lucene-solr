@@ -129,8 +129,8 @@ final class IndexedDISI extends DocIdSetIterator {
   // see eg. Lucene70 norms producer's merge instance
   IndexedDISI(IndexInput slice, long cost, String name) throws IOException {
     this(slice, cost, null, name);
-    IndexedDISICacheFactory.debug(
-        "Non-cached direct slice IndexedDISI with length " + slice.length() + ": " + slice.toString());
+//    IndexedDISICacheFactory.debug(
+//        "Non-cached direct slice IndexedDISI with length " + slice.length() + ": " + slice.toString());
   }
 
   IndexedDISI(IndexInput slice, long cost, IndexedDISICache cache) throws IOException {
@@ -202,16 +202,20 @@ final class IndexedDISI extends DocIdSetIterator {
   }
 
   private void advanceBlock(int targetBlock) throws IOException {
-    // TODO: If the wanted block is the next one, it is slightly faster to use the old skip code (the fallback below)
-    long offset = cache.getFilePointerForBlock(targetBlock>>IndexedDISICache.BLOCK_BITS);
-    int origo = cache.getIndexForBlock(targetBlock>>IndexedDISICache.BLOCK_BITS);
-    if (origo != -1 && offset != -1 && offset > slice.getFilePointer()) {
+    if (targetBlock >= block+2) { // 1 block skip is (slightly) faster to do without block jump table
+      long offset = cache.getFilePointerForBlock(targetBlock>>IndexedDISICache.BLOCK_BITS);
+      if (offset != -1 && offset > slice.getFilePointer()) {
+        int origo = cache.getIndexForBlock(targetBlock>>IndexedDISICache.BLOCK_BITS);
+        if (origo != -1) {
    //   System.out.println("Seeking to " + offset + " for targetBlock " + (targetBlock>>IndexedDISICache.BLOCK_BITS) + " with origo " + origo);
-      this.nextBlockIndex = origo-1; // -1 to compensate for the always-added 1 in readBlockHeader
-      slice.seek(offset);
-      readBlockHeader();
-      return;
+          this.nextBlockIndex = origo-1; // -1 to compensate for the always-added 1 in readBlockHeader
+          slice.seek(offset);
+          readBlockHeader();
+          return;
+        }
+      }
     }
+    // TODO (Toke): Make sanity check debug for whether the cache is always used when targetBlock >= block+2
 
     // Fallback to non-cached
     do {

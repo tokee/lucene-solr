@@ -233,6 +233,14 @@ public class TestIndexedDISI extends LuceneTestCase {
   }
 
   // TODO (Toke): Remove when stable
+  public void testLucene8374Toggle() {
+    assertEquals("lucene8374(norms=true, block=false, dense=true, vBPV=false, debug=true)",
+        IndexedDISICacheFactory.setEnabled("norms,dense,debug"));
+    assertEquals("lucene8374(norms=false, block=false, dense=true, vBPV=false, debug=true)",
+        IndexedDISICacheFactory.setEnabled("norms=false,dense,debug"));
+  }
+
+  // TODO (Toke): Remove when stable
   // This microbenchmark is just for sanity checking and not intended to provide realistic measurements
   private void measureCacheSpeed(String designation, FixedBitSet set, int step) throws IOException {
     final double MSD = 1000000.0;
