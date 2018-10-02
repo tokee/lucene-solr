@@ -268,7 +268,6 @@ public class IndexedDISICacheFactory implements Accountable {
       long blockEndOffset = 0;
 
       int bitsPerValue;
-      // TODO (Toke): Introduce jump table
       do {
         offset = blockEndOffset;
 

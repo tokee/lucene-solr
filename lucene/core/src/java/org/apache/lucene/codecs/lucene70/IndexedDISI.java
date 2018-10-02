@@ -51,10 +51,7 @@ final class IndexedDISI extends DocIdSetIterator {
 
   static final int MAX_ARRAY_LENGTH = (1 << 12) - 1;
   static final String NO_NAME = "n/a";
-  public static boolean CACHING_ENABLED = true; // TODO (Toke): Primarily a default for Proof Of Concept
 
-  // If true, IndexedDISI from Lucene70NormsProducer are also cached. If CACHING_ENABLED is false, this has no effect
-  public static boolean ALSO_CACHE_NORMS = true; // TODO (Toke): Primarily a default for Proof Of Concept
   public final String name;
 
   private static void flush(int block, FixedBitSet buffer, int cardinality, IndexOutput out) throws IOException {
@@ -413,7 +410,6 @@ final class IndexedDISI extends DocIdSetIterator {
    * @param target the wanted docID for which to calculate set-flag and index.
    * @throws IOException if a disi seek failed.
    */
-  // FIXME: rankSkip does not take advantage of the current state of the IndexedDISI, so it is slow for sequential use
   private void rankSkip(IndexedDISI disi, int target) throws IOException {
     final int targetInBlock = target & 0xFFFF;
     final int targetWordIndex = targetInBlock >>> 6;
