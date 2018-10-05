@@ -43,8 +43,13 @@ import org.apache.lucene.util.IOUtils;
 final class Lucene70NormsProducer extends NormsProducer {
   // metadata maps (just file pointers and minimal stuff)
   private final Map<Integer,NormsEntry> norms = new HashMap<>();
-  private final IndexInput data;
   private final int maxDoc;
+  private IndexInput data;
+  private final IndexedDISICacheFactory disiCacheFactory = new IndexedDISICacheFactory();
+  private boolean merging;
+  private Map<Integer, IndexInput> disiInputs;
+  private Map<Integer, RandomAccessInput> dataInputs;
+
 
   Lucene70NormsProducer(SegmentReadState state, String dataCodec, String dataExtension, String metaCodec, String metaExtension) throws IOException {
     maxDoc = state.segmentInfo.maxDoc();
@@ -245,7 +250,13 @@ final class Lucene70NormsProducer extends NormsProducer {
       }
     } else {
       // sparse
-      final IndexedDISI disi = new IndexedDISI(data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.numDocsWithField);
+      final IndexInput disiInput = data.slice("docs", entry.docsWithFieldOffset, entry.docsWithFieldLength);
+      // TODO (Toke): Review if it makes sense to use caching here - aren't there already skip structures in place?
+      final IndexedDISI disi = IndexedDISICacheFactory.NORMS_CACHING_ENABLED ?
+          disiCacheFactory.createCachedIndexedDISI(
+              disiInput, entry.docsWithFieldOffset + entry.docsWithFieldLength, entry.numDocsWithField, field.name)
+          : new IndexedDISI(disiInput, entry.numDocsWithField);
+
       if (entry.bytesPerNorm == 0) {
         return new SparseNormsIterator(disi) {
           @Override
@@ -294,11 +305,12 @@ final class Lucene70NormsProducer extends NormsProducer {
   @Override
   public void close() throws IOException {
     data.close();
+    disiCacheFactory.releaseAll();
   }
 
   @Override
   public long ramBytesUsed() {
-    return 64L * norms.size(); // good enough
+    return 64L * norms.size() + disiCacheFactory.ramBytesUsed(); // good enough
   }
 
   @Override
