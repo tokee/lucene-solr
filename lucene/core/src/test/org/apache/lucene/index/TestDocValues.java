@@ -43,10 +43,12 @@ import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.LuceneTestCase;
 
-/** Tests helper methods in DocValues */
+/**
+ * Tests helper methods in DocValues
+ */
 public class TestDocValues extends LuceneTestCase {
-  
-  /** 
+
+  /**
    * If the field doesn't exist, we return empty instances:
    * it can easily happen that a segment just doesn't have any docs with the field.
    */
@@ -56,20 +58,20 @@ public class TestDocValues extends LuceneTestCase {
     iw.addDocument(new Document());
     DirectoryReader dr = DirectoryReader.open(iw);
     LeafReader r = getOnlyLeafReader(dr);
-    
+
     // ok
     assertNotNull(DocValues.getBinary(r, "bogus"));
     assertNotNull(DocValues.getNumeric(r, "bogus"));
     assertNotNull(DocValues.getSorted(r, "bogus"));
     assertNotNull(DocValues.getSortedSet(r, "bogus"));
     assertNotNull(DocValues.getSortedNumeric(r, "bogus"));
-    
+
     dr.close();
     iw.close();
     dir.close();
   }
-  
-  /** 
+
+  /**
    * field just doesnt have any docvalues at all: exception
    */
   public void testMisconfiguredField() throws Exception {
@@ -80,7 +82,7 @@ public class TestDocValues extends LuceneTestCase {
     iw.addDocument(doc);
     DirectoryReader dr = DirectoryReader.open(iw);
     LeafReader r = getOnlyLeafReader(dr);
-   
+
     // errors
     expectThrows(IllegalStateException.class, () -> {
       DocValues.getBinary(r, "foo");
@@ -97,13 +99,13 @@ public class TestDocValues extends LuceneTestCase {
     expectThrows(IllegalStateException.class, () -> {
       DocValues.getSortedNumeric(r, "foo");
     });
-    
+
     dr.close();
     iw.close();
     dir.close();
   }
-  
-  /** 
+
+  /**
    * field with numeric docvalues
    */
   public void testNumericField() throws Exception {
@@ -114,11 +116,11 @@ public class TestDocValues extends LuceneTestCase {
     iw.addDocument(doc);
     DirectoryReader dr = DirectoryReader.open(iw);
     LeafReader r = getOnlyLeafReader(dr);
-    
+
     // ok
     assertNotNull(DocValues.getNumeric(r, "foo"));
     assertNotNull(DocValues.getSortedNumeric(r, "foo"));
-    
+
     // errors
     expectThrows(IllegalStateException.class, () -> {
       DocValues.getBinary(r, "foo");
@@ -129,24 +131,24 @@ public class TestDocValues extends LuceneTestCase {
     expectThrows(IllegalStateException.class, () -> {
       DocValues.getSortedSet(r, "foo");
     });
-    
+
     dr.close();
     iw.close();
     dir.close();
   }
-  
-  /** 
+
+  /**
    * Triggers varying bits per value codec representation for numeric.
    */
   public void testNumericFieldVaryingBPV() throws Exception {
     Directory dir = newDirectory();
     IndexWriter iw = new IndexWriter(dir, newIndexWriterConfig(null));
     long generatedSum = 0;
-    for (int bpv = 2 ; bpv < 24 ; bpv+=3) {
-      for (int i = 0 ; i < 66000 ; i++) {
+    for (int bpv = 2; bpv < 24; bpv += 3) {
+      for (int i = 0; i < 66000; i++) {
         Document doc = new Document();
         int max = 1 << (bpv - 1);
-        int value =  random().nextInt(max) | max;
+        int value = random().nextInt(max) | max;
         generatedSum += value;
         //System.out.println("--- " + value);
         doc.add(new NumericDocValuesField("foo", value));
@@ -178,8 +180,8 @@ public class TestDocValues extends LuceneTestCase {
 
   // LUCENE-8374 had a bug where a vBPV-block with BPV==0 as the very end of the numeric DocValues made it fail
   public void testNumericEntryZeroesLastBlock() throws IOException {
-    List<Long> docValues = new ArrayList<>(2*16384);
-    for (int id = 0 ; id < 2*16384 ; id++) { // 2 vBPV-blocks for the dv-field
+    List<Long> docValues = new ArrayList<>(2 * 16384);
+    for (int id = 0; id < 2 * 16384; id++) { // 2 vBPV-blocks for the dv-field
       if (id < 16384) { // First vBPV-block just has semi-ramdom values
         docValues.add((long) (id % 1000));
       } else {          // Second block is all zeroes, resulting in an extreme "1-byte for the while block"-representation
@@ -191,13 +193,13 @@ public class TestDocValues extends LuceneTestCase {
 
   private void assertRandomAccessDV(String designation, List<Long> docValues) throws IOException {
     // Create corpus
-    Path zeroPath = Paths.get(System.getProperty("java.io.tmpdir"),"plain_" + random().nextInt());
+    Path zeroPath = Paths.get(System.getProperty("java.io.tmpdir"), "plain_" + random().nextInt());
     Directory zeroDir = new MMapDirectory(zeroPath);
     IndexWriterConfig iwc = new IndexWriterConfig(new StandardAnalyzer());
     iwc.setCodec(Codec.forName("Lucene70"));
     IndexWriter iw = new IndexWriter(zeroDir, iwc);
 
-    for (int id = 0 ; id < docValues.size() ; id++) {
+    for (int id = 0; id < docValues.size(); id++) {
       Document doc = new Document();
       doc.add(new StringField("id", Integer.toString(id), Field.Store.YES));
       doc.add(new NumericDocValuesField("dv", docValues.get(id)));
@@ -213,7 +215,7 @@ public class TestDocValues extends LuceneTestCase {
     IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED = true;
     DirectoryReader dr = DirectoryReader.open(zeroDir);
 
-    for (int id = 0 ; id < docValues.size() ; id++) {
+    for (int id = 0; id < docValues.size(); id++) {
       int readerIndex = dr.readerIndex(id);
       // We create a new reader each time as we want to test vBPV-skipping and not sequential iteration
       NumericDocValues numDV = dr.leaves().get(readerIndex).reader().getNumericDocValues("dv");
@@ -246,11 +248,11 @@ public class TestDocValues extends LuceneTestCase {
 
     boolean oldDebug = IndexedDISICacheFactory.DEBUG;
 
-    for (int docsPerBPV: DOCS_PER_BPV) {
+    for (int docsPerBPV : DOCS_PER_BPV) {
       IndexedDISICacheFactory.DEBUG = false;
       String POST_DESIGNATION =
           "bpvmin=" + BPV_MIN + "_bpvstep=" + BPV_STEP + "_bpvmax=" + BPV_MAX + "_docsperbpv=" + docsPerBPV;
-      Path pathPlain = Paths.get(System.getProperty("java.io.tmpdir"),"plain_" + POST_DESIGNATION);
+      Path pathPlain = Paths.get(System.getProperty("java.io.tmpdir"), "plain_" + POST_DESIGNATION);
       boolean plainExists = Files.isDirectory(pathPlain);
       Directory dirPlain = new MMapDirectory(pathPlain);
       if (plainExists) {
@@ -260,7 +262,7 @@ public class TestDocValues extends LuceneTestCase {
         generateVaryingBPVIndex(dirPlain, BPV_MIN, BPV_STEP, BPV_MAX, docsPerBPV, false);
       }
 
-      Path pathOptimize = Paths.get(System.getProperty("java.io.tmpdir"),"optimized_" + POST_DESIGNATION);
+      Path pathOptimize = Paths.get(System.getProperty("java.io.tmpdir"), "optimized_" + POST_DESIGNATION);
       boolean optimizedExists = Files.isDirectory(pathOptimize);
       Directory dirOptimize = new MMapDirectory(pathOptimize);
       if (optimizedExists) {
@@ -281,12 +283,12 @@ public class TestDocValues extends LuceneTestCase {
           System.out.println(DV_PERFORMANCE_HEADER);
           for (int queries : QUERIES) {
             for (int dpq : DOCS_PER_QUERY) {
-            for (boolean optimize : new boolean[]{false, true}) {
-              Directory dir = optimize ? dirOptimize : dirPlain;
-              // Warm
+              for (boolean optimize : new boolean[]{false, true}) {
+                Directory dir = optimize ? dirOptimize : dirPlain;
+                // Warm
                 numericRetrievalSpeed(dir, 5, 1000, 10, true, true, true, false, NONE, false, true);
 
-              // Establish baseline
+                // Establish baseline
                 double[] basePlain = numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, false, false, false, true, NONE, sequential, true);
                 numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, false, false, false, true, basePlain, sequential, true);
 
@@ -295,14 +297,14 @@ public class TestDocValues extends LuceneTestCase {
                 numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, false, false, true, true, basePlain, sequential, true);
                 numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, true, true, true, true, basePlain, sequential, true);
 
-              // Run baseline again and compare to old to observe measuring skews due to warming and chance
+                // Run baseline again and compare to old to observe measuring skews due to warming and chance
                 numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, false, false, false, true, basePlain, sequential, true);
                 numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, false, false, false, true, basePlain, sequential, true);
-              System.out.println("");
+                System.out.println("");
               }
             }
           }
-          if (run < MAJOR_RUNS-1) {
+          if (run < MAJOR_RUNS - 1) {
             System.out.println("----------------------");
           }
         }
@@ -323,7 +325,7 @@ public class TestDocValues extends LuceneTestCase {
 
   private void deleteAndClose(Directory dir) throws IOException {
     String[] files = dir.listAll();
-    for (String file: files) {
+    for (String file : files) {
       dir.deleteFile(file);
     }
     dir.close();
@@ -361,45 +363,45 @@ public class TestDocValues extends LuceneTestCase {
     NumericDocValues numDV = null;
     // TODO: Add realistic simulation of top-X retrieval
     // For real-world, top-10 or top-20 is likely to be used and those will be resolved in sorted order
-    for (int run = 0 ; run < runs ; run++) {
+    for (int run = 0; run < runs; run++) {
       long runTime = -System.nanoTime();
-      for (int q = 0 ; q < requests ; q++) {
-        for (int i = 0 ; i < docsPerQuery ; i++) {
+      for (int q = 0; q < requests; q++) {
+        for (int i = 0; i < docsPerQuery; i++) {
           if (sequential) {
-        sequentialDocID++;
-        if (sequentialDocID == maxDoc) {
-          sequentialDocID = 0;
-        }
+            sequentialDocID++;
+            if (sequentialDocID == maxDoc) {
+              sequentialDocID = 0;
+            }
             docsToRetrieve[i] = sequentialDocID;
           } else {
-            docsToRetrieve[i] = random().nextInt(maxDoc-1);
+            docsToRetrieve[i] = random().nextInt(maxDoc - 1);
           }
         }
         Arrays.sort(docsToRetrieve);
 
-        for (int docID: docsToRetrieve) {
-        int readerIndex = 0;
-        if (!reuseDVReader || docID < lastDocID || (readerIndex = dr.readerIndex(docID)) != lastReaderIndex ||
-            numDV == null) {
-          numDV = dr.leaves().get(readerIndex).reader().getNumericDocValues("dv");
-        }
-        lastDocID = docID;
-        lastReaderIndex = readerIndex;
-        if (!numDV.advanceExact(docID-dr.readerBase(readerIndex))) {
-          //System.err.println("Expected numeric doc value for docID=" + docID);
-          continue;
-        }
-        sum += numDV.longValue();
+        for (int docID : docsToRetrieve) {
+          int readerIndex = 0;
+          if (!reuseDVReader || docID < lastDocID || (readerIndex = dr.readerIndex(docID)) != lastReaderIndex ||
+              numDV == null) {
+            numDV = dr.leaves().get(readerIndex).reader().getNumericDocValues("dv");
+          }
+          lastDocID = docID;
+          lastReaderIndex = readerIndex;
+          if (!numDV.advanceExact(docID - dr.readerBase(readerIndex))) {
+            //System.err.println("Expected numeric doc value for docID=" + docID);
+            continue;
+          }
+          sum += numDV.longValue();
         }
       }
       runTime += System.nanoTime();
       best = Math.min(best, runTime);
       worst = Math.max(worst, runTime);
     }
-    double worstDPS = docsPerQuery*requests / (worst/1000000.0/1000);
-    double bestDPS = docsPerQuery*requests / (best/1000000.0/1000);
-    double worstRelative = base[0] < 0 ? 100 : worstDPS*100/base[0];
-    double bestRelative = base[1] < 0 ? 100 : bestDPS*100/base[1];
+    double worstDPS = docsPerQuery * requests / (worst / 1000000.0 / 1000);
+    double bestDPS = docsPerQuery * requests / (best / 1000000.0 / 1000);
+    double worstRelative = base[0] < 0 ? 100 : worstDPS * 100 / base[0];
+    double bestRelative = base[1] < 0 ? 100 : bestDPS * 100 / base[1];
     if (print) {
       System.out.println(String.format(DV_PERFORMANCE_PATTERN,
           shorten(maxDoc), dr.leaves().size(), shorten(requests), shorten(docsPerQuery),
@@ -413,10 +415,11 @@ public class TestDocValues extends LuceneTestCase {
   }
 
   private String shortenKB(int requests) {
-    return requests >= 1_000 ? requests/1_000+"K" : requests+"";
+    return requests >= 1_000 ? requests / 1_000 + "K" : requests + "";
   }
+
   private String shorten(int requests) {
-    return requests >= 1_000_000 ? requests/1_000_000+"M" : requests >= 1_000 ? requests/1_000+"K" : requests+"";
+    return requests >= 1_000_000 ? requests / 1_000_000 + "M" : requests >= 1_000 ? requests / 1_000 + "K" : requests + "";
   }
 
   private void generateVaryingBPVIndex(
@@ -427,11 +430,11 @@ public class TestDocValues extends LuceneTestCase {
     IndexWriter iw = new IndexWriter(dir, iwc);
 
     int id = 0;
-    for (int bpv = bpvMin ; bpv < bpvMax+1 ; bpv += bpvStep) {
-      for (int i = 0 ; i < docsPerBPV ; i++) {
+    for (int bpv = bpvMin; bpv < bpvMax + 1; bpv += bpvStep) {
+      for (int i = 0; i < docsPerBPV; i++) {
         Document doc = new Document();
         int max = 1 << (bpv - 1);
-        int value =  random().nextInt(max) | max;
+        int value = random().nextInt(max) | max;
         doc.add(new StringField("id", Integer.toString(id++), Field.Store.YES));
         if (id % 87 != 0) { // Ensure sparse
           doc.add(new NumericDocValuesField("dv", value));
@@ -458,10 +461,10 @@ public class TestDocValues extends LuceneTestCase {
     iw.addDocument(doc);
     DirectoryReader dr = DirectoryReader.open(iw);
     LeafReader r = getOnlyLeafReader(dr);
-    
+
     // ok
     assertNotNull(DocValues.getBinary(r, "foo"));
-    
+
     // errors
     expectThrows(IllegalStateException.class, () -> {
       DocValues.getNumeric(r, "foo");
@@ -475,13 +478,13 @@ public class TestDocValues extends LuceneTestCase {
     expectThrows(IllegalStateException.class, () -> {
       DocValues.getSortedNumeric(r, "foo");
     });
-    
+
     dr.close();
     iw.close();
     dir.close();
   }
-  
-  /** 
+
+  /**
    * field with sorted docvalues
    */
   public void testSortedField() throws Exception {
@@ -492,12 +495,12 @@ public class TestDocValues extends LuceneTestCase {
     iw.addDocument(doc);
     DirectoryReader dr = DirectoryReader.open(iw);
     LeafReader r = getOnlyLeafReader(dr);
-    
+
     // ok
     assertNotNull(DocValues.getBinary(r, "foo"));
     assertNotNull(DocValues.getSorted(r, "foo"));
     assertNotNull(DocValues.getSortedSet(r, "foo"));
-    
+
     // errors
     expectThrows(IllegalStateException.class, () -> {
       DocValues.getNumeric(r, "foo");
@@ -505,13 +508,13 @@ public class TestDocValues extends LuceneTestCase {
     expectThrows(IllegalStateException.class, () -> {
       DocValues.getSortedNumeric(r, "foo");
     });
-    
+
     dr.close();
     iw.close();
     dir.close();
   }
-  
-  /** 
+
+  /**
    * field with sortedset docvalues
    */
   public void testSortedSetField() throws Exception {
@@ -522,10 +525,10 @@ public class TestDocValues extends LuceneTestCase {
     iw.addDocument(doc);
     DirectoryReader dr = DirectoryReader.open(iw);
     LeafReader r = getOnlyLeafReader(dr);
-    
+
     // ok
     assertNotNull(DocValues.getSortedSet(r, "foo"));
-    
+
     // errors
     expectThrows(IllegalStateException.class, () -> {
       DocValues.getBinary(r, "foo");
@@ -539,13 +542,13 @@ public class TestDocValues extends LuceneTestCase {
     expectThrows(IllegalStateException.class, () -> {
       DocValues.getSortedNumeric(r, "foo");
     });
-    
+
     dr.close();
     iw.close();
     dir.close();
   }
-  
-  /** 
+
+  /**
    * field with sortednumeric docvalues
    */
   public void testSortedNumericField() throws Exception {
@@ -556,13 +559,13 @@ public class TestDocValues extends LuceneTestCase {
     iw.addDocument(doc);
     DirectoryReader dr = DirectoryReader.open(iw);
     LeafReader r = getOnlyLeafReader(dr);
-    
+
     // ok
     assertNotNull(DocValues.getSortedNumeric(r, "foo"));
-    
+
     // errors
     expectThrows(IllegalStateException.class, () -> {
-        DocValues.getBinary(r, "foo");
+      DocValues.getBinary(r, "foo");
     });
     expectThrows(IllegalStateException.class, () -> {
       DocValues.getNumeric(r, "foo");
@@ -573,7 +576,7 @@ public class TestDocValues extends LuceneTestCase {
     expectThrows(IllegalStateException.class, () -> {
       DocValues.getSortedSet(r, "foo");
     });
-    
+
     dr.close();
     iw.close();
     dir.close();
