@@ -18,10 +18,8 @@ package org.apache.lucene.codecs.lucene70;
 
 
 import java.io.IOException;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.function.Supplier;
 
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.RandomAccessInput;
@@ -30,9 +28,12 @@ import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.RamUsageEstimator;
 
 /**
- * Creates and stores caches for {@link IndexedDISI}.
+ * Creates and stores caches for {@link IndexedDISI} and {@link Lucene70DocValuesProducer}.
+ * The caches are stored in maps, where the key is make up from offset and length of a slice
+ * in an underlying segment. To avoid collisions, each segment must have their own
+ * IndexedDISICacheFactory.
  *
- * See https://issues.apache.org/jira/browse/LUCENE-8374 for details
+ * See {@link IndexedDISICache} for details on the caching.
  */
 // Note: This was hacked together with little understanding of overall caching principles for Lucene.
 // All Lucene70NormsProducer and Lucene70DocValuesProducer instances holds their own factory, but maybe this
@@ -53,7 +54,7 @@ public class IndexedDISICacheFactory implements Accountable {
     if (DEBUG) {
       System.out.println(IndexedDISICacheFactory.class.getSimpleName() +
           ": LUCENE-8374 beta patch enabled with block_caching=" + BLOCK_CACHING_ENABLED +
-          ", dense_caching=" + DENSE_CACHING_ENABLED + ", cBPV_caching=" + VARYINGBPV_CACHING_ENABLED);
+          ", dense_caching=" + DENSE_CACHING_ENABLED + ", vBPV_caching=" + VARYINGBPV_CACHING_ENABLED);
     }
   }
 

@@ -34,49 +34,49 @@ import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
  *
  * A lookup table for block blockCache and index and a rank structure for DENSE block lookups.
  *
- * The lookup table is an array of {@code long}s with an entry for each block (65536 bits).
+ * The lookup table is an array of {@code long}s with an entry for each block. It allows for
+ * direct jumping to the block, as opposed to iteration from the current position and forward.
  * Each long entry consists of 2 logical parts:
- * The first 31 bits holds the index up to just before the wanted block.
- * The next 33 bits holds the offset into the underlying slice.
+ *
+ * The first 31 bits holds the index (number of set bits in the blocks) up to just before the
+ * wanted block. The next 33 bits holds the offset into the underlying slice.
  * As there is a maximum of 2^16 blocks, it follows that the maximum size of any block must
- * not exceed 2^17 bits to avoid  overflow. This is currently the case, with the largest
+ * not exceed 2^17 bits to avoid overflow. This is currently the case, with the largest
  * block being DENSE and using 2^16 + 32 bits, and is likely to continue to hold as using
  * more than double the amount of bits is unlikely to be an efficient representation.
- * The alternative to using the lookup table is iteration of all blocks up to the wanted one.
  * The cache overhead is numDocs/1024 bytes.
  *
  * Note: There are 4 types of blocks: ALL, DENSE, SPARSE and non-existing (0 set bits).
  * In the case of non-existing blocks, the entry in the lookup table has index equal to the
  * previous entry and offset equal to the next non-empty block.
  *
+ *
  * The rank structure for DENSE blocks is an array of unsigned {@code short}s with an entry
- * or each sub-block of 512 bits out of the 65536 bits in the outer block.
+ * for each sub-block of 512 bits out of the 65536 bits in the outer block.
+ *
  * Each rank-entry states the number of set bits within the block up to the bit before the
  * bit positioned at the start of the sub-block.
  * Note that that the rank entry of the first sub-block is always 0 and that the last entry can
  * at most be 65536-512 = 65024 and thus will always fit into an unsigned short.
+ *
  * See https://en.wikipedia.org/wiki/Succinct_data_structure for details on rank structures.
  * The alternative to using the rank structure is iteration and summing of set bits for all
  * entries in the DENSE sub-block up until the wanted bit, with a worst-case of 1024 entries.
  * The rank cache overhead for a single DENSE block is 128 shorts (128*16 = 2048 bits) or
  * 1/32th.
  *
- * The total overhead for the rank cache is currently also numDocs/32 bits or numDocs/8 bytes
- * as the rank-representation is not sparse itself, using empty entries for sub-blocks of type
- * ALL or SPARSE.
- *
- * See https://issues.apache.org/jira/browse/LUCENE-8374 for details
+ * The ranks for the DENSE blocks are stored in a structure shared for the whole array of
+ * blocks, DENSE or not. To avoid overhead that structure is itself sparse.
  */
 public class IndexedDISICache implements Accountable {
-
-  public static final int BLOCK = 65536;
+  public static final int BLOCK = 65536;   // The number of docIDs that a single block represents
   public static final int BLOCK_BITS = 16;
-  public static final long BLOCK_INDEX_SHIFT = 33;
-  public static final long BLOCK_INDEX_MASK = ~0L << BLOCK_INDEX_SHIFT;
-  public static final long BLOCK_LOOKUP_MASK = ~BLOCK_INDEX_MASK;
+  public static final long BLOCK_INDEX_SHIFT = 33; // Number of bits to shift a lookup entry to get the index
+  public static final long BLOCK_INDEX_MASK = ~0L << BLOCK_INDEX_SHIFT; // The index bits in a lookup entry
+  public static final long BLOCK_LOOKUP_MASK = ~BLOCK_INDEX_MASK; // The offset bits in a lookup entry
 
-  public static final int RANK_BLOCK = 512;
-  public static final int RANK_BLOCK_LONGS = 512/Long.SIZE;
+  public static final int RANK_BLOCK = 512; // The number of docIDs/bits in each rank-sub-block within a DENSE block
+  public static final int RANK_BLOCK_LONGS = 512/Long.SIZE; // The number of longs making up a rank-block (8)
   public static final int RANK_BLOCK_BITS = 9;
   public static final int RANKS_PER_BLOCK = BLOCK/RANK_BLOCK;
 
