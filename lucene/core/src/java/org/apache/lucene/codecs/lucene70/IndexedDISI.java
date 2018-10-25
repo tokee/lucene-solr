@@ -126,8 +126,8 @@ final class IndexedDISI extends DocIdSetIterator {
   // see eg. Lucene70 norms producer's merge instance
   IndexedDISI(IndexInput slice, long cost, String name) throws IOException {
     this(slice, cost, null, name);
-    IndexedDISICacheFactory.debug(
-        "Non-cached direct slice IndexedDISI with length " + slice.length() + ": " + slice.toString());
+//    IndexedDISICacheFactory.debug(
+//        "Non-cached direct slice IndexedDISI with length " + slice.length() + ": " + slice.toString());
   }
 
   IndexedDISI(IndexInput slice, long cost, IndexedDISICache cache) throws IOException {

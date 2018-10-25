@@ -21,6 +21,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.codecs.Codec;
@@ -173,6 +176,57 @@ public class TestDocValues extends LuceneTestCase {
     dir.close();
   }
 
+  // LUCENE-8374 had a bug where a vBPV-block with BPV==0 as the very end of the numeric DocValues made it fail
+  public void testNumericEntryZeroesLastBlock() throws IOException {
+    List<Long> docValues = new ArrayList<>(2*16384);
+    for (int id = 0 ; id < 2*16384 ; id++) { // 2 vBPV-blocks for the dv-field
+      if (id < 16384) { // First vBPV-block just has semi-ramdom values
+        docValues.add((long) (id % 1000));
+      } else {          // Second block is all zeroes, resulting in an extreme "1-byte for the while block"-representation
+        docValues.add(0L);
+      }
+    }
+    assertRandomAccessDV("Last block BPV=0", docValues);
+  }
+
+  private void assertRandomAccessDV(String designation, List<Long> docValues) throws IOException {
+    // Create corpus
+    Path zeroPath = Paths.get(System.getProperty("java.io.tmpdir"),"plain_" + random().nextInt());
+    Directory zeroDir = new MMapDirectory(zeroPath);
+    IndexWriterConfig iwc = new IndexWriterConfig(new StandardAnalyzer());
+    iwc.setCodec(Codec.forName("Lucene70"));
+    IndexWriter iw = new IndexWriter(zeroDir, iwc);
+
+    for (int id = 0 ; id < docValues.size() ; id++) {
+      Document doc = new Document();
+      doc.add(new StringField("id", Integer.toString(id), Field.Store.YES));
+      doc.add(new NumericDocValuesField("dv", docValues.get(id)));
+      iw.addDocument(doc);
+    }
+    iw.flush();
+    iw.commit();
+    iw.forceMerge(1, true);
+    iw.close();
+
+    // Check
+    // Ensure that LUCENE-8374 is enabled for vBPV
+    IndexedDISICacheFactory.VARYINGBPV_CACHING_ENABLED = true;
+    DirectoryReader dr = DirectoryReader.open(zeroDir);
+
+    for (int id = 0 ; id < docValues.size() ; id++) {
+      int readerIndex = dr.readerIndex(id);
+      // We create a new reader each time as we want to test vBPV-skipping and not sequential iteration
+      NumericDocValues numDV = dr.leaves().get(readerIndex).reader().getNumericDocValues("dv");
+      assertTrue("There should be a value for docID " + id, numDV.advanceExact(id));
+      assertEquals("The value for docID " + id + " should be as expected",
+          docValues.get(id), Long.valueOf(numDV.longValue()));
+    }
+
+    // Clean up
+    deleteAndClose(zeroDir);
+    Files.delete(zeroPath);
+  }
+
   // TODO (Toke): Remove this when LUCENE-8374 is ready for release
   // Note: vBPV only helps for segments with > 16384 values for the DV-field
   @Slow
@@ -186,7 +240,8 @@ public class TestDocValues extends LuceneTestCase {
     //final int[] DOCS_PER_BPV = new int[]{100, 10_000, 500_000, 2_000_000};
     final int[] DOCS_PER_BPV = new int[]{5_000_000};
     //final int[] QUERIES = new int[]{10, 100, 1_000, 10_000, 100_000};
-    final int[] QUERIES = new int[]{1_000_000};
+    final int[] QUERIES = new int[]{10_000};
+    final int[] DOCS_PER_QUERY = new int[]{10, 1000};
     final boolean LEAVE_TEST_INDEXES = true; // Indexes are stored in TMP. Remember to delete manually if set to true
 
     boolean oldDebug = IndexedDISICacheFactory.DEBUG;
@@ -225,24 +280,26 @@ public class TestDocValues extends LuceneTestCase {
         for (int run = 0; run < MAJOR_RUNS; run++) {
           System.out.println(DV_PERFORMANCE_HEADER);
           for (int queries : QUERIES) {
-            for (boolean optimize : new boolean[]{false, true}) {
-              Directory dir = optimize ? dirOptimize : dirPlain;
-              // Warm
-              numericRetrievalSpeed(dir, 5, 1000, true, true, true, false, NONE, false, true);
+            for (int dpq : DOCS_PER_QUERY) {
+              for (boolean optimize : new boolean[]{false, true}) {
+                Directory dir = optimize ? dirOptimize : dirPlain;
+                // Warm
+                numericRetrievalSpeed(dir, 5, 1000, 10, true, true, true, false, NONE, false, true);
 
-              // Establish baseline
-              double[] basePlain = numericRetrievalSpeed(dir, INNER_RUNS, queries, false, false, false, true, NONE, sequential, true);
-              numericRetrievalSpeed(dir, INNER_RUNS, queries, false, false, false, true, basePlain, sequential, true);
+                // Establish baseline
+                double[] basePlain = numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, false, false, false, true, NONE, sequential, true);
+                numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, false, false, false, true, basePlain, sequential, true);
 
-              numericRetrievalSpeed(dir, INNER_RUNS, queries, true, false, false, true, basePlain, sequential, true);
-              numericRetrievalSpeed(dir, INNER_RUNS, queries, false, true, false, true, basePlain, sequential, true);
-              numericRetrievalSpeed(dir, INNER_RUNS, queries, false, false, true, true, basePlain, sequential, true);
-              numericRetrievalSpeed(dir, INNER_RUNS, queries, true, true, true, true, basePlain, sequential, true);
+                numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, true, false, false, true, basePlain, sequential, true);
+                numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, false, true, false, true, basePlain, sequential, true);
+                numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, false, false, true, true, basePlain, sequential, true);
+                numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, true, true, true, true, basePlain, sequential, true);
 
-              // Run baseline again and compare to old to observe measuring skews due to warming and chance
-              numericRetrievalSpeed(dir, INNER_RUNS, queries, false, false, false, true, basePlain, sequential, true);
-              numericRetrievalSpeed(dir, INNER_RUNS, queries, false, false, false, true, basePlain, sequential, true);
-              System.out.println("");
+                // Run baseline again and compare to old to observe measuring skews due to warming and chance
+                numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, false, false, false, true, basePlain, sequential, true);
+                numericRetrievalSpeed(dir, INNER_RUNS, queries, dpq, false, false, false, true, basePlain, sequential, true);
+                System.out.println("");
+              }
             }
           }
           if (run < MAJOR_RUNS-1) {
@@ -272,13 +329,19 @@ public class TestDocValues extends LuceneTestCase {
     dir.close();
   }
 
-  public static final String DV_PERFORMANCE_HEADER = "  docs segments requests block dense  vBPV worst_r/s best_r/s  worst/base best/base";
-  public static final String DV_PERFORMANCE_PATTERN = "%6s %8s %8s %5s %5s %5s %9s %8s %10.0f%% %9.0f%%";
+  public static final String DV_PERFORMANCE_HEADER = "  docs segments requests doc/req block dense  vBPV worst_r/s best_r/s  worst/base best/base";
+  public static final String DV_PERFORMANCE_PATTERN = "%6s %8s %8s %8s %5s %5s %5s %9s %8s %10.0f%% %9.0f%%";
 
   // Returns [worst, best] docs/s
+
+  /**
+   * Attempts to simulate retrieval of a single DocValues long field by creating a sorted list of docIDs and using
+   * {@link LeafReader#getNumericDocValues(String)} to retrieve values, reusing the {@link NumericDocValues} between
+   * calls if possible (the streaming API dictates forward iteration only).
+   */
   private double[] numericRetrievalSpeed(
-      Directory dir, int runs, int requests, boolean block, boolean dense, boolean vBPV, boolean print, double[] base,
-      boolean sequential, boolean reuseDVReader) throws IOException {
+      Directory dir, int runs, int requests, int docsPerQuery, boolean block, boolean dense, boolean vBPV,
+      boolean print, double[] base, boolean sequential, boolean reuseDVReader) throws IOException {
 
     IndexedDISICacheFactory.BLOCK_CACHING_ENABLED = block;
     IndexedDISICacheFactory.DENSE_CACHING_ENABLED = dense;
@@ -294,39 +357,52 @@ public class TestDocValues extends LuceneTestCase {
 
     int lastDocID = 0;
     int lastReaderIndex = -1;
+    final int[] docsToRetrieve = new int[docsPerQuery];
     NumericDocValues numDV = null;
+    // TODO: Add realistic simulation of top-X retrieval
+    // For real-world, top-10 or top-20 is likely to be used and those will be resolved in sorted order
     for (int run = 0 ; run < runs ; run++) {
       long runTime = -System.nanoTime();
       for (int q = 0 ; q < requests ; q++) {
-        sequentialDocID++;
-        if (sequentialDocID == maxDoc) {
-          sequentialDocID = 0;
+        for (int i = 0 ; i < docsPerQuery ; i++) {
+          if (sequential) {
+            sequentialDocID++;
+            if (sequentialDocID == maxDoc) {
+              sequentialDocID = 0;
+            }
+            docsToRetrieve[i] = sequentialDocID;
+          } else {
+            docsToRetrieve[i] = random().nextInt(maxDoc-1);
+          }
         }
-        final int docID = sequential ? sequentialDocID : random().nextInt(maxDoc-1);
-        int readerIndex = 0;
-        if (!reuseDVReader || docID < lastDocID || (readerIndex = dr.readerIndex(docID)) != lastReaderIndex ||
-            numDV == null) {
-          numDV = dr.leaves().get(readerIndex).reader().getNumericDocValues("dv");
+        Arrays.sort(docsToRetrieve);
+
+        for (int docID: docsToRetrieve) {
+          int readerIndex = 0;
+          if (!reuseDVReader || docID < lastDocID || (readerIndex = dr.readerIndex(docID)) != lastReaderIndex ||
+              numDV == null) {
+            numDV = dr.leaves().get(readerIndex).reader().getNumericDocValues("dv");
+          }
+          lastDocID = docID;
+          lastReaderIndex = readerIndex;
+          if (!numDV.advanceExact(docID - dr.readerBase(readerIndex))) {
+            //System.err.println("Expected numeric doc value for docID=" + docID);
+            continue;
+          }
+          sum += numDV.longValue();
         }
-        lastDocID = docID;
-        lastReaderIndex = readerIndex;
-        if (!numDV.advanceExact(docID-dr.readerBase(readerIndex))) {
-          //System.err.println("Expected numeric doc value for docID=" + docID);
-          continue;
-        }
-        sum += numDV.longValue();
       }
       runTime += System.nanoTime();
       best = Math.min(best, runTime);
       worst = Math.max(worst, runTime);
     }
-    double worstDPS = requests / (worst/1000000.0/1000);
-    double bestDPS = requests / (best/1000000.0/1000);
+    double worstDPS = docsPerQuery*requests / (worst/1000000.0/1000);
+    double bestDPS = docsPerQuery*requests / (best/1000000.0/1000);
     double worstRelative = base[0] < 0 ? 100 : worstDPS*100/base[0];
     double bestRelative = base[1] < 0 ? 100 : bestDPS*100/base[1];
     if (print) {
       System.out.println(String.format(DV_PERFORMANCE_PATTERN,
-          shorten(maxDoc), dr.leaves().size(), shorten(requests),
+          shorten(maxDoc), dr.leaves().size(), shorten(requests), shorten(docsPerQuery),
           block ? "block" : "", dense ? "dense" : "", vBPV ? "vBPV" : "",
           shortenKB((int) worstDPS), shortenKB((int) bestDPS), worstRelative, bestRelative));
     }
