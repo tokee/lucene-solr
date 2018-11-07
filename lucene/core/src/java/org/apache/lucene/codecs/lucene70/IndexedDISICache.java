@@ -91,7 +91,7 @@ public class IndexedDISICache implements Accountable {
 
   private PackedInts.Reader rank;   // One every 512 docs, sparsely represented as not all blocks are DENSE
   private long[] blockCache = null; // One every 65536 docs, contains index & slice position
-  public String creationStats = ""; // TODO: Definitely not the way to keep the stats, but where to send them?
+  public String creationStats = "";
   public String name; // Identifier for debug, log & inspection
 
   // Flags for not-yet-defined-values used during building
@@ -132,8 +132,7 @@ public class IndexedDISICache implements Accountable {
    * @return the offset for the block for target or -1 if it cannot be resolved.
    */
   public long getFilePointerForBlock(int targetBlock) {
-    long offset = !IndexedDISICacheFactory.BLOCK_CACHING_ENABLED ||
-        blockCache == null || blockCache.length <= targetBlock ?
+    long offset = blockCache == null || blockCache.length <= targetBlock ?
         -1 : blockCache[targetBlock] & BLOCK_LOOKUP_MASK;
     return offset == BLOCK_EMPTY_LOOKUP ? -1 : offset;
   }
@@ -144,7 +143,7 @@ public class IndexedDISICache implements Accountable {
    * @return the index for the block or -1 if it cannot be resolved.
    */
   public int getIndexForBlock(int targetBlock) {
-    if (!IndexedDISICacheFactory.BLOCK_CACHING_ENABLED || blockCache == null || blockCache.length <= targetBlock) {
+    if (blockCache == null || blockCache.length <= targetBlock) {
       return -1;
     }
     return (blockCache[targetBlock] & BLOCK_INDEX_MASK) == BLOCK_EMPTY_INDEX ?
@@ -182,7 +181,7 @@ public class IndexedDISICache implements Accountable {
    */
   // TODO: This method requires a lot of knowledge of the intrinsics of the cache. Usage should be simplified
   public int getRankInBlock(int rankPosition) {
-    if (!IndexedDISICacheFactory.DENSE_CACHING_ENABLED || rank == null) {
+    if (rank == null) {
       return -1;
     }
     assert rankPosition == denseRankPosition(rankPosition);
@@ -200,19 +199,7 @@ public class IndexedDISICache implements Accountable {
     AtomicInteger statBlockSPARSE = new AtomicInteger(0);
 
     // Fill phase
-    int largestBlock;
-    try {
-      largestBlock = fillCache(slice, fillBlockCache, fillRankCache, statBlockALL, statBlockDENSE, statBlockSPARSE);
-    } catch (Exception e) { // TODO (Toke): Development debug only. Remove when stable
-      creationStats = "Exception filling cache with slice of length " + slice.getFilePointer();
-      System.err.println(creationStats);
-      e.printStackTrace();
-      blockCache = null;
-      rank = null;
-      slice.seek(startOffset); // Leave it as we found it
-      return;
-    }
-
+    int largestBlock = fillCache(slice, fillBlockCache, fillRankCache, statBlockALL, statBlockDENSE, statBlockSPARSE);
     freezeCaches(fillBlockCache, fillRankCache, largestBlock);
 
     slice.seek(startOffset); // Leave it as we found it

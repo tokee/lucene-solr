@@ -212,7 +212,6 @@ final class IndexedDISI extends DocIdSetIterator {
         }
       }
     }
-    // TODO (Toke): Make sanity check debug for whether the cache is always used when targetBlock >= block+2
 
     // Fallback to non-cached
     do {

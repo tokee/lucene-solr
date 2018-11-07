@@ -71,15 +71,6 @@ public abstract class SolrQueryRequestBase implements SolrQueryRequest, Closeabl
     this.params = this.origParams = params;
     this.requestTimer = requestTimer;
     this.startTime = System.currentTimeMillis();
-    // TODO (Toke): Remove all tracks of this cache switch hack before releasing LUCENE-7384
-    if (params.get("lucene8374", null) != null) {
-      String oldSw = IndexedDISICacheFactory.getEnabled();
-      String newSw = org.apache.lucene.codecs.lucene70.IndexedDISICacheFactory.setEnabled(params.get("lucene8374"));
-
-      if (!newSw.equals(oldSw)) {
-        System.out.println("Changed static cache switches to " + newSw);
-      }
-    }
   }
 
   public SolrQueryRequestBase(SolrCore core, SolrParams params) {
