@@ -41,7 +41,7 @@ public class IndexedDISICacheFactory implements Accountable {
 
   /**
    * If the slice with the DISI-data is less than this number of bytes, don't create a cache.
-   * This is a very low number as the DISI-structure very efficiently represents EMPTY & ALL blocks.
+   * This is a very low number as the DISI-structure very efficiently represents EMPTY and ALL blocks.
    */
   public static int MIN_LENGTH_FOR_CACHING = 50; // Set this very low: Could be 9 EMPTY followed by a SPARSE
 
