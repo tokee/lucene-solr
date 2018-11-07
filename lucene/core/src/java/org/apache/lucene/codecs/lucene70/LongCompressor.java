@@ -22,13 +22,14 @@ import org.apache.lucene.util.packed.PackedInts;
 
 /**
  * Utility class for generating compressed read-only in-memory representations of longs.
- * The representation is optimized towards random access.
+ * The representation is optimized towards random access primarily and space secondarily.
+ *
  * The representation always applies delta-to-minvalue and greatest-common-divisor compression.
- * Depending on the number of 0-entries and the length of the array, a sparse representation
- * is used, using rank to improve access speed. This can be turned off.
+ *
+ * Depending on the number of 0-entries and the length of the array, a sparse representation is
+ * used, using rank to improve access speed. Sparseness introduces an O(1) access time overhead.
+ * Sparseness can be turned off.
  */
-// TODO: Consider how negative numbers are handled and if they should be supported at all
-// TODO (Toke): Consider if this belongs in the util namespace alongside RankBitSet
 public class LongCompressor {
 
   /**
@@ -40,19 +41,38 @@ public class LongCompressor {
    * The minimum total amount of zero values in the data set for sparse to be active.
    */
   public static final int DEFAULT_MIN_ZERO_VALUES_FOR_SPARSE = 500;
+
   /**
    * The minimum fraction of the data set that must be zero for sparse to be active.
    */
   public static final double DEFAULT_MIN_ZERO_VALUES_FRACTION_FOR_SPARSE = 0.2; // 20% (just guessing of a value here)
 
+  /**
+   * Create a compact version of the given values.
+   * @param values PackedInts with no special constraints.
+   * @return a compact version of the given values or the given values if compression did not improve on heap overhead.
+   */
   public static PackedInts.Reader compress(PackedInts.Reader values) {
     return compress(values, values.size());
   }
 
+  /**
+   * Create a compact version of the given values from index 0 to length-1.
+   * @param values PackedInts with no special constraints.
+   * @param length the number of values to compress.
+   * @return a compact version of the given values or the given values if compression did not improve on heap overhead.
+   */
   public static PackedInts.Reader compress(PackedInts.Reader values, int length) {
     return compress(values, values.size(), true);
   }
 
+  /**
+   * Create a compact version of the given values from index 0 to length-1.
+   * @param values PackedInts with no special constraints.
+   * @param length the number of values to compress.
+   * @param allowSparse if true and is the default limits matches the input, a sparse representation will be created.
+   * @return a compact version of the given values or the given values if compression did not improve on heap overhead.
+   */
   public static PackedInts.Reader compress(PackedInts.Reader values, int length, boolean allowSparse) {
     return compress(values, length, allowSparse,
         DEFAULT_MIN_TOTAL_VALUES_FOR_SPARSE,
@@ -60,6 +80,16 @@ public class LongCompressor {
         DEFAULT_MIN_ZERO_VALUES_FRACTION_FOR_SPARSE);
   }
 
+  /**
+   * Create a compact version of the given values from index 0 to length-1.
+   * @param values PackedInts with no special constraints.
+   * @param length the number of values to compress.
+   * @param allowSparse if true and is the default limits matches the input, a sparse representation will be created.
+   * @param minTotalSparse the minimum amount of entries needed for a sparse representation.
+   * @param minTotalSparse the minimum absolute number of 0-entries needed for a sparse representation.
+   *                       0-entries are counted after minValue compression: {@code 3, 5, 3, 7, 16} has two 0-entries.
+   * @return a compact version of the given values or the given values if compression did not improve on heap overhead.
+   */
   public static PackedInts.Reader compress(
       PackedInts.Reader values, int length, boolean allowSparse,
       int minTotalSparse, int minZeroSparse, double minZeroFractionSparse) {
@@ -117,10 +147,11 @@ public class LongCompressor {
         minZeroSparse < zeroCount && minZeroFractionSparse < 1.0 * zeroCount / length;
   }
 
-  private static int countZeroes(PackedInts.Reader values, int length, long min, long gcd) {
+  // Not very fast as is requires #length divisions.
+  private static int countZeroes(PackedInts.Reader values, int length, long min, final long gcd) {
     int zeroCount = 0;
     for (int i = 0 ; i < length ; i++) {
-      if ((values.get(i)-min)/gcd == 0) {
+      if ((values.get(i)-min)/gcd == 0) { // Hope the case where gcd==1 gets JITted. We could add a switch to be sure?
         zeroCount++;
       }
     }
@@ -173,8 +204,8 @@ public class LongCompressor {
     return min;
   }
 
+  // GCD-code takes & adjusted from Lucene70DocValuesConsumer
   private static long getGCD(final PackedInts.Reader values, final int length, final long min) {
-    // GCD-code adjusted form Lucene70DocValuesConsumer
     long gcd = -1;
 
     for (int i = 0 ; i < length ; i++) {
@@ -204,14 +235,13 @@ public class LongCompressor {
   }
 
   private static long getMax(final PackedInts.Reader values, final int length, final long min, final long gcd) {
-    long max = Long.MIN_VALUE;
+    long rawMax = Long.MIN_VALUE;
     for (int i = 0 ; i < length ; i++) {
-      long value = (values.get(i)-min)/gcd;
-      if (value > max) {
-        max = value;
+      long value = values.get(i);
+      if (value > rawMax) {
+        rawMax = value;
       }
     }
-    return max;
+    return (rawMax-min)/gcd;
   }
-
 }

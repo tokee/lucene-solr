@@ -32,10 +32,12 @@ import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
 /**
  * Caching of IndexedDISI with two strategies:
  *
- * A lookup table for block blockCache and index and a rank structure for DENSE block lookups.
+ * A lookup table for block blockCache and index, and a rank structure for DENSE block lookups.
  *
  * The lookup table is an array of {@code long}s with an entry for each block. It allows for
- * direct jumping to the block, as opposed to iteration from the current position and forward.
+ * direct jumping to the block, as opposed to iteration from the current position and forward
+ * one block at a time.
+ *
  * Each long entry consists of 2 logical parts:
  *
  * The first 31 bits holds the index (number of set bits in the blocks) up to just before the
@@ -66,7 +68,14 @@ import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
  * 1/32th.
  *
  * The ranks for the DENSE blocks are stored in a structure shared for the whole array of
- * blocks, DENSE or not. To avoid overhead that structure is itself sparse.
+ * blocks, DENSE or not. To avoid overhead that structure is itself sparse. See
+ * {@link LongCompressor} for details on DENSE structure sparseness.
+ *
+ *
+ * The performance overhead for creating a cache instance is equivalent to accessing all
+ * DocValues values for the given field, i.e. it scales lineary to field size. On modern
+ * hardware it is in the ballpark of 1ms for 5M values on modern hardware. Caveat lector:
+ * At the point of writing, performance points are only available for 2 real-world setups.
  */
 public class IndexedDISICache implements Accountable {
   public static final int BLOCK = 65536;   // The number of docIDs that a single block represents
@@ -91,7 +100,7 @@ public class IndexedDISICache implements Accountable {
   private static final long BLOCK_EMPTY = BLOCK_EMPTY_INDEX | BLOCK_EMPTY_LOOKUP;
 
   /**
-   * Builds the stated caches for the given Indexed
+   * Builds the stated caches for the given IndexInput.
    *
    * @param in positioned at the start of the logical underlying bitmap.
    */
@@ -112,7 +121,8 @@ public class IndexedDISICache implements Accountable {
     this.rank = null;
     this.name = "";
   }
-  // TODO: EMPTY works poorly with name, but creating multiple EMPTYs with different names seems wasteful
+
+  // Uses to represent no caching.
   public static final IndexedDISICache EMPTY = new IndexedDISICache();
 
   /**
@@ -142,11 +152,11 @@ public class IndexedDISICache implements Accountable {
   }
 
   /**
-   * Given a target (docID), this method returns the docID
+   * Given a target (docID), this method returns the first docID in the entry containing the target.
    * @param target the docID for which an index is wanted.
    * @return the docID where the rank is known. This will be lte target.
    */
-  // TODO: This method requires way too much knowledge of the intrinsics of the cache. Usage should be simplified
+  // TODO: This method requires a lot of knowledge of the intrinsics of the cache. Usage should be simplified
   public int denseRankPosition(int target) {
        return target >> RANK_BLOCK_BITS << RANK_BLOCK_BITS;
   }
@@ -170,7 +180,7 @@ public class IndexedDISICache implements Accountable {
    * @return the rank (index / set bits count) up to just before the given rankPosition.
    *         If rank is disabled, -1 is returned.
    */
-  // TODO: This method requires way too much knowledge of the intrinsics of the cache. Usage should be simplified
+  // TODO: This method requires a lot of knowledge of the intrinsics of the cache. Usage should be simplified
   public int getRankInBlock(int rankPosition) {
     if (!IndexedDISICacheFactory.DENSE_CACHING_ENABLED || rank == null) {
       return -1;

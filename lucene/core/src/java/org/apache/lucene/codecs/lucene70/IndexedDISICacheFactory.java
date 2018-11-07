@@ -32,16 +32,17 @@ import org.apache.lucene.util.RamUsageEstimator;
 
 /**
  * Creates and stores caches for {@link IndexedDISI} and {@link Lucene70DocValuesProducer}.
- * The caches are stored in maps, where the key is make up from offset and length of a slice
- * in an underlying segment. To avoid collisions, each segment must have their own
- * IndexedDISICacheFactory.
+ * The caches are stored in maps, where the key is made up from offset and length of a slice
+ * in an underlying segment. Each segment uses their own IndexedDISICacheFactory.
  *
  * See {@link IndexedDISICache} for details on the caching.
  */
-// Note: This was hacked together with little understanding of overall caching principles for Lucene.
-// All Lucene70NormsProducer and Lucene70DocValuesProducer instances holds their own factory, but maybe this
-// should be in a central cache somewhere?
 public class IndexedDISICacheFactory implements Accountable {
+
+  /**
+   * If the slice with the DISI-data is less than this number of bytes, don't create a cache.
+   * This is a very low number as the DISI-structure very efficiently represents EMPTY & ALL blocks.
+   */
   public static int MIN_LENGTH_FOR_CACHING = 50; // Set this very low: Could be 9 EMPTY followed by a SPARSE
 
   // TODO (Toke): Remove this when code has stabilized
@@ -53,7 +54,9 @@ public class IndexedDISICacheFactory implements Accountable {
   public static boolean VARYINGBPV_CACHING_ENABLED = true;
   public static boolean DEBUG = true;
 
+  // jump-table and rank for DISI blocks
   private final Map<Long, IndexedDISICache> disiPool = new HashMap<>();
+  // jump-table for numerics with variable bits per value (dates, longs...)
   private final Map<String, VaryingBPVJumpTable> vBPVPool = new HashMap<>();
 
   /**
@@ -63,6 +66,7 @@ public class IndexedDISICacheFactory implements Accountable {
    *                 "norms=false,block=true"
    * @return human readable description of what is enabled, with error message if the enable-string could not be parsed.
    */
+  // TODO (Toke): Remove this when code has stabilized
   public static String setEnabled(String switches) {
     // Shortcuts
     switch (switches) {
@@ -104,6 +108,7 @@ public class IndexedDISICacheFactory implements Accountable {
         NORMS_CACHING_ENABLED, BLOCK_CACHING_ENABLED, DENSE_CACHING_ENABLED, VARYINGBPV_CACHING_ENABLED, DEBUG);
   }
 
+  // TODO (Toke): Remove this when code has stabilized
   static {
     if (DEBUG) {
       System.out.println(IndexedDISICacheFactory.class.getSimpleName() +
@@ -115,19 +120,38 @@ public class IndexedDISICacheFactory implements Accountable {
     }
   }
 
-  public IndexedDISI createCachedIndexedDISI(IndexInput data, long offset, long length, long cost, String name)
-      throws IOException {
-    IndexedDISICache cache = getCache(data, offset, length, name);
-    return new IndexedDISI(data, offset, length, cost, cache, name);
-  }
-
+  /**
+   * Create a cached {@link IndexedDISI} instance.
+   * @param data   persistent data containing the DISI-structure.
+   * @param cost   cost as defined for IndexedDISI.
+   * @param name   identifier for the DISI-structure for debug purposes.
+   * @return a cached IndexedDISI or a plain IndexedDISI, if caching is not applicable.
+   * @throws IOException if the DISI-structure could not be accessed.
+   */
   public IndexedDISI createCachedIndexedDISI(IndexInput data, long key, int cost, String name) throws IOException {
     IndexedDISICache cache = getCache(data, key, name);
     return new IndexedDISI(data, cost, cache, name);
   }
 
   /**
-   * Creates a cache (jump table) if not already present and returns it.
+   * Create a cached {@link IndexedDISI} instance.
+   * @param data   persistent data containing the DISI-structure.
+   * @param offset same as the offset that will also be used for creating an {@link IndexedDISI}.
+   * @param length same af the length that will also be used for creating an {@link IndexedDISI}.
+   * @param cost   cost as defined for IndexedDISI.
+   * @param name   identifier for the DISI-structure for debug purposes.
+   * @return a cached IndexedDISI or a plain IndexedDISI, if caching is not applicable.
+   * @throws IOException if the DISI-structure could not be accessed.
+   */
+  public IndexedDISI createCachedIndexedDISI(IndexInput data, long offset, long length, long cost, String name)
+      throws IOException {
+    IndexedDISICache cache = getCache(data, offset, length, name);
+    return new IndexedDISI(data, offset, length, cost, cache, name);
+  }
+
+  /**
+   * Creates a cache (jump table) for variable bits per value numerics and returns it.
+   * If the cache has previously been created, the old cache is returned.
    * @param name the name for the cache, typically the field name. Used as key for later retrieval.
    * @param slice the long values with varying bits per value.
    * @param valuesLength the length in bytes of the slice.
@@ -151,7 +175,8 @@ public class IndexedDISICacheFactory implements Accountable {
   }
 
   /**
-   * Creates a cache if not already present and returns it.
+   * Creates a cache (jump table) for {@link IndexedDISI}.
+   * If the cache has previously been created, the old cache is returned.
    * @param data   the slice to create a cache for.
    * @param offset same as the offset that will also be used for creating an {@link IndexedDISI}.
    * @param length same af the length that will also be used for creating an {@link IndexedDISI}.
@@ -166,9 +191,7 @@ public class IndexedDISICacheFactory implements Accountable {
     long key = offset + length;
     IndexedDISICache cache = disiPool.get(key);
     if (cache == null) {
-      // TODO: Avoid overlapping builds of the same cache
-      // Both BLOCK & DENSE caches are created as they might be requested later for the field,
-      // regardless of whether they are requested now
+      // TODO: Avoid overlapping builds of the same cache for performance reason
       cache = new IndexedDISICache(data.slice("docs", offset, length), true, true, name);
       disiPool.put(key, cache);
       debug("Created IndexedDISI cache for " + data.toString() + ": " + cache.creationStats + " (" + cache.ramBytesUsed() + " bytes)");
@@ -177,8 +200,9 @@ public class IndexedDISICacheFactory implements Accountable {
   }
 
   /**
-   * Creates a cache if not already present and returns it.
-   * @param slice    the input slice.
+   * Creates a cache (jump table) for {@link IndexedDISI}.
+   * If the cache has previously been created, the old cache is returned.
+   * @param slice the input slice.
    * @param key identifier for the cache, unique within the segment that originated the slice.
    *            Recommendation is offset+length for the slice, relative to the data mapping the segment.
    *            Warning: Do not use slice.getFilePointer and slice.length as they are not guaranteed
@@ -211,14 +235,13 @@ public class IndexedDISICacheFactory implements Accountable {
     }
   }
 
+  // Statistics
   public long getDISIBlocksWithOffsetsCount() {
     return disiPool.values().stream().filter(IndexedDISICache::hasOffsets).count();
   }
-
   public long getDISIBlocksWithRankCount() {
     return disiPool.values().stream().filter(IndexedDISICache::hasRank).count();
   }
-
   public long getVaryingBPVCount() {
     return vBPVPool.size();
   }
@@ -252,11 +275,9 @@ public class IndexedDISICacheFactory implements Accountable {
 
   /**
    * Jump table used by Lucene70DocValuesProducer.VaryingBPVReader to avoid iterating all blocks from
-   * current to wanted index. The jump table holds offsets for all blocks.
+   * current to wanted index for numerics with variable bits per value. The jump table holds offsets for all blocks.
    */
   public static class VaryingBPVJumpTable implements Accountable {
-    // Consider: Is there room for also storing the BPV? That would save the seek to the start of the block
-
     // TODO: It is way overkill to use longs here for practically all indexes. Maybe a PackedInts representation?
     long[] offsets = new long[10];
     final String creationStats;

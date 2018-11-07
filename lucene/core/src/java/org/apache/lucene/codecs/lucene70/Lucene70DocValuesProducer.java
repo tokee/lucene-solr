@@ -1382,7 +1382,7 @@ final class Lucene70DocValuesProducer extends DocValuesProducer implements Close
    * Reader for longs split into blocks of different bits per values.
    * The longs are requested by index and must be accessed in monotonically increasing order.
    */
-  // Note: The order requirement goes away when using caching.
+  // Note: The order requirement could be removed as the jump-tables allow for backwards iteration.
   private class VaryingBPVReader {
     final RandomAccessInput slice;
     final NumericEntry entry;

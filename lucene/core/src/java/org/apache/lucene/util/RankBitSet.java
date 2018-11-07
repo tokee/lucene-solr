@@ -25,11 +25,13 @@ import org.apache.lucene.search.DocIdSetIterator;
 /**
  * Wrapper for OpenBitSet which creates and exposes a rank cache. The rank-cache scales to 2 billion bits.
  *
- * The rankCache has a long for every 2048 bits and thus has an overhead of 3.17%.
+ * The rankCache has a long for every 2048 bits and thus has an overhead of 3.17% relative to the given bit set.
  * Performance is O(1):
  * 1 lookup in cache,
  * a maximum of 3 sums,
  * a maximum of 8 Long.bitCounts.
+ *
+ * Creation performance is equivalent to a full count of all set bits in the bit set O(n).
  *
  * Note: {@link #buildRankCache()} must be called once after the bit set has been created or changed and before
  * calling {@link #rank(long)}.
@@ -39,9 +41,10 @@ import org.apache.lucene.search.DocIdSetIterator;
  * by Dong Zhou, David G. Andersen, Michael Kaminsky, Carnegie Mellon University, Intel Labs
  * http://www.cs.cmu.edu/~dga/papers/zhou-sea2013.pdf
  */
-// TODO: If the total number of set bits is <= 65535, a faster rank cache is a short for every 512 bits
-// Extending the rank beyond 2 billion bits would likely be done by dividing the bitmap into blocks of 2b bits
-// and introducing yet another table with a rank-origo for each block
+// Note: If the total number of set bits is <= 65535, a faster rank cache would be a short for every 512 bits
+// This is not available in the current implementation.
+// Extending the rank beyond 2 billion bits could be done by dividing the bitmap into blocks of 2b bits and
+// introducing yet another table with a rank-origo for each 2b-block
 public class RankBitSet extends BitSet {
   public static final int  LOWER_BITS = 32; // Must be capable of addressing full Java array
   public static final long LOWER_MASK = ~(~1L << (LOWER_BITS-1));
@@ -58,6 +61,7 @@ public class RankBitSet extends BitSet {
   /**
    * Each entry is made up of 1 long<br/>
    * Bits 63-32: 32 bit first-level absolute index.<br/>
+   * Bits 30+31 are unused. These could be used to signal all-set or all-unset for the block to spare a few cycles?
    * Bits 29-0: 3 * 10 bit (0-1023) second-level relative index. Only numbers 0-512 are used.
    */
   private long[] rankCache = null;
@@ -100,6 +104,11 @@ public class RankBitSet extends BitSet {
     }
   }
 
+  /**
+   * Get the rank (number of set bits up to right before the index) for the given index in O(1).
+   * @param index offset in the originating bit set.
+   * @return the rank for the index.
+   */
   public int rank(long index) {
     final long cache = rankCache[((int) (index >>> LOWER_OVER_BITS))];
     // lower cache (absolute)
@@ -146,7 +155,7 @@ public class RankBitSet extends BitSet {
             RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + Long.BYTES*rankCache.length);
   }
 
-  /* Delegations to inner below */
+  /* Delegations to inner bit set below */
 
   public static FixedBitSet ensureCapacity(FixedBitSet bits, int numBits) {
     return FixedBitSet.ensureCapacity(bits, numBits);
