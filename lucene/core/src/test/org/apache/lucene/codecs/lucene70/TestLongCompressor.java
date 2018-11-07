@@ -17,6 +17,7 @@
 
 package org.apache.lucene.codecs.lucene70;
 
+import java.util.Locale;
 import java.util.Random;
 
 import org.apache.lucene.util.LuceneTestCase;
@@ -55,7 +56,8 @@ public class TestLongCompressor extends LuceneTestCase {
 
   private void longCompressorMonkeyTest(
       int run, int size, int minValue, int maxValue, double minChance, long randomSeed) {
-    final String description = String.format("run=%d, size=%d, minValue=%d, maxValue=%d, minChance=%1.2f, seed=%d",
+    final String description = String.format(Locale.ENGLISH,
+        "run=%d, size=%d, minValue=%d, maxValue=%d, minChance=%1.2f, seed=%d",
         run, size, minValue, maxValue, minChance, randomSeed);
     Random innerRandom = new Random(randomSeed);
     PackedInts.Mutable expected = PackedInts.getMutable(size, PackedInts.bitsRequired(maxValue), PackedInts.DEFAULT);

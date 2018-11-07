@@ -223,7 +223,7 @@ public class IndexedDISICacheFactory implements Accountable {
         block++;
       } while (blockEndOffset < valuesLength-Byte.BYTES);
       offsets = ArrayUtil.copyOfSubArray(offsets, 0, block+1);
-      creationStats = String.format(
+      creationStats = String.format(Locale.ENGLISH,
           "name=%s, blocks=%d, time=%dms",
           name, offsets.length, (System.nanoTime()-startTime)/1000000);
     }

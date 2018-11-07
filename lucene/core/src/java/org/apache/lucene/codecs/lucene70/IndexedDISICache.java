@@ -18,6 +18,7 @@ package org.apache.lucene.codecs.lucene70;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.lucene.search.DocIdSetIterator;
@@ -203,7 +204,7 @@ public class IndexedDISICache implements Accountable {
     freezeCaches(fillBlockCache, fillRankCache, largestBlock);
 
     slice.seek(startOffset); // Leave it as we found it
-    creationStats = String.format(
+    creationStats = String.format(Locale.ENGLISH,
         "name=%s, blocks=%d (ALL=%d, DENSE=%d, SPARSE=%d, EMPTY=%d), time=%dms, block=%b (%d bytes), rank=%b (%d bytes)",
         name,
         largestBlock+1, statBlockALL.get(), statBlockDENSE.get(), statBlockSPARSE.get(),
