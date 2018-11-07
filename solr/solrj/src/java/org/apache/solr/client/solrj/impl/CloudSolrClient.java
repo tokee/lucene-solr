@@ -611,10 +611,8 @@ public class CloudSolrClient extends SolrClient {
 
   private Map<String,List<String>> buildUrlMap(DocCollection col) {
     Map<String, List<String>> urlMap = new HashMap<>();
-    Collection<Slice> slices = col.getActiveSlices();
-    Iterator<Slice> sliceIterator = slices.iterator();
-    while (sliceIterator.hasNext()) {
-      Slice slice = sliceIterator.next();
+    Slice[] slices = col.getActiveSlicesArr();
+    for (Slice slice : slices) {
       String name = slice.getName();
       List<String> urls = new ArrayList<>();
       Replica leader = slice.getLeader();
@@ -927,7 +925,10 @@ public class CloudSolrClient extends SolrClient {
               rootCause instanceof NoHttpResponseException ||
               rootCause instanceof SocketException);
 
-      if (wasCommError || (exc instanceof RouteException)) {
+      if (wasCommError
+          || (exc instanceof RouteException && (errorCode == 404 || errorCode == 503)) // 404 because the core does not exist 503 service unavailable
+          //TODO there are other reasons for 404. We need to change the solr response format from HTML to structured data to know that
+          ) {
         // it was a communication error. it is likely that
         // the node to which the request to be sent is down . So , expire the state
         // so that the next attempt would fetch the fresh state
@@ -1259,7 +1260,7 @@ public class CloudSolrClient extends SolrClient {
       NamedList routes = ((CloudSolrClient.RouteResponse)resp).getRouteResponses();
       DocCollection coll = getDocCollection(collection, null);
       Map<String,String> leaders = new HashMap<String,String>();
-      for (Slice slice : coll.getActiveSlices()) {
+      for (Slice slice : coll.getActiveSlicesArr()) {
         Replica leader = slice.getLeader();
         if (leader != null) {
           ZkCoreNodeProps zkProps = new ZkCoreNodeProps(leader);
@@ -1509,6 +1510,8 @@ public class CloudSolrClient extends SolrClient {
 
     /**
      * Tells {@link Builder} that created clients should send updates only to shard leaders.
+     *
+     * WARNING: This method currently has no effect.  See SOLR-6312 for more information.
      */
     public Builder sendUpdatesOnlyToShardLeaders() {
       shardLeadersOnly = true;
@@ -1517,6 +1520,8 @@ public class CloudSolrClient extends SolrClient {
     
     /**
      * Tells {@link Builder} that created clients should send updates to all replicas for a shard.
+     *
+     * WARNING: This method currently has no effect.  See SOLR-6312 for more information.
      */
     public Builder sendUpdatesToAllReplicasInShard() {
       shardLeadersOnly = false;
@@ -1525,6 +1530,8 @@ public class CloudSolrClient extends SolrClient {
 
     /**
      * Tells {@link Builder} that created clients should send direct updates to shard leaders only.
+     *
+     * UpdateRequests whose leaders cannot be found will "fail fast" on the client side with a {@link SolrException}
      */
     public Builder sendDirectUpdatesToShardLeadersOnly() {
       directUpdatesToLeadersOnly = true;
@@ -1532,15 +1539,24 @@ public class CloudSolrClient extends SolrClient {
     }
 
     /**
-     * Tells {@link Builder} that created clients can send updates
-     * to any shard replica (shard leaders and non-leaders).
+     * Tells {@link Builder} that created clients can send updates to any shard replica (shard leaders and non-leaders).
+     *
+     * Shard leaders are still preferred, but the created clients will fallback to using other replicas if a leader
+     * cannot be found.
      */
     public Builder sendDirectUpdatesToAnyShardReplica() {
       directUpdatesToLeadersOnly = false;
       return this;
     }
 
-    /** Should direct updates to shards be done in parallel (the default) or if not then synchronously? */
+    /**
+     * Tells {@link Builder} whether created clients should send shard updates serially or in parallel
+     *
+     * When an {@link UpdateRequest} affects multiple shards, {@link CloudSolrClient} splits it up and sends a request
+     * to each affected shard.  This setting chooses whether those sub-requests are sent serially or in parallel.
+     * <p>
+     * If not set, this defaults to 'true' and sends sub-requests in parallel.
+     */
     public Builder withParallelUpdates(boolean parallelUpdates) {
       this.parallelUpdates = parallelUpdates;
       return this;

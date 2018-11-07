@@ -62,6 +62,7 @@ import org.apache.solr.client.solrj.cloud.SolrCloudManager;
 import org.apache.solr.client.solrj.cloud.autoscaling.ReplicaInfo;
 import org.apache.solr.client.solrj.cloud.autoscaling.VersionedData;
 import org.apache.solr.client.solrj.impl.HttpClientUtil;
+import org.apache.solr.cloud.LeaderElector;
 import org.apache.solr.cloud.Overseer;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.cloud.ClusterState;
@@ -296,7 +297,7 @@ public class MetricsHistoryHandler extends RequestHandlerBase implements Permiss
   }
 
   public void removeHistory(String registry) throws IOException {
-    registry = SolrMetricManager.overridableRegistryName(registry);
+    registry = SolrMetricManager.enforcePrefix(registry);
     knownDbs.remove(registry);
     factory.remove(registry);
   }
@@ -332,12 +333,14 @@ public class MetricsHistoryHandler extends RequestHandlerBase implements Permiss
     if (oid == null) {
       return null;
     }
-    String[] ids = oid.split("-");
-    if (ids.length != 3) { // unknown format
-      log.warn("Unknown format of leader id, skipping: " + oid);
+    String nodeName = null;
+    try {
+      nodeName = LeaderElector.getNodeName(oid);
+    } catch (Exception e) {
+      log.warn("Unknown format of leader id, skipping: " + oid, e);
       return null;
     }
-    return ids[1];
+    return nodeName;
   }
 
   private boolean amIOverseerLeader() {
@@ -525,16 +528,16 @@ public class MetricsHistoryHandler extends RequestHandlerBase implements Permiss
         Map<String, Number> perReg = totals
             .computeIfAbsent(Group.collection, g -> new HashMap<>())
             .computeIfAbsent(registry, r -> new HashMap<>());
-        Collection<Slice> slices = coll.getActiveSlices();
-        perReg.put(NUM_SHARDS_KEY, slices.size());
+        Slice[] slices = coll.getActiveSlicesArr();
+        perReg.put(NUM_SHARDS_KEY, slices.length);
         DoubleAdder numActiveReplicas = new DoubleAdder();
-        slices.forEach(s -> {
+        for (Slice s : slices) {
           s.forEach(r -> {
             if (r.isActive(state.getLiveNodes())) {
               numActiveReplicas.add(1.0);
             }
           });
-        });
+        }
         perReg.put(NUM_REPLICAS_KEY, numActiveReplicas);
       });
     } catch (IOException e) {
@@ -583,7 +586,7 @@ public class MetricsHistoryHandler extends RequestHandlerBase implements Permiss
   }
 
   private RrdDef createDef(String registry, Group group) {
-    registry = SolrMetricManager.overridableRegistryName(registry);
+    registry = SolrMetricManager.enforcePrefix(registry);
 
     // base sampling period is collectPeriod - samples more frequent than
     // that will be dropped, samples less frequent will be interpolated

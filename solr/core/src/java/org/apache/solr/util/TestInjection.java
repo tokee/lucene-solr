@@ -24,6 +24,8 @@ import java.util.Random;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -40,6 +42,7 @@ import org.apache.solr.common.params.ModifiableSolrParams;
 import org.apache.solr.common.util.NamedList;
 import org.apache.solr.common.util.Pair;
 import org.apache.solr.common.util.SuppressForbidden;
+import org.apache.solr.common.util.TimeSource;
 import org.apache.solr.core.CoreContainer;
 import org.apache.solr.core.SolrCore;
 import org.apache.solr.handler.ReplicationHandler;
@@ -135,6 +138,8 @@ public class TestInjection {
 
   public static String splitFailureAfterReplicaCreation = null;
 
+  public static CountDownLatch splitLatch = null;
+
   public static String waitForReplicasInSync = "true:60";
 
   public static String failIndexFingerprintRequests = null;
@@ -159,6 +164,7 @@ public class TestInjection {
     randomDelayInCoreCreation = null;
     splitFailureBeforeReplicaCreation = null;
     splitFailureAfterReplicaCreation = null;
+    splitLatch = null;
     prepRecoveryOpPauseForever = null;
     countPrepRecoveryOpPauseForever = new AtomicInteger(0);
     waitForReplicasInSync = "true:60";
@@ -413,8 +419,20 @@ public class TestInjection {
     return injectSplitFailure(splitFailureAfterReplicaCreation, "after creating replica for sub-shard");
   }
 
+  public static boolean injectSplitLatch() {
+    if (splitLatch != null) {
+      try {
+        log.info("Waiting in ReplicaMutator for up to 60s");
+        return splitLatch.await(60, TimeUnit.SECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
+    }
+    return true;
+  }
+
   @SuppressForbidden(reason = "Need currentTimeMillis, because COMMIT_TIME_MSEC_KEY use currentTimeMillis as value")
-  public static boolean waitForInSyncWithLeader(SolrCore core, ZkController zkController, String collection, String shardId) throws InterruptedException {
+  public static boolean waitForInSyncWithLeader(SolrCore core, ZkController zkController, String collection, String shardId) {
     if (waitForReplicasInSync == null) return true;
     log.info("Start waiting for replica in sync with leader");
     long currentTime = System.currentTimeMillis();
@@ -422,8 +440,10 @@ public class TestInjection {
     boolean enabled = pair.first();
     if (!enabled) return true;
     long t = System.currentTimeMillis() - 200;
-    try {
-      for (int i = 0; i < pair.second(); i++) {
+    int i = 0;
+    TimeOut timeOut = new TimeOut(pair.second(), TimeUnit.SECONDS, TimeSource.NANO_TIME);
+    while (!timeOut.hasTimedOut()) {
+      try {
         if (core.isClosed()) return true;
         Replica leaderReplica = zkController.getZkStateReader().getLeaderRetry(
             collection, shardId);
@@ -443,16 +463,21 @@ public class TestInjection {
             return true;
           } else {
             log.debug("Tlog replica not in sync with leader yet. Attempt: {}. Local Version={}, leader Version={}", i, localVersion, leaderVersion);
-            Thread.sleep(500);
+            Thread.sleep(250);
           }
 
         }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        if (core.isClosed()) return true;
+        log.error("Thread interrupted while waiting for core {} to be in sync with leader", core.getName());
+        return false;
+      } catch (Exception e) {
+        if (core.isClosed()) return true;
+        log.error("Exception when wait for replicas in sync with master. Will retry until timeout.", e);
       }
-
-    } catch (Exception e) {
-      log.error("Exception when wait for replicas in sync with master");
+      i++;
     }
-
     return false;
   }
   

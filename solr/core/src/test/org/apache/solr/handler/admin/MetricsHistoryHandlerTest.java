@@ -58,7 +58,7 @@ public class MetricsHistoryHandlerTest extends SolrCloudTestCase {
 
   @BeforeClass
   public static void beforeClass() throws Exception {
-    simulated = random().nextBoolean() || true;
+    simulated = random().nextBoolean();
     Map<String, Object> args = new HashMap<>();
     args.put(MetricsHistoryHandler.SYNC_PERIOD_PROP, 1);
     args.put(MetricsHistoryHandler.COLLECT_PERIOD_PROP, 1);
@@ -110,6 +110,7 @@ public class MetricsHistoryHandlerTest extends SolrCloudTestCase {
   }
 
   @Test
+  //Commented 14-Oct-2018 @BadApple(bugUrl="https://issues.apache.org/jira/browse/SOLR-12028") // added 15-Sep-2018
   public void testBasic() throws Exception {
     timeSource.sleep(10000);
     List<Pair<String, Long>> list = handler.getFactory().list(100);

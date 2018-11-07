@@ -49,12 +49,12 @@ class AddReplicaSuggester extends Suggester {
       Row bestNode = null;
       for (int i = getMatrix().size() - 1; i >= 0; i--) {
         Row row = getMatrix().get(i);
-        if (!isNodeSuitableForReplicaAddition(row)) continue;
-        Row tmpRow = row.addReplica(shard.first(), shard.second(), type);
+        if (!isNodeSuitableForReplicaAddition(row, null)) continue;
+        Row tmpRow = row.addReplica(shard.first(), shard.second(), type, strict);
         List<Violation> errs = testChangedMatrix(strict, tmpRow.session);
-
         if (!containsNewErrors(errs)) {
-          if (isLessSerious(errs, leastSeriousViolation)) {
+          if ((errs.isEmpty() && isLessDeviant()) ||//there are no violations but this is deviating less
+              isLessSerious(errs, leastSeriousViolation)) {//there are errors , but this has less serious violation
             leastSeriousViolation = errs;
             bestNode = tmpRow;
           }
@@ -72,6 +72,7 @@ class AddReplicaSuggester extends Suggester {
 
     return null;
   }
+
 
   @Override
   public CollectionParams.CollectionAction getAction() {

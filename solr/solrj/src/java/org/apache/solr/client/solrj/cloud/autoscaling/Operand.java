@@ -17,6 +17,7 @@
 
 package org.apache.solr.client.solrj.cloud.autoscaling;
 
+import java.util.List;
 import java.util.Objects;
 
 import org.apache.solr.client.solrj.cloud.autoscaling.Clause.TestStatus;
@@ -39,23 +40,23 @@ public enum Operand {
   RANGE_EQUAL("", 0) {
     @Override
     public TestStatus match(Object ruleVal, Object testVal) {
-      return ((Clause.RangeVal) ruleVal).match((Number) testVal) ? PASS : FAIL;
+      return ((RangeVal) ruleVal).match((Number) testVal) ? PASS : FAIL;
     }
 
     @Override
     public Double delta(Object expected, Object actual) {
-      return ((Clause.RangeVal) expected).delta(((Number) actual).doubleValue());
+      return ((RangeVal) expected).delta(((Number) actual).doubleValue());
     }
 
     @Override
-    public Object readRuleValue(Clause.Condition condition) {
+    public Object readRuleValue(Condition condition) {
       if (condition.val instanceof String) {
         String strVal = ((String) condition.val).trim();
         int hyphenIdx = strVal.indexOf('-');
         if (hyphenIdx > 0) {
           String minS = strVal.substring(0, hyphenIdx).trim();
           String maxS = strVal.substring(hyphenIdx + 1, strVal.length()).trim();
-          return new Clause.RangeVal(
+          return new RangeVal(
               (Number) condition.varType.validate(condition.name, minS, true),
               (Number) condition.varType.validate(condition.name, maxS, true),
               null
@@ -67,23 +68,30 @@ public enum Operand {
 
 
       Number num = (Number) condition.varType.validate(condition.name, condition.val, true);
-      return new Clause.RangeVal(Math.floor(num.doubleValue()), Math.ceil(num.doubleValue()), num);
+      return new RangeVal(Math.floor(num.doubleValue()), Math.ceil(num.doubleValue()), num);
     }
   },
   EQUAL("", 0) {
     @Override
     public double _delta(double expected, double actual) {
-      return expected - actual;
+      return actual - expected;
+    }
+  },
+  IN("", 0) {
+    @Override
+    public TestStatus match(Object ruleVal, Object testVal) {
+      List l = (List) ruleVal;
+      return (l.contains(testVal)) ?  PASS: FAIL;
     }
   },
   RANGE_NOT_EQUAL("", 2) {
     @Override
     public TestStatus match(Object ruleVal, Object testVal) {
-      return ((Clause.RangeVal) ruleVal).match((Number) testVal) ? FAIL : PASS;
+      return ((RangeVal) ruleVal).match((Number) testVal) ? FAIL : PASS;
     }
 
     @Override
-    public Object readRuleValue(Clause.Condition condition) {
+    public Object readRuleValue(Condition condition) {
       return RANGE_EQUAL.readRuleValue(condition);
     }
 
@@ -91,6 +99,7 @@ public enum Operand {
   NOT_EQUAL("!", 2) {
     @Override
     public TestStatus match(Object ruleVal, Object testVal) {
+      if(testVal == null) return PASS;
       return super.match(ruleVal, testVal) == PASS ? FAIL : PASS;
     }
 
@@ -194,7 +203,7 @@ public enum Operand {
     return operand + val.toString();
   }
 
-  public Object readRuleValue(Clause.Condition condition) {
+  public Object readRuleValue(Condition condition) {
     return condition.val;
   }
 }
