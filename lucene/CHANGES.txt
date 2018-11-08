@@ -192,6 +192,9 @@ Optimizations
 * LUCENE-8507: TopFieldCollector can now update the minimum competitive score if the primary sort
   is by relevancy and the total hit count is not required. (Jim Ferenczi)
 
+* LUCENE-8374: Reduce reads for sparse DocValues and whole number numeric DocValues.
+  (Toke Eskildsen)
+
 ======================= Lucene 7.6.0 =======================
 
 Build:
