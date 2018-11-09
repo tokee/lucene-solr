@@ -79,21 +79,21 @@ import static org.apache.lucene.codecs.lucene70.IndexedDISI.MAX_ARRAY_LENGTH;
  * At the point of writing, performance points are only available for 2 real-world setups.
  */
 public class IndexedDISICache implements Accountable {
-  public static final int BLOCK = 65536;   // The number of docIDs that a single block represents
-  public static final int BLOCK_BITS = 16;
-  public static final long BLOCK_INDEX_SHIFT = 33; // Number of bits to shift a lookup entry to get the index
-  public static final long BLOCK_INDEX_MASK = ~0L << BLOCK_INDEX_SHIFT; // The index bits in a lookup entry
-  public static final long BLOCK_LOOKUP_MASK = ~BLOCK_INDEX_MASK; // The offset bits in a lookup entry
+  private static final int BLOCK = 65536;   // The number of docIDs that a single block represents
+  static final int BLOCK_BITS = 16;
+  private static final long BLOCK_INDEX_SHIFT = 33; // Number of bits to shift a lookup entry to get the index
+  private static final long BLOCK_INDEX_MASK = ~0L << BLOCK_INDEX_SHIFT; // The index bits in a lookup entry
+  private static final long BLOCK_LOOKUP_MASK = ~BLOCK_INDEX_MASK; // The offset bits in a lookup entry
 
-  public static final int RANK_BLOCK = 512; // The number of docIDs/bits in each rank-sub-block within a DENSE block
-  public static final int RANK_BLOCK_LONGS = 512/Long.SIZE; // The number of longs making up a rank-block (8)
-  public static final int RANK_BLOCK_BITS = 9;
-  public static final int RANKS_PER_BLOCK = BLOCK/RANK_BLOCK;
+  private static final int RANK_BLOCK = 512; // The number of docIDs/bits in each rank-sub-block within a DENSE block
+  static final int RANK_BLOCK_LONGS = 512/Long.SIZE; // The number of longs making up a rank-block (8)
+  private static final int RANK_BLOCK_BITS = 9;
+  private static final int RANKS_PER_BLOCK = BLOCK/RANK_BLOCK;
 
   private PackedInts.Reader rank;   // One every 512 docs, sparsely represented as not all blocks are DENSE
   private long[] blockCache = null; // One every 65536 docs, contains index & slice position
-  public String creationStats = "";
-  public String name; // Identifier for debug, log & inspection
+  private String creationStats = "";
+  private final String name; // Identifier for debug, log & inspection
 
   // Flags for not-yet-defined-values used during building
   private static final long BLOCK_EMPTY_INDEX = ~0L << BLOCK_INDEX_SHIFT;
@@ -118,7 +118,7 @@ public class IndexedDISICache implements Accountable {
     this.name = "";
   }
 
-  // Uses to represent no caching.
+  // Used to represent no caching.
   public static final IndexedDISICache EMPTY = new IndexedDISICache();
 
   /**
@@ -127,7 +127,7 @@ public class IndexedDISICache implements Accountable {
    * @param targetBlock the index for the block to resolve (docID / 65536).
    * @return the offset for the block for target or -1 if it cannot be resolved.
    */
-  public long getFilePointerForBlock(int targetBlock) {
+  long getFilePointerForBlock(int targetBlock) {
     long offset = blockCache == null || blockCache.length <= targetBlock ?
         -1 : blockCache[targetBlock] & BLOCK_LOOKUP_MASK;
     return offset == BLOCK_EMPTY_LOOKUP ? -1 : offset;
@@ -138,7 +138,7 @@ public class IndexedDISICache implements Accountable {
    * @param targetBlock the block to resolve (docID / 65536).
    * @return the index for the block or -1 if it cannot be resolved.
    */
-  public int getIndexForBlock(int targetBlock) {
+  int getIndexForBlock(int targetBlock) {
     if (blockCache == null || blockCache.length <= targetBlock) {
       return -1;
     }
@@ -152,7 +152,7 @@ public class IndexedDISICache implements Accountable {
    * @return the docID where the rank is known. This will be lte target.
    */
   // TODO: This method requires a lot of knowledge of the intrinsics of the cache. Usage should be simplified
-  public int denseRankPosition(int target) {
+  int denseRankPosition(int target) {
        return target >> RANK_BLOCK_BITS << RANK_BLOCK_BITS;
   }
 
@@ -160,7 +160,7 @@ public class IndexedDISICache implements Accountable {
     return blockCache != null;
   }
 
-  public boolean hasRank() {
+  boolean hasRank() {
     return rank != null;
   }
   
@@ -176,7 +176,7 @@ public class IndexedDISICache implements Accountable {
    *         If rank is disabled, -1 is returned.
    */
   // TODO: This method requires a lot of knowledge of the intrinsics of the cache. Usage should be simplified
-  public int getRankInBlock(int rankPosition) {
+  int getRankInBlock(int rankPosition) {
     if (rank == null) {
       return -1;
     }
@@ -215,7 +215,6 @@ public class IndexedDISICache implements Accountable {
     int largestBlock = -1;
     long index = 0;
     int rankIndex = -1;
-    int rankCountTemp = 0;
     while (slice.getFilePointer() < slice.length()) {
       final long startFilePointer = slice.getFilePointer();
 
@@ -253,7 +252,6 @@ public class IndexedDISICache implements Accountable {
         rankIndex = rankOrigo + rankDelta;
         buildRank = ArrayUtil.grow(buildRank, rankIndex+1);
         buildRank[rankIndex] = (char)setBits;
-        rankCountTemp++;
         for (int i = 0 ; i < 512/64 ; i++) { // 8 longs for each rank-entry
           setBits += Long.bitCount(slice.readLong());
         }
@@ -298,6 +296,20 @@ public class IndexedDISICache implements Accountable {
         latest = current;
       }
     }
+  }
+
+  /**
+   * @return Human readable details from the creation of the cache instance.
+   */
+  public String getCreationStats() {
+    return creationStats;
+  }
+
+  /**
+   * @return Human-readable name for the cache instance.
+   */
+  public String getName() {
+    return name;
   }
 
   @Override

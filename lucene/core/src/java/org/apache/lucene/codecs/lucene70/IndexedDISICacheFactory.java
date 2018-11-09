@@ -40,7 +40,7 @@ public class IndexedDISICacheFactory implements Accountable {
    * If the slice with the DISI-data is less than this number of bytes, don't create a cache.
    * This is a very low number as the DISI-structure very efficiently represents EMPTY and ALL blocks.
    */
-  public static int MIN_LENGTH_FOR_CACHING = 50; // Set this very low: Could be 9 EMPTY followed by a SPARSE
+  private static int MIN_LENGTH_FOR_CACHING = 50; // Set this very low: Could be 9 EMPTY followed by a SPARSE
 
   // jump-table and rank for DISI blocks
   private final Map<Long, IndexedDISICache> disiPool = new HashMap<>();
@@ -55,7 +55,7 @@ public class IndexedDISICacheFactory implements Accountable {
    * @return a cached IndexedDISI or a plain IndexedDISI, if caching is not applicable.
    * @throws IOException if the DISI-structure could not be accessed.
    */
-  public IndexedDISI createCachedIndexedDISI(IndexInput data, long key, int cost, String name) throws IOException {
+  IndexedDISI createCachedIndexedDISI(IndexInput data, long key, int cost, String name) throws IOException {
     IndexedDISICache cache = getCache(data, key, name);
     return new IndexedDISI(data, cost, cache, name);
   }
@@ -70,7 +70,7 @@ public class IndexedDISICacheFactory implements Accountable {
    * @return a cached IndexedDISI or a plain IndexedDISI, if caching is not applicable.
    * @throws IOException if the DISI-structure could not be accessed.
    */
-  public IndexedDISI createCachedIndexedDISI(IndexInput data, long offset, long length, long cost, String name)
+  IndexedDISI createCachedIndexedDISI(IndexInput data, long offset, long length, long cost, String name)
       throws IOException {
     IndexedDISICache cache = getCache(data, offset, length, name);
     return new IndexedDISI(data, offset, length, cost, cache, name);
@@ -84,8 +84,7 @@ public class IndexedDISICacheFactory implements Accountable {
    * @param valuesLength the length in bytes of the slice.
    * @return a jump table for the longs in the given slice or null if the structure is not suitable for caching.
    */
-  public VaryingBPVJumpTable getVBPVJumpTable(
-      String name, RandomAccessInput slice, long valuesLength) throws IOException {
+  VaryingBPVJumpTable getVBPVJumpTable(String name, RandomAccessInput slice, long valuesLength) throws IOException {
     VaryingBPVJumpTable jumpTable = vBPVPool.get(name);
     if (jumpTable == null) {
       // TODO: Avoid overlapping builds of the same jump table for performance reasons
@@ -180,7 +179,7 @@ public class IndexedDISICacheFactory implements Accountable {
   /**
    * Releases all caches.
    */
-  public void releaseAll() {
+  void releaseAll() {
     disiPool.clear();
     vBPVPool.clear();
   }
@@ -194,7 +193,7 @@ public class IndexedDISICacheFactory implements Accountable {
     long[] offsets = new long[10];
     final String creationStats;
 
-    public VaryingBPVJumpTable(RandomAccessInput slice, String name, long valuesLength) throws IOException {
+    VaryingBPVJumpTable(RandomAccessInput slice, String name, long valuesLength) throws IOException {
       final long startTime = System.nanoTime();
 
       int block = -1;
@@ -229,7 +228,7 @@ public class IndexedDISICacheFactory implements Accountable {
      * @param block the logical block in the vBPV structure ( valueindex/16384 ).
      * @return the index slice offset for the vBPV block (1 block = 16384 values) or -1 if not available.
      */
-    public long getBlockOffset(long block) {
+    long getBlockOffset(long block) {
       // Technically a limitation in caching vs. VaryingBPVReader to limit to 2b blocks of 16K values
       return offsets[(int) block];
     }
