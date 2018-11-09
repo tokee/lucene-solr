@@ -211,8 +211,8 @@ public class TestDocValues extends LuceneTestCase {
       int readerIndex = dr.readerIndex(id);
       // We create a new reader each time as we want to test vBPV-skipping and not sequential iteration
       NumericDocValues numDV = dr.leaves().get(readerIndex).reader().getNumericDocValues("dv");
-      assertTrue("There should be a value for docID " + id, numDV.advanceExact(id));
-      assertEquals("The value for docID " + id + " should be as expected",
+      assertTrue(designation + ": There should be a value for docID " + id, numDV.advanceExact(id));
+      assertEquals(designation + ": The value for docID " + id + " should be as expected",
           docValues.get(id), Long.valueOf(numDV.longValue()));
     }
 
@@ -227,41 +227,6 @@ public class TestDocValues extends LuceneTestCase {
       dir.deleteFile(file);
     }
     dir.close();
-  }
-
-  private String shortenKB(int requests) {
-    return requests >= 1_000 ? requests/1_000+"K" : requests+"";
-  }
-  private String shorten(int requests) {
-    return requests >= 1_000_000 ? requests/1_000_000+"M" : requests >= 1_000 ? requests/1_000+"K" : requests+"";
-  }
-
-  private void generateVaryingBPVIndex(
-      Directory dir, int bpvMin, int bpvStep, int bpvMax, int docsPerBPV, boolean optimize) throws IOException {
-
-    IndexWriterConfig iwc = new IndexWriterConfig(new StandardAnalyzer());
-    //iwc.setCodec(Codec.forName("Lucene70"));
-    IndexWriter iw = new IndexWriter(dir, iwc);
-
-    int id = 0;
-    for (int bpv = bpvMin ; bpv < bpvMax+1 ; bpv += bpvStep) {
-      for (int i = 0 ; i < docsPerBPV ; i++) {
-        Document doc = new Document();
-        int max = 1 << (bpv - 1);
-        int value =  random().nextInt(max) | max;
-        doc.add(new StringField("id", Integer.toString(id++), Field.Store.YES));
-        if (id % 87 != 0) { // Ensure sparse
-          doc.add(new NumericDocValuesField("dv", value));
-        }
-        iw.addDocument(doc);
-      }
-    }
-    iw.flush();
-    if (optimize) {
-      iw.forceMerge(1, true);
-    }
-    iw.commit();
-    iw.close();
   }
 
   /**
