@@ -105,16 +105,11 @@ public class IndexedDISICache implements Accountable {
    *
    * @param in positioned at the start of the logical underlying bitmap.
    */
-  IndexedDISICache(IndexInput in, boolean createBlockCache, boolean createRankCache, String name) throws IOException {
-    if (createBlockCache) {
-      blockCache = new long[16];    // Will be extended when needed
-      Arrays.fill(blockCache, BLOCK_EMPTY);
-    }
-    if (!createBlockCache && !createRankCache) {
-      return; // Nothing to do
-    }
+  IndexedDISICache(IndexInput in, String name) throws IOException {
+    blockCache = new long[16];    // Will be extended when needed
+    Arrays.fill(blockCache, BLOCK_EMPTY);
     this.name = name;
-    updateCaches(in, createBlockCache, createRankCache);
+    updateCaches(in);
   }
 
   private IndexedDISICache() {
@@ -190,8 +185,7 @@ public class IndexedDISICache implements Accountable {
     return rankIndex >= rank.size() ? -1 : (int) rank.get(rankIndex);
   }
 
-  private void updateCaches(IndexInput slice, boolean fillBlockCache, boolean fillRankCache)
-      throws IOException {
+  private void updateCaches(IndexInput slice) throws IOException {
     final long startOffset = slice.getFilePointer();
 
     final long startTime = System.nanoTime();
@@ -200,22 +194,22 @@ public class IndexedDISICache implements Accountable {
     AtomicInteger statBlockSPARSE = new AtomicInteger(0);
 
     // Fill phase
-    int largestBlock = fillCache(slice, fillBlockCache, fillRankCache, statBlockALL, statBlockDENSE, statBlockSPARSE);
-    freezeCaches(fillBlockCache, fillRankCache, largestBlock);
+    int largestBlock = fillCache(slice, statBlockALL, statBlockDENSE, statBlockSPARSE);
+    freezeCaches(largestBlock);
 
     slice.seek(startOffset); // Leave it as we found it
     creationStats = String.format(Locale.ENGLISH,
-        "name=%s, blocks=%d (ALL=%d, DENSE=%d, SPARSE=%d, EMPTY=%d), time=%dms, block=%b (%d bytes), rank=%b (%d bytes)",
+        "name=%s, blocks=%d (ALL=%d, DENSE=%d, SPARSE=%d, EMPTY=%d), time=%dms, block=%d bytes, rank=%d bytes",
         name,
         largestBlock+1, statBlockALL.get(), statBlockDENSE.get(), statBlockSPARSE.get(),
         (largestBlock+1-statBlockALL.get()-statBlockDENSE.get()-statBlockSPARSE.get()),
         (System.nanoTime()-startTime)/1000000,
-        fillBlockCache, blockCache == null ? 0 : blockCache.length*Long.BYTES,
-        fillRankCache, rank == null ? 0 : rank.ramBytesUsed());
+        blockCache == null ? 0 : blockCache.length*Long.BYTES,
+        rank == null ? 0 : rank.ramBytesUsed());
   }
 
-  private int fillCache(IndexInput slice, boolean fillBlockCache, boolean fillRankCache,
-                        AtomicInteger statBlockALL, AtomicInteger statBlockDENSE, AtomicInteger statBlockSPARSE)
+  private int fillCache(
+      IndexInput slice, AtomicInteger statBlockALL, AtomicInteger statBlockDENSE, AtomicInteger statBlockSPARSE)
       throws IOException {
     char[] buildRank = new char[256];
     int largestBlock = -1;
@@ -235,10 +229,8 @@ public class IndexedDISICache implements Accountable {
       }
       largestBlock = blockIndex;
 
-      if (fillBlockCache) {
-        blockCache = ArrayUtil.grow(blockCache, blockIndex+1); // No-op if large enough
-        blockCache[blockIndex] = (index << BLOCK_INDEX_SHIFT) | startFilePointer;
-      }
+      blockCache = ArrayUtil.grow(blockCache, blockIndex+1); // No-op if large enough
+      blockCache[blockIndex] = (index << BLOCK_INDEX_SHIFT) | startFilePointer;
       index += numValues;
 
       if (numValues <= MAX_ARRAY_LENGTH) { // SPARSE
@@ -255,22 +247,18 @@ public class IndexedDISICache implements Accountable {
       // The block is DENSE
       statBlockDENSE.incrementAndGet();
       long nextBlockOffset = slice.getFilePointer() + (1 << 13);
-      if (fillRankCache) {
-        int setBits = 0;
-        int rankOrigo = blockIndex << 16 >> 9; // Double shift for clarity: The compiler will simplify it
-        for (int rankDelta = 0 ; rankDelta < RANKS_PER_BLOCK ; rankDelta++) { // 128 rank-entries in a block
-          rankIndex = rankOrigo + rankDelta;
-          buildRank = ArrayUtil.grow(buildRank, rankIndex+1);
-          buildRank[rankIndex] = (char)setBits;
-          rankCountTemp++;
-          for (int i = 0 ; i < 512/64 ; i++) { // 8 longs for each rank-entry
-            setBits += Long.bitCount(slice.readLong());
-          }
+      int setBits = 0;
+      int rankOrigo = blockIndex << 16 >> 9; // Double shift for clarity: The compiler will simplify it
+      for (int rankDelta = 0 ; rankDelta < RANKS_PER_BLOCK ; rankDelta++) { // 128 rank-entries in a block
+        rankIndex = rankOrigo + rankDelta;
+        buildRank = ArrayUtil.grow(buildRank, rankIndex+1);
+        buildRank[rankIndex] = (char)setBits;
+        rankCountTemp++;
+        for (int i = 0 ; i < 512/64 ; i++) { // 8 longs for each rank-entry
+          setBits += Long.bitCount(slice.readLong());
         }
-        assert slice.getFilePointer() == nextBlockOffset;
-      } else {
-        slice.seek(nextBlockOffset);
       }
+      assert slice.getFilePointer() == nextBlockOffset;
     }
     // Compress the buildRank as it is potentially very sparse
     if (rankIndex < 0) {
@@ -286,7 +274,7 @@ public class IndexedDISICache implements Accountable {
     return largestBlock;
   }
 
-  private void freezeCaches(boolean fillBlockCache, boolean fillRankCache, int largestBlock) {
+  private void freezeCaches(int largestBlock) {
     if (largestBlock == -1) { // No set bit: Disable the caches
       blockCache = null;
       rank = null;
@@ -294,26 +282,22 @@ public class IndexedDISICache implements Accountable {
     }
 
     // Reduce size to minimum
-    if (fillBlockCache && blockCache.length-1 > largestBlock) {
+    if (blockCache.length-1 > largestBlock) {
       long[] newBC = new long[Math.max(largestBlock - 1, 1)];
       System.arraycopy(blockCache, 0, newBC, 0, newBC.length);
       blockCache = newBC;
     }
 
-    // Replace non-defined values with usable ones
-    if (fillBlockCache) {
-
-      // Set non-defined blockCache entries (caused by blocks with 0 set bits) to the subsequently defined one
-      long latest = BLOCK_EMPTY;
-      for (int i = blockCache.length-1; i >= 0 ; i--) {
-        long current = blockCache[i];
-        if (current == BLOCK_EMPTY) {
-          blockCache[i] = latest;
-        } else {
-          latest = current;
-        }
+    // Set non-defined blockCache entries (caused by blocks with 0 set bits) to the subsequently defined one
+    long latest = BLOCK_EMPTY;
+    for (int i = blockCache.length-1; i >= 0 ; i--) {
+      long current = blockCache[i];
+      if (current == BLOCK_EMPTY) {
+        blockCache[i] = latest;
+      } else {
+        latest = current;
       }
-   }
+    }
   }
 
   @Override

@@ -113,7 +113,7 @@ public class IndexedDISICacheFactory implements Accountable {
     IndexedDISICache cache = disiPool.get(key);
     if (cache == null) {
       // TODO: Avoid overlapping builds of the same cache for performance reason
-      cache = new IndexedDISICache(data.slice("docs", offset, length), true, true, name);
+      cache = new IndexedDISICache(data.slice("docs", offset, length), name);
       disiPool.put(key, cache);
     }
     return cache;
@@ -141,7 +141,7 @@ public class IndexedDISICacheFactory implements Accountable {
       // TODO: Avoid overlapping builds of the same cache
       // Both BLOCK & DENSE caches are created as they might be requested later for the field,
       // regardless of whether they are requested now
-      cache = new IndexedDISICache(slice, true, true, name);
+      cache = new IndexedDISICache(slice, name);
       disiPool.put(key, cache);
     }
     return cache;
