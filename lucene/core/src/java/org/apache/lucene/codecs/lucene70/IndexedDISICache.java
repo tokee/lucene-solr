@@ -283,7 +283,6 @@ public class IndexedDISICache implements Accountable {
       rank = LongCompressor.compress(ranks);
     }
 
-    //maxDocID = ((largestBlock+1) << BLOCK_BITS)-1;
     return largestBlock;
   }
 
@@ -300,11 +299,6 @@ public class IndexedDISICache implements Accountable {
       System.arraycopy(blockCache, 0, newBC, 0, newBC.length);
       blockCache = newBC;
     }
-/*    if (fillRankCache && rank.s > (largestBlock+1)*RANKS_PER_BLOCK) {
-      char[] newRank = new char[(largestBlock+1)*RANKS_PER_BLOCK];
-      System.arraycopy(rank, 0, newRank, 0, newRank.length);
-      rank = newRank;
-    }*/
 
     // Replace non-defined values with usable ones
     if (fillBlockCache) {
@@ -319,29 +313,7 @@ public class IndexedDISICache implements Accountable {
           latest = current;
         }
       }
-
-/*      // Set non-defined blockCache entries (caused by blocks with 0 set bits) to the next defined offset
-      long latestLookup = BLOCK_EMPTY_LOOKUP;
-      for (int i = blockCache.length-1; i >= 0 ; i--) {
-        long currentLookup = blockCache[i] & BLOCK_LOOKUP_MASK;
-        if (currentLookup == BLOCK_EMPTY_LOOKUP) { // If empty, set the pointer to the sub-sequent defined one
-          blockCache[i] = (blockCache[i] & BLOCK_INDEX_MASK) | (latestLookup & BLOCK_LOOKUP_MASK);
-        } else {
-          latestLookup = currentLookup;
-        }
-      }
-  */
-/*      // Set non-defined index (caused by blocks with 0 set bits) to the previous origo
-      long lastIndex = 0L;
-      for (int i = 0 ; i < blockCache.length ; i++) {
-        long currentIndex = blockCache[i] & BLOCK_INDEX_MASK;
-        if (currentIndex == BLOCK_EMPTY_INDEX) {
-          blockCache[i] = lastIndex | (blockCache[i] & BLOCK_LOOKUP_MASK);
-        } else {
-          lastIndex = currentIndex;
-        }
-      }*/
-    }
+   }
   }
 
   @Override

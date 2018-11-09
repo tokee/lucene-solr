@@ -204,7 +204,6 @@ final class IndexedDISI extends DocIdSetIterator {
       if (offset != -1 && offset > slice.getFilePointer()) {
         int origo = cache.getIndexForBlock(targetBlock >> IndexedDISICache.BLOCK_BITS);
         if (origo != -1) {
-          //   System.out.println("Seeking to " + offset + " for targetBlock " + (targetBlock>>IndexedDISICache.BLOCK_BITS) + " with origo " + origo);
           this.nextBlockIndex = origo - 1; // -1 to compensate for the always-added 1 in readBlockHeader
           slice.seek(offset);
           readBlockHeader();
@@ -304,23 +303,12 @@ final class IndexedDISI extends DocIdSetIterator {
         final int targetInBlock = target & 0xFFFF;
         final int targetWordIndex = targetInBlock >>> 6;
 
-        if (target == (target >> 9 << 9)) {
-//          System.out.println("-----");
-        }
-
         // If possible, skip ahead using the rank cache
         disi.rankSkip(disi, target);
 
         for (int i = disi.wordIndex + 1; i <= targetWordIndex; ++i) {
           disi.word = disi.slice.readLong();
           disi.numberOfOnes += Long.bitCount(disi.word);
-          // Read @ 249 with offset=2004
-        //  System.out.println("Read @ " + i + " with offset=" + disi.slice.getFilePointer());
-        }
-        if (target == (target >> 9 << 9)) {
-//          System.out.println("coarse index=" + disi.index + ", wordIndex=" + disi.wordIndex +
-//              ", targetWordIndex=" + targetWordIndex+ ", ones=" + disi.numberOfOnes +
-//              ", offset=" + disi.slice.getFilePointer());
         }
         disi.wordIndex = targetWordIndex;
 
@@ -328,13 +316,7 @@ final class IndexedDISI extends DocIdSetIterator {
         if (leftBits != 0L) {
           disi.doc = target + Long.numberOfTrailingZeros(leftBits);
           disi.index = disi.numberOfOnes - Long.bitCount(leftBits);
-          if (target == (target >> 9 << 9)) {
-//            System.out.println("countStop=" + disi.index + ", wordIndex=" + disi.wordIndex);
-          }
           return true;
-        }
-        if (target == (target >> 9 << 9)) {
-//          System.out.println("countOut=" + disi.index + ", wordIndex=" + disi.wordIndex);
         }
 
         // There were no set bits at the wanted position. Move forward until one is reached
@@ -346,9 +328,6 @@ final class IndexedDISI extends DocIdSetIterator {
             disi.index = disi.numberOfOnes;
             disi.numberOfOnes += Long.bitCount(disi.word);
             disi.doc = disi.block | (disi.wordIndex << 6) | Long.numberOfTrailingZeros(disi.word);
-            if (target == (target >> 9 << 9)) {
-//              System.out.println("extra=" + disi.index + ", wordIndex=" + disi.wordIndex);
-            }
             return true;
           }
         }
@@ -425,7 +404,6 @@ final class IndexedDISI extends DocIdSetIterator {
     }
     int rank = disi.cache.getRankInBlock(rankPos);
     if (rank == -1) {
-      //System.out.println("Rank -1 for target=" + target);
       return;
     }
     int rankIndex = disi.denseOrigoIndex + rank;
@@ -443,10 +421,5 @@ final class IndexedDISI extends DocIdSetIterator {
     disi.wordIndex = rankWordIndex;
     disi.word = rankWord;
     disi.numberOfOnes = rankNOO;
-
-//            System.out.println("> rank denseOrigoIndex=" + disi.denseOrigoIndex +
-//                ", rank[" + (target >> IndexedDISICache.RANK_BLOCK_BITS) + "]=" + disi.cache.getRankInBlock(rankPos) +
-//                ", rankWordIndex=" + rankWordIndex + ", twi=" + targetWordIndex +
-//               ", offset=" + rankOffset + ", rankOnes=" + rankNOO + ", endIndex=" + rankIndex);
   }
 }

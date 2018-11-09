@@ -35,17 +35,17 @@ public class LongCompressor {
   /**
    * The minimum amount of total values in the data set for sparse to be active.
    */
-  public static final int DEFAULT_MIN_TOTAL_VALUES_FOR_SPARSE = 10_000;
+  private static final int DEFAULT_MIN_TOTAL_VALUES_FOR_SPARSE = 10_000;
 
   /**
    * The minimum total amount of zero values in the data set for sparse to be active.
    */
-  public static final int DEFAULT_MIN_ZERO_VALUES_FOR_SPARSE = 500;
+  private static final int DEFAULT_MIN_ZERO_VALUES_FOR_SPARSE = 500;
 
   /**
    * The minimum fraction of the data set that must be zero for sparse to be active.
    */
-  public static final double DEFAULT_MIN_ZERO_VALUES_FRACTION_FOR_SPARSE = 0.2; // 20% (just guessing of a value here)
+  private static final double DEFAULT_MIN_ZERO_VALUES_FRACTION_FOR_SPARSE = 0.2; // 20% (just guessing of a value here)
 
   /**
    * Create a compact version of the given values.
@@ -85,7 +85,6 @@ public class LongCompressor {
    * @param values PackedInts with no special constraints.
    * @param length the number of values to compress.
    * @param allowSparse if true and is the default limits matches the input, a sparse representation will be created.
-   * @param minTotalSparse the minimum amount of entries needed for a sparse representation.
    * @param minTotalSparse the minimum absolute number of 0-entries needed for a sparse representation.
    *                       0-entries are counted after minValue compression: {@code 3, 5, 3, 7, 16} has two 0-entries.
    * @return a compact version of the given values or the given values if compression did not improve on heap overhead.
@@ -164,11 +163,11 @@ public class LongCompressor {
     final long gcd;
     final RankBitSet rank;
 
-    public CompressedReader(PackedInts.Reader inner, long min, long gcd) {
+    CompressedReader(PackedInts.Reader inner, long min, long gcd) {
       this(inner, min, gcd, null);
     }
 
-    public CompressedReader(PackedInts.Reader inner, long min, long gcd, RankBitSet rank) {
+    CompressedReader(PackedInts.Reader inner, long min, long gcd, RankBitSet rank) {
       this.inner = inner;
       this.min = min;
       this.gcd = gcd;

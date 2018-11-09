@@ -16,13 +16,10 @@
  */
 package org.apache.lucene.codecs.lucene70;
 
-
 import java.io.IOException;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 import org.apache.lucene.store.IndexInput;
 import org.apache.lucene.store.RandomAccessInput;
