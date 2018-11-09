@@ -179,6 +179,23 @@ New Features
 
 * SOLR-11997: Suggestions API/UI should show an entry where a violation could not be resolved (noble)
 
+* SOLR-12971: Add pivot Stream Evaluator to pivot facet co-occurrence counts into a matrix (Joel Bernstein)
+
+* SOLR-12795: Introduce 'rows' and 'offset' parameter in FacetStream (Joel Bernstein, Amrit Sarkar, Varun Thacker)
+
+* SOLR-11572: Add recip Stream Evaluator to support reciprocal transformations (Joel Bernstein)
+
+* SOLR-12936: Allow percentiles Stream Evaluator to accept an array of percentiles to calculate (Joel bernstein)
+
+* SOLR-12829: Add plist (parallel list) Streaming Expression (Joel Bernstein)
+
+* SOLR-12975: Add ltrim and rtrim Stream Evaluators (Joel Bernstein)
+
+* SOLR-12962: Added a new 'uninvertible' option for fields and fieldtypes. This defaults to 'true' for
+  backcompat allowing a FieldCache to be built for indexed fields as needed, but users are encouraged
+  to set this to false (using docValues as needed) to reduce the risk of large fluxuations in heap
+  size due to unexpected attempts to sort/facet/function on non-docValue fields. (hossman)
+
 Other Changes
 ----------------------
 
@@ -207,6 +224,8 @@ Other Changes
 * SOLR-12956: Add Javadoc @since tag to Analyzer component classes (Alexandre Rafalovitch)
 
 * SOLR-12966: Add Javadoc @since tag to URP classes (Alexandre Rafalovitch)
+
+* SOLR-12600: Fix parameter names in Solr JSON documentation (Alexandre Rafalovitch)
 
 Bug Fixes
 ----------------------
@@ -278,6 +297,12 @@ Improvements
 
 * LUCENE-8557: Some internal LeafReader.getFieldInfos implementations were being re-computed on-demand instead of
   once up front leading to some slowdowns in places like JSON Facets and field collapsing. (Tim Underwood, David Smiley)
+
+* SOLR-12964: Json Facets: use DocValuesIterator advanceExact() instead of advance() in FacetFieldProcessorByHashDV and
+  UniqueSinglevaluedSlotAcc. (Tim Underwood)
+
+* SOLR-12880: Json Facets: Show the FacetProcessor class name instead of the FacetRequest in the JSON Facets debug-trace
+  output (Tim Underwood)
 
 ==================  7.5.0 ==================
 

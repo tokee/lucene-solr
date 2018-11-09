@@ -19,8 +19,6 @@ package org.apache.solr.client.solrj.request.json;
 
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.OutputStreamWriter;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -29,6 +27,7 @@ import java.util.Map;
 import org.apache.solr.client.solrj.request.QueryRequest;
 import org.apache.solr.client.solrj.request.RequestWriter;
 import org.apache.solr.client.solrj.util.ClientUtils;
+import org.apache.solr.common.MapWriter;
 import org.apache.solr.common.params.ModifiableSolrParams;
 import org.apache.solr.common.params.SolrParams;
 import org.apache.solr.common.util.Utils;
@@ -103,6 +102,37 @@ public class JsonQueryRequest extends QueryRequest {
   }
 
   /**
+   * Specify the query sent as a part of this JSON request.
+   *
+   * This method may be called multiple times, but each call overwrites the value specified by previous calls.
+   * <p>
+   * <b>Example:</b> You wish to send the JSON request: "{'limit': 5, 'query': {'lucene': {'df':'genre_s', 'query': 'scifi'}}}".  The
+   * query subtree of this request is: "{'lucene': {'df': 'genre_s', 'query': 'scifi'}}".  You would represent this query
+   * JSON as follows:
+   * <pre>
+   *     final MapWriter queryWriter = new MapWriter() {
+   *         &#64;Override
+   *         public void writeMap(EntryWriter ew) throws IOException {
+   *             ew.put("lucene", (MapWriter) queryParamWriter -&#62; {
+   *                 queryParamWriter.put("df", "genre_s");
+   *                 queryParamWriter.put("query", "scifi");
+   *             });
+   *         }
+   *     };
+   * </pre>
+   *
+   * @param queryWriter a MapWriter capable of writing out the query subtree of the JSON request you wish to send.
+   * @throws IllegalArgumentException if {@code queryWriter} is null.
+   */
+  public JsonQueryRequest setQuery(MapWriter queryWriter) {
+    if (queryWriter == null) {
+      throw new IllegalArgumentException("'queryWriter' parameter must be non-null");
+    }
+    jsonRequestMap.put("query", queryWriter);
+    return this;
+  }
+
+  /**
    * Specify whether results should be fetched starting from a particular offset (or 'start').
    *
    * Defaults to 0 if not set.
@@ -161,9 +191,7 @@ public class JsonQueryRequest extends QueryRequest {
     if (filterQuery == null) {
       throw new IllegalArgumentException("'filterQuery' must be non-null");
     }
-    jsonRequestMap.putIfAbsent("filter", new ArrayList<Object>());
-    final List<Object> filters = (List<Object>) jsonRequestMap.get("filter");
-    filters.add(filterQuery);
+    ((List)jsonRequestMap.computeIfAbsent("filter", s -> new ArrayList<>())).add(filterQuery) ;
     return this;
   }
 
@@ -190,9 +218,7 @@ public class JsonQueryRequest extends QueryRequest {
     if (filterQuery == null) {
       throw new IllegalArgumentException("'filterQuery' parameter must be non-null");
     }
-    jsonRequestMap.putIfAbsent("filter", new ArrayList<Object>());
-    final List<Object> filters = (List<Object>) jsonRequestMap.get("filter");
-    filters.add(filterQuery);
+    ((List)jsonRequestMap.computeIfAbsent("filter", s -> new ArrayList<>())).add(filterQuery) ;
     return this;
   }
 
@@ -224,6 +250,7 @@ public class JsonQueryRequest extends QueryRequest {
     if (fieldNames == null) {
       throw new IllegalArgumentException("'fieldNames' parameter must be non-null");
     }
+
     jsonRequestMap.putIfAbsent("fields", new ArrayList<String>());
     final List<String> fields = (List<String>) jsonRequestMap.get("fields");
     for (String fieldName : fieldNames) {
@@ -256,9 +283,7 @@ public class JsonQueryRequest extends QueryRequest {
       throw new IllegalArgumentException("'value' parameter must be non-null");
     }
 
-    jsonRequestMap.putIfAbsent("params", new HashMap<String, Object>());
-    final Map<String, Object> miscParamsMap = (Map<String, Object>) jsonRequestMap.get("params");
-    miscParamsMap.put(name, value);
+    ((Map<String, Object>)jsonRequestMap.computeIfAbsent("params", s -> new HashMap<String, Object>())).put(name, value);
     return this;
   }
 
@@ -266,11 +291,7 @@ public class JsonQueryRequest extends QueryRequest {
     return new RequestWriter.ContentWriter() {
       @Override
       public void write(OutputStream os) throws IOException {
-        //TODO consider whether using Utils.writeJson would work here as that'd be more mem efficient
-        OutputStreamWriter writer = new OutputStreamWriter(os, StandardCharsets.UTF_8);
-
-        writer.write(Utils.toJSONString(jsonRequestMap));
-        writer.flush();
+        Utils.writeJson(jsonRequestMap, os, true);
       }
 
       @Override

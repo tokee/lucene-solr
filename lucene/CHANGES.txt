@@ -230,7 +230,10 @@ Bug fixes:
   shape tessellation. (Ignacio Vera)
 
 * LUCENE-8559: Fix bug where polygon edges were skipped when checking for intersections.
-  (Ignacio Vera)   
+  (Ignacio Vera)
+
+* LUCENE-8556: Use latitude and longitude instead of encoding values to check if triangle is ear
+  when using morton optimisation. (Ignacio Vera)
 
 New Features
 
@@ -262,6 +265,8 @@ Improvements:
   the same cached instance.  MemoryIndex's impl now pre-creates the FieldInfos instead of
   re-calculating a new instance each time.  (Tim Underwood, David Smiley)
 
+* LUCENE-8558: Replace O(N) lookup with O(1) lookup in PerFieldMergeState#FilterFieldInfos.
+  (Kranthi via Simon Willnauer)
 Other:
 
 * LUCENE-8523: Correct typo in JapaneseNumberFilterFactory javadocs (Ankush Jhalani
