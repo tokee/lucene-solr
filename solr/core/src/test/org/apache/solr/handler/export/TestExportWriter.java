@@ -26,6 +26,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 
 import org.apache.lucene.util.TestUtil;
@@ -561,7 +562,10 @@ public class TestExportWriter extends SolrTestCaseJ4 {
         }
       }
     }
-    for (int i = 0; i < atLeast(100); i++) {
+    // 10K: ~2000
+    // 20K: ~6000
+    // 30K: 6500-7000
+    for (int i = 0; i < 100000; i++) {
       if (random().nextInt(20) == 0) {
         //have some empty docs
         assertU(adoc("id", String.valueOf(i)));
@@ -611,6 +615,129 @@ public class TestExportWriter extends SolrTestCaseJ4 {
     doTestQuery("id:[0 TO 2]", trieFields, pointFields);// "id" field is really a string, this is not a numeric range query
     doTestQuery("id:[0 TO 9]", trieFields, pointFields);
     doTestQuery("id:DOES_NOT_EXIST", trieFields, pointFields);
+
+    System.out.println("Performing timed full export tests");
+    for (int i = 0 ; i < 5 ; i++) {
+      final long startTime = System.nanoTime();
+      doTestQuery("*:*", trieFields, pointFields);
+      System.out.println((i+1) + "/" + 5 + ":Spend time after warm for full export: " +
+          (System.nanoTime() - startTime) / 1000000 + " ms");
+    }
+  }
+
+  /**
+   * This test doesn't validate the correctness of results, it just compares the response of the same request
+   * when asking for Trie fields vs Point fields. Can be removed once Trie fields are no longer supported
+   */
+  @Test
+  @SuppressForbidden(reason="using new Date(time) to create random dates")
+  public void testExportSpeed() throws Exception {
+    SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.ROOT);
+    List<String> trieFields = new ArrayList<String>();
+    List<String> pointFields = new ArrayList<String>();
+    for (String mv:new String[]{"s", ""}) {
+      for (String indexed:new String[]{"_ni", ""}) {
+        for (String type:new String[]{"i", "l", "f", "d", "dt"}) {
+          String field = "number_" + type + mv + indexed;
+          SchemaField sf = h.getCore().getLatestSchema().getField(field + "_t");
+          assertTrue(sf.hasDocValues());
+          assertTrue(sf.getType().getNumberType() != null);
+          
+          sf = h.getCore().getLatestSchema().getField(field + "_p");
+          assertTrue(sf.hasDocValues());
+          assertTrue(sf.getType().getNumberType() != null);
+          assertTrue(sf.getType().isPointField());
+          
+          trieFields.add(field + "_t");
+          pointFields.add(field + "_p");
+        }
+      }
+    }
+
+    final Random fixed = new Random(87); // Freezed for reproducability as we test speed
+    StringBuilder sb = new StringBuilder();
+    for (int docs: new int[]{10}) {
+
+      assertU(delQ("*:*"));
+      assertU(commit());
+
+      for (int i = 0; i < docs; i++) {
+        if (fixed.nextInt(20) == 0) {
+          //have some empty docs
+          assertU(adoc("id", String.valueOf(i)));
+          continue;
+        }
+
+        if (fixed.nextInt(20) == 0 && i > 0) {
+          //delete some docs
+          assertU(delI(String.valueOf(i - 1)));
+        }
+
+        SolrInputDocument doc = new SolrInputDocument();
+        doc.addField("id", String.valueOf(i));
+        addInt(doc, fixed.nextInt(), false);
+        addLong(doc, fixed.nextLong(), false);
+        addFloat(doc, fixed.nextFloat() * 3000 * (fixed.nextBoolean() ? 1 : -1), false);
+        addDouble(doc, fixed.nextDouble() * 3000 * (fixed.nextBoolean() ? 1 : -1), false);
+        addDate(doc, dateFormat.format(new Date()), false);
+
+        // MV need to be unique in order to be the same in Trie vs Points
+        Set<Integer> ints = new HashSet<>();
+        Set<Long> longs = new HashSet<>();
+        Set<Float> floats = new HashSet<>();
+        Set<Double> doubles = new HashSet<>();
+        Set<String> dates = new HashSet<>();
+        for (int j = 0; j < fixed.nextInt(20); j++) {
+          ints.add(fixed.nextInt());
+          longs.add(fixed.nextLong());
+          floats.add(fixed.nextFloat() * 3000 * (fixed.nextBoolean() ? 1 : -1));
+          doubles.add(fixed.nextDouble() * 3000 * (fixed.nextBoolean() ? 1 : -1));
+          dates.add(dateFormat.format(new Date(System.currentTimeMillis() + fixed.nextInt())));
+        }
+        ints.stream().forEach((val) -> addInt(doc, val, true));
+        longs.stream().forEach((val) -> addLong(doc, val, true));
+        floats.stream().forEach((val) -> addFloat(doc, val, true));
+        doubles.stream().forEach((val) -> addDouble(doc, val, true));
+        dates.stream().forEach((val) -> addDate(doc, val, true));
+
+        assertU(adoc(doc));
+        if (fixed.nextInt(20) == 0) {
+          assertU(commit());
+        }
+      }
+      assertU(commit());
+
+      System.out.println("Performing timed full export tests");
+      final String query = "*:*";
+      String trieFieldsFl = String.join(",", trieFields);
+      String pointFieldsFl = String.join(",", pointFields);
+      String sort = pickRandom(fixed, (String) pickRandom(fixed, trieFields.toArray()),
+          (String) pickRandom(fixed, pointFields.toArray())).
+          replace("s_", "_") + pickRandom(fixed, " asc", " desc");
+
+      for (int i = 0; i < 5; i++) {
+        for (boolean sort_docs: new boolean[]{Boolean.FALSE, Boolean.TRUE}) {
+          ExportWriter.SORT_DOCS = sort_docs;
+          long pointsTime = -System.nanoTime();
+          h.query(req("q", query, "qt", "/export", "fl", pointFieldsFl, "sort", sort));
+          pointsTime += System.nanoTime();
+          long trieTime = -System.nanoTime();
+          h.query(req("q", query, "qt", "/export", "fl", trieFieldsFl, "sort", sort));
+          trieTime += System.nanoTime();
+          String output = String.format(Locale.ENGLISH,
+              "Test %d/%d: %7d documents, sorted %5b, trie %6d ms (%8.0f docs/s), points %6d ms (%8.0f docs/s)",
+              i + 1, 5, docs, sort_docs,
+              trieTime / 1_000_000, docs / (trieTime / 1_000_000_000d), pointsTime / 1_000_000,
+              docs / (pointsTime / 1_000_000_000d));
+          System.out.println(output);
+          sb.append(output).append("\n");
+        }
+      }
+    }
+    System.out.println("Total output:\n" + sb);
+  }
+  protected <T> T pickRandom(Random random, T... options) {
+    return options[random.nextInt(options.length)];
   }
 
   @Test

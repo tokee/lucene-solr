@@ -24,33 +24,19 @@ import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.NumericDocValues;
 import org.apache.solr.common.MapWriter;
 
-class FloatFieldWriter extends FieldWriter {
-  private String field;
+class FloatFieldWriter extends FieldWriterImpl<NumericDocValues> {
 
   public FloatFieldWriter(String field) {
-    this.field = field;
+    super(field);
   }
 
-  public boolean write(SortDoc sortDoc, LeafReader reader, MapWriter.EntryWriter ew, int fieldIndex) throws IOException {
-    SortValue sortValue = sortDoc.getSortValue(this.field);
-    if (sortValue != null) {
-      if (sortValue.isPresent()) {
-        float val = (float) sortValue.getCurrentValue();
-        ew.put(this.field, val);
-        return true;
-      } else { //empty-value
-        return false;
-      }
-    } else {
-      // field is not part of 'sort' param, but part of 'fl' param
-      NumericDocValues vals = DocValues.getNumeric(reader, this.field);
-      if (vals.advance(sortDoc.docId) == sortDoc.docId) {
-        int val = (int) vals.longValue();
-        ew.put(this.field, Float.intBitsToFloat(val));
-        return true;
-      } else {
-        return false;
-      }
-    }
+  @Override
+  protected void addCurrentValue(MapWriter.EntryWriter out) throws IOException {
+    out.put(field, Float.intBitsToFloat((int)docValuesIterator.longValue()));
+  }
+
+  @Override
+  protected NumericDocValues createDocValuesIterator(LeafReader reader, String field) throws IOException {
+    return DocValues.getNumeric(reader, this.field);
   }
 }

@@ -25,7 +25,6 @@ import org.apache.lucene.index.NumericDocValues;
 import org.apache.solr.common.MapWriter;
 
 class LongFieldWriter extends FieldWriterImpl<NumericDocValues> {
-
   public LongFieldWriter(String field) {
     super(field);
   }

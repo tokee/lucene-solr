@@ -25,32 +25,23 @@ import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.NumericDocValues;
 import org.apache.solr.common.MapWriter;
 
-class DateFieldWriter extends FieldWriter {
-  private String field;
-
+class DateFieldWriter extends FieldWriterImpl<NumericDocValues> {
   public DateFieldWriter(String field) {
-    this.field = field;
+    super(field);
   }
 
-  public boolean write(SortDoc sortDoc, LeafReader reader, MapWriter.EntryWriter ew, int fieldIndex) throws IOException {
-    Long val;
-    SortValue sortValue = sortDoc.getSortValue(this.field);
-    if (sortValue != null) {
-      if (sortValue.isPresent()) {
-        val = (long) sortValue.getCurrentValue();
-      } else { //empty-value
-        return false;
-      }
-    } else {
-      // field is not part of 'sort' param, but part of 'fl' param
-      NumericDocValues vals = DocValues.getNumeric(reader, this.field);
-      if (vals.advance(sortDoc.docId) == sortDoc.docId) {
-        val = vals.longValue();
-      } else {
-        return false;
-      }
-    }
-    ew.put(this.field, new Date(val));
-    return true;
+  @Override
+  protected void addCurrentValue(MapWriter.EntryWriter out) throws IOException {
+    out.put(field, externalize(docValuesIterator.longValue()));
+  }
+
+  @Override
+  protected NumericDocValues createDocValuesIterator(LeafReader reader, String field) throws IOException {
+    return DocValues.getNumeric(reader, this.field);
+  }
+
+  @Override
+  protected Object externalize(Object val) {
+    return new Date((long)val);
   }
 }

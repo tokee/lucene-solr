@@ -24,6 +24,8 @@ import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.lang.invoke.MethodHandles;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import org.apache.lucene.index.LeafReader;
@@ -65,12 +67,16 @@ import org.apache.solr.search.SyntaxError;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static java.util.Collections.reverseOrder;
 import static java.util.Collections.singletonList;
 import static java.util.Collections.singletonMap;
 import static org.apache.solr.common.util.Utils.makeMap;
 
 public class ExportWriter implements SolrCore.RawWriter, Closeable {
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
+
+  public static boolean SORT_DOCS = false;
+
   private OutputStreamWriter respWriter;
   final SolrQueryRequest req;
   final SolrQueryResponse res;
@@ -254,6 +260,22 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
       count += (outDocsIndex + 1);
 
       try {
+        // Store current order as orderIndex to all outdocs
+        for (int i = 0 ; i <= outDocsIndex ; i++) {
+          outDocs[i].setOrderIndex(i);
+        }
+        // TODO: Sort outDocs in docID-order for fast DocValues retrieval
+        if (SORT_DOCS) {
+          Arrays.sort(outDocs, 0, outDocsIndex + 1, (o1, o2) -> o2.docId - o1.docId);
+        }
+
+        // TODO: Collect the output from the writers
+//        SortingMap sortingMap = new SortingMap(outDocs.length);
+
+        // TODO: Sort the output in oderIndex order
+
+        // TODO: Deliver the output
+
         for (int i = outDocsIndex; i >= 0; --i) {
           SortDoc s = outDocs[i];
           writer.add((MapWriter) ew -> {
@@ -456,4 +478,89 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
     }
   }
 
+  private static class SortingMap extends ArrayList<SortingMap.Entry> implements EntryWriter {
+    private int currentOrderIndex = -1;
+
+    public SortingMap() {
+    }
+
+    public SortingMap(int initialCapacity) {
+      super(initialCapacity);
+    }
+
+    public void setOrderIndex(int orderIndex) {
+      currentOrderIndex = orderIndex;
+    }
+
+    @Override
+    public EntryWriter put(CharSequence k, Object v) {
+      assert currentOrderIndex != -1 : "setDocID(int) must be called before calling put";
+      add(new Entry(currentOrderIndex, k, v));
+      return this;
+    }
+
+    static class Entry implements Comparable<Entry> {
+      private final int orderIndex;
+      private final CharSequence key;
+      private final Object value;
+
+      public Entry(int orderIndex, CharSequence key, Object value) {
+        this.orderIndex = orderIndex;
+        this.key = key;
+        this.value = value;
+      }
+
+      public CharSequence getKey() {
+        return key;
+      }
+
+      public Object getValue() {
+        return value;
+      }
+
+      @Override
+      public int compareTo(Entry o) {
+        return o.orderIndex-orderIndex;
+      }
+    }
+  }
+
+  public static class SortingWriter implements IteratorWriter {
+    @Override
+    public void writeIter(ItemWriter iw) throws IOException {
+
+    }
+
+    @Override
+    public List toList(List l) {
+      return null;
+    }
+  }
+
+  /**
+   * The SortMap is an order-destructive mapper for SortDocs, which tracks the original order of the given SortDocs,
+   * sorts them according to docIDs for fast DocValues lookups and provides O(log(n)) mapping back to the original
+   * order.
+   */
+  private static class SortMap {
+    private final long[] orderMap;
+    private final SortDoc[] sortDocs;
+
+    public SortMap(SortDoc[] sortDocs) {
+      this.orderMap = new long[sortDocs.length];
+      this.sortDocs = sortDocs;
+      // Remember the original order
+      for (int i = 0 ; i < sortDocs.length ; i++) {
+        orderMap[i] = (((long)sortDocs[i].docId) << 32) | ((long)i);
+      }
+      // Re-order to docID order
+      Arrays.sort(sortDocs, (o1, o2) -> o2.docId-o1.docId);
+    }
+
+    public SortDoc[] getDocIDOrdered() {
+      return null;
+    }
+
+    
+  }
 }
