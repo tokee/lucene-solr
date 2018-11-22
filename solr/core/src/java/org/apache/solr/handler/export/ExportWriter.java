@@ -264,7 +264,7 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
         for (int i = 0 ; i <= outDocsIndex ; i++) {
           outDocs[i].setOrderIndex(i);
         }
-        // TODO: Sort outDocs in docID-order for fast DocValues retrieval
+        // Sort outDocs in docID-order for fast DocValues retrieval
         if (SORT_DOCS) {
           Arrays.sort(outDocs, 0, outDocsIndex + 1,
               (o1, o2) -> o2.ord == o1.ord ? o2.docId - o1.docId : o2.ord - o1.ord);
@@ -273,7 +273,7 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
         // TODO: Collect the output from the writers
 //        SortingMap sortingMap = new SortingMap(outDocs.length);
 
-        // TODO: Sort the output in oderIndex order
+        // TODO: Sort the output in orderIndex order
 
         // TODO: Deliver the output
 

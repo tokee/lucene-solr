@@ -29,6 +29,7 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 
+import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.TestUtil;
 import org.apache.solr.SolrTestCaseJ4;
 import org.apache.solr.common.SolrInputDocument;
@@ -42,6 +43,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.noggit.ObjectBuilder;
 
+@LuceneTestCase.SuppressCodecs({"SimpleText", "Direct", "Lucene50", "Lucene60", "MockRandom"})
 public class TestExportWriter extends SolrTestCaseJ4 {
   
   @BeforeClass
@@ -656,7 +658,7 @@ public class TestExportWriter extends SolrTestCaseJ4 {
 
     final Random fixed = new Random(87); // Fixed for reproducibility as we test speed
     StringBuilder sb = new StringBuilder();
-    for (int docs: new int[]{10_000}) {
+    for (int docs: new int[]{5_000}) {
     //for (int docs: new int[]{10_000, 20_000, 50_000, 100_000}) {
 
       assertU(delQ("*:*"));
