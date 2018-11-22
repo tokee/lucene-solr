@@ -22,6 +22,7 @@ import java.util.Date;
 import java.util.function.LongFunction;
 
 import org.apache.lucene.index.DocValues;
+import org.apache.lucene.index.DocValuesIterator;
 import org.apache.lucene.index.IndexableField;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.SortedNumericDocValues;
@@ -34,16 +35,18 @@ import org.apache.solr.common.MapWriter;
 import org.apache.solr.schema.FieldType;
 import org.apache.solr.schema.SchemaField;
 
-class MultiFieldWriter extends FieldWriter {
-  private String field;
+class MultiFieldWriter extends FieldWriterImpl<DocValuesIterator> {
   private FieldType fieldType;
   private SchemaField schemaField;
   private boolean numeric;
   private CharsRefBuilder cref = new CharsRefBuilder();
   private final LongFunction<Object> bitsToValue;
 
+  private SortedNumericDocValues numDVI = null;
+  private SortedSetDocValues setDVI = null;
+
   public MultiFieldWriter(String field, FieldType fieldType, SchemaField schemaField, boolean numeric) {
-    this.field = field;
+    super(field);
     this.fieldType = fieldType;
     this.schemaField = schemaField;
     this.numeric = numeric;
@@ -52,38 +55,40 @@ class MultiFieldWriter extends FieldWriter {
     } else {
       bitsToValue = null;
     }
+    useSortValueIfPossible = false;
   }
 
-  public boolean write(SortDoc sortDoc, LeafReader reader, MapWriter.EntryWriter out, int fieldIndex) throws IOException {
+  @Override
+  protected void addCurrentValue(MapWriter.EntryWriter out) throws IOException {
     if (this.fieldType.isPointField()) {
-      SortedNumericDocValues vals = DocValues.getSortedNumeric(reader, this.field);
-      if (!vals.advanceExact(sortDoc.docId)) return false;
       out.put(this.field,
           (IteratorWriter) w -> {
-            for (int i = 0; i < vals.docValueCount(); i++) {
-              w.add(bitsToValue.apply(vals.nextValue()));
+            for (int i = 0; i < numDVI.docValueCount(); i++) {
+              w.add(bitsToValue.apply(numDVI.nextValue()));
             }
           });
-      return true;
-    } else {
-      SortedSetDocValues vals = DocValues.getSortedSet(reader, this.field);
-      if (vals.advance(sortDoc.docId) != sortDoc.docId) return false;
-      out.put(this.field,
-          (IteratorWriter) w -> {
-            long o;
-            while((o = vals.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
-              BytesRef ref = vals.lookupOrd(o);
-              fieldType.indexedToReadable(ref, cref);
-              IndexableField f = fieldType.createField(schemaField, cref.toString());
-              if (f == null) w.add(cref.toString());
-              else w.add(fieldType.toObject(f));
-            }
-          });
-      return true;
+      return;
     }
-
+    
+    out.put(this.field,
+        (IteratorWriter) w -> {
+          long o;
+          while((o = setDVI.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
+            BytesRef ref = setDVI.lookupOrd(o);
+            fieldType.indexedToReadable(ref, cref);
+            IndexableField f = fieldType.createField(schemaField, cref.toString());
+            if (f == null) w.add(cref.toString());
+            else w.add(fieldType.toObject(f));
+          }
+        });
   }
 
+  @Override
+  protected DocValuesIterator createDocValuesIterator(LeafReader reader, String field) throws IOException {
+    return fieldType.isPointField() ?
+        (numDVI = DocValues.getSortedNumeric(reader, this.field)) :
+        (setDVI = DocValues.getSortedSet(reader, this.field));
+  }
 
   static LongFunction<Object> bitsToValue(FieldType fieldType) {
     switch (fieldType.getNumberType()) {

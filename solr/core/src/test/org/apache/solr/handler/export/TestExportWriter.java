@@ -654,9 +654,10 @@ public class TestExportWriter extends SolrTestCaseJ4 {
       }
     }
 
-    final Random fixed = new Random(87); // Freezed for reproducability as we test speed
+    final Random fixed = new Random(87); // Fixed for reproducibility as we test speed
     StringBuilder sb = new StringBuilder();
-    for (int docs: new int[]{10}) {
+    for (int docs: new int[]{10_000}) {
+    //for (int docs: new int[]{10_000, 20_000, 50_000, 100_000}) {
 
       assertU(delQ("*:*"));
       assertU(commit());
@@ -717,6 +718,7 @@ public class TestExportWriter extends SolrTestCaseJ4 {
 
       for (int i = 0; i < 5; i++) {
         for (boolean sort_docs: new boolean[]{Boolean.FALSE, Boolean.TRUE}) {
+        //for (boolean sort_docs: new boolean[]{Boolean.TRUE}) {
           ExportWriter.SORT_DOCS = sort_docs;
           long pointsTime = -System.nanoTime();
           h.query(req("q", query, "qt", "/export", "fl", pointFieldsFl, "sort", sort));

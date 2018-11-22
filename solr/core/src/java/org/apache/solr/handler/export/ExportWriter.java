@@ -266,7 +266,8 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
         }
         // TODO: Sort outDocs in docID-order for fast DocValues retrieval
         if (SORT_DOCS) {
-          Arrays.sort(outDocs, 0, outDocsIndex + 1, (o1, o2) -> o2.docId - o1.docId);
+          Arrays.sort(outDocs, 0, outDocsIndex + 1,
+              (o1, o2) -> o2.ord == o1.ord ? o2.docId - o1.docId : o2.ord - o1.ord);
         }
 
         // TODO: Collect the output from the writers

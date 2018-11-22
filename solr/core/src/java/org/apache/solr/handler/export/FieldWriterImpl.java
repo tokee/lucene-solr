@@ -34,6 +34,7 @@ abstract class FieldWriterImpl<DVI extends DocValuesIterator> extends FieldWrite
   protected final String field;
   protected DVI docValuesIterator = null;
   private LeafReader currentReader = null;
+  protected boolean useSortValueIfPossible = true;
 
   public FieldWriterImpl(String field) {
     this.field = field;
@@ -41,23 +42,20 @@ abstract class FieldWriterImpl<DVI extends DocValuesIterator> extends FieldWrite
 
   public boolean write(SortDoc sortDoc, LeafReader reader, MapWriter.EntryWriter out, int fieldIndex) throws IOException {
 
-    // Re-use the value from the Sortdoc if available
-    SortValue sortValue = sortDoc.getSortValue(this.field);
-    if (sortValue != null) {
-      if (!sortValue.isPresent()) {
-        return false;
+    // Reuse the value from the SortDoc if available
+    if (useSortValueIfPossible) {
+      SortValue sortValue = sortDoc.getSortValue(this.field);
+      if (sortValue != null) {
+        if (!sortValue.isPresent()) {
+          return false;
+        }
+        Object val = sortValue.getCurrentValue();
+        out.put(field, externalize(val));
+        return true;
       }
-      Object val = sortValue.getCurrentValue();
-      out.put(field, externalize(val));
-      return true;
     }
 
-    // Create a new DocValuesIterator if needed
-    if (docValuesIterator == null || currentReader == null || !currentReader.equals(reader) ||
-        sortDoc.docId < docValuesIterator.docID()) {
-      docValuesIterator = createDocValuesIterator(reader, this.field);
-      currentReader = reader;
-    }
+    checkIterator(sortDoc, reader);
 
     // Advance to value
     if (!docValuesIterator.advanceExact(sortDoc.docId)) {
@@ -67,6 +65,19 @@ abstract class FieldWriterImpl<DVI extends DocValuesIterator> extends FieldWrite
     // Fetch value and add it to the collector
     addCurrentValue(out);
     return true;
+  }
+
+  // Create a new DocValuesIterator only if needed
+  private void checkIterator(SortDoc sortDoc, LeafReader reader) throws IOException {
+    if (docValuesIterator == null || currentReader == null || !currentReader.equals(reader) ||
+        sortDoc.docId < docValuesIterator.docID()) {
+//      if (docValuesIterator != null  && sortDoc.docId != 0) { // Why the secondary check? Are docIDs relative to segment?
+//        System.out.println("Unsorted for docID " + sortDoc.docId + " with current docID " + docValuesIterator.docID() + " for field " + this.field +
+//            " currentReader " + currentReader + " vs " + reader + ", dvi==null " + (docValuesIterator==null) + " for " + this);
+//      }
+      docValuesIterator = createDocValuesIterator(reader, this.field);
+      currentReader = reader;
+    }
   }
 
   /**
