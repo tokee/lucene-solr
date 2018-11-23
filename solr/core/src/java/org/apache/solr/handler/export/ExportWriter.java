@@ -289,7 +289,6 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
 
         // Deliver the collected output in the original order
         for (SortingMap.DocEntryList entryList: sortingMap.getSortedEntries()) {
-          //System.out.println("Adding " + entry);
           writer.add((MapWriter) ew -> {
             for (SortingMap.Entry entry: entryList) {
               ew.put(entry.getKey(), entry.getValue());
@@ -529,7 +528,7 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
       public MapWriter.EntryWriter put(CharSequence k, Object v) throws IOException {
         if (v instanceof IteratorWriter) {
           current.add(new ListEntry(currentOrderIndex, k, (IteratorWriter) v));
-        } if (v instanceof MapWriter) {
+        } else if (v instanceof MapWriter) {
           current.add(new MapEntry(currentOrderIndex, k, (MapWriter) v));
         } else {
           current.add(new AtomicEntry(currentOrderIndex, k, v));
@@ -587,7 +586,11 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
 
       @Override
       Object getValue() {
-        return values;
+        return (IteratorWriter) iw -> {
+          for (Object value: values) {
+            iw.add(value);
+          }
+        };
       }
     }
     
