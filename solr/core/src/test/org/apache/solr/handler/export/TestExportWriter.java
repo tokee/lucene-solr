@@ -658,7 +658,7 @@ public class TestExportWriter extends SolrTestCaseJ4 {
 
     final Random fixed = new Random(87); // Fixed for reproducibility as we test speed
     StringBuilder sb = new StringBuilder("******************\n");
-    for (int docs: new int[]{1_000, 10_000, 100_000, 200_000}) {
+    for (int docs: new int[]{1_000, 10_000, 100_000, 150_000}) {
       System.out.println("Bulding index with " + docs + " documents");
 
       assertU(delQ("*:*"));
