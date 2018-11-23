@@ -79,6 +79,9 @@ import static org.apache.solr.common.util.Utils.makeMap;
 public class ExportWriter implements SolrCore.RawWriter, Closeable {
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
+  /**
+   * If true, the SortDocs are sorted in docID-order for faster DocValues iteration.
+   */
   public static boolean SORT_DOCS = false;
 
   private OutputStreamWriter respWriter;
@@ -264,44 +267,43 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
       count += (outDocsIndex + 1);
 
       try {
-        // Store current order as orderIndex to all outdocs
-        for (int i = 0 ; i <= outDocsIndex ; i++) {
-          outDocs[i].setOrderIndex(i);
-        }
-        // Sort outDocs in docID-order for fast DocValues retrieval
-        if (SORT_DOCS) {
+        if (SORT_DOCS) { // Re-sort outDocs for high DocValues extraction performance and extra memory overhead
+          // Store current order as orderIndex to all outDocs
+          for (int i = 0; i <= outDocsIndex; i++) {
+            outDocs[i].setOrderIndex(i);
+          }
+          // Sort outDocs in docID-order for fast DocValues retrieval
           Arrays.sort(outDocs, 0, outDocsIndex + 1,
               (o1, o2) -> o2.ord == o1.ord ? o2.docId - o1.docId : o2.ord - o1.ord);
-        }
 
-        // MapWriterMap?
+          // Collect the output from the writers in optimized order
+          SortingMap sortingMap = new SortingMap();
+          for (int i = outDocsIndex; i >= 0; --i) {
+            SortDoc s = outDocs[i];
+            sortingMap.setOrderIndex(s.getOrderIndex()); // Track the original order
+            sortingMap.add((MapWriter) ew -> {
+              writeDoc(s, leaves, ew);
+              s.reset();
+            });
+          }
 
-        // Collect the output from the writers
-        SortingMap sortingMap = new SortingMap();
-        for (int i = outDocsIndex; i >= 0; --i) {
-          SortDoc s = outDocs[i];
-          sortingMap.setOrderIndex(s.getOrderIndex()); // Track the original order
-          sortingMap.add((MapWriter) ew -> {
-            writeDoc(s, leaves, ew);
-            s.reset();
-          });
+          // Deliver the collected output in the original order
+          for (SortingMap.DocEntryList entryList : sortingMap.getSortedEntries()) {
+            writer.add((MapWriter) ew -> {
+              for (SortingMap.Entry entry : entryList) {
+                ew.put(entry.getKey(), entry.getValue());
+              }
+            });
+          }
+        } else { // Direct delivery of values (low DocValues performance, low memory overhead)
+          for (int i = outDocsIndex; i >= 0; --i) {
+            SortDoc s = outDocs[i];
+            writer.add((MapWriter) ew -> {
+              writeDoc(s, leaves, ew);
+              s.reset();
+            });
+          }
         }
-
-        // Deliver the collected output in the original order
-        for (SortingMap.DocEntryList entryList: sortingMap.getSortedEntries()) {
-          writer.add((MapWriter) ew -> {
-            for (SortingMap.Entry entry: entryList) {
-              ew.put(entry.getKey(), entry.getValue());
-            }
-          });
-        }
-/*        for (int i = outDocsIndex; i >= 0; --i) {
-          SortDoc s = outDocs[i];
-          writer.add((MapWriter) ew -> {
-            writeDoc(s, leaves, ew);
-            s.reset();
-          });
-        }    */
       } catch (Throwable e) {
         Throwable ex = e;
         while (ex != null) {
