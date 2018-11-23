@@ -80,9 +80,10 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
   private static final Logger log = LoggerFactory.getLogger(MethodHandles.lookup().lookupClass());
 
   /**
-   * If true, the SortDocs are sorted in docID-order for faster DocValues iteration.
+   * If true, the SortDocs are sorted in docID-order for faster DocValues iteration, at the cost of extra heap overhead.
+   * The original order for the output data is re-created before the data are delivered.
    */
-  public static boolean SORT_DOCS = false;
+  public static boolean SORT_DOCS = true;
 
   private OutputStreamWriter respWriter;
   final SolrQueryRequest req;

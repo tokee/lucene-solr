@@ -625,14 +625,6 @@ public class TestExportWriter extends SolrTestCaseJ4 {
     doTestQuery("id:[0 TO 2]", trieFields, pointFields);// "id" field is really a string, this is not a numeric range query
     doTestQuery("id:[0 TO 9]", trieFields, pointFields);
     doTestQuery("id:DOES_NOT_EXIST", trieFields, pointFields);
-
-    System.out.println("Performing timed full export tests");
-    for (int i = 0 ; i < 5 ; i++) {
-      final long startTime = System.nanoTime();
-      doTestQuery("*:*", trieFields, pointFields);
-      System.out.println((i+1) + "/" + 5 + ":Spend time after warm for full export: " +
-          (System.nanoTime() - startTime) / 1000000 + " ms");
-    }
   }
 
   /**
@@ -666,8 +658,8 @@ public class TestExportWriter extends SolrTestCaseJ4 {
 
     final Random fixed = new Random(87); // Fixed for reproducibility as we test speed
     StringBuilder sb = new StringBuilder("******************\n");
-    for (int docs: new int[]{100}) {
-    //for (int docs: new int[]{10_000, 20_000, 50_000, 100_000}) {
+    for (int docs: new int[]{1_000, 10_000, 100_000, 200_000}) {
+      System.out.println("Bulding index with " + docs + " documents");
 
       assertU(delQ("*:*"));
       assertU(commit());
@@ -718,7 +710,7 @@ public class TestExportWriter extends SolrTestCaseJ4 {
       }
       assertU(commit());
 
-      System.out.println("Performing timed full export tests");
+      System.out.println("Performing full export performance tests");
       final String query = "*:*";
       String trieFieldsFl = String.join(",", trieFields);
       String pointFieldsFl = String.join(",", pointFields);
@@ -753,15 +745,16 @@ public class TestExportWriter extends SolrTestCaseJ4 {
         }
 
         String output = String.format(Locale.ENGLISH,
-            "Test %d/%d: %7d documents, " +
-                "trie: %8.0f / %8.0f docs/sec (%4.0f%%), " +
-                "points: %8.0f / %8.0f docs/sec (%4.0f%%)",
+            "Test %d/%d:%7d documents, " +
+                "trie:%7.0f /%7.0f docs/sec (%4.0f%%), " +
+                "points:%7.0f /%7.0f docs/sec (%4.0f%%)",
             i + 1, 5, docs,
             dps[3], dps[1], factor[1]*100,
             dps[2], dps[0], factor[0]*100);
         System.out.println(output);
         sb.append(output).append("\n");
       }
+      sb.append("------------------\n");
     }
     System.out.println("Total output:\n" + sb);
   }
