@@ -27,7 +27,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
@@ -41,6 +43,7 @@ import org.apache.solr.client.solrj.impl.BinaryResponseParser;
 import org.apache.solr.common.IteratorWriter;
 import org.apache.solr.common.MapWriter;
 import org.apache.solr.common.MapWriter.EntryWriter;
+import org.apache.solr.common.MapWriterMap;
 import org.apache.solr.common.PushWriter;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.params.SolrParams;
@@ -271,6 +274,8 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
               (o1, o2) -> o2.ord == o1.ord ? o2.docId - o1.docId : o2.ord - o1.ord);
         }
 
+        // MapWriterMap?
+
         // Collect the output from the writers
         SortingMap sortingMap = new SortingMap();
         for (int i = outDocsIndex; i >= 0; --i) {
@@ -283,10 +288,12 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
         }
 
         // Deliver the collected output in the original order
-        for (SortingMap.Entry entry: sortingMap.getSortedEntries()) {
+        for (SortingMap.DocEntryList entryList: sortingMap.getSortedEntries()) {
           //System.out.println("Adding " + entry);
           writer.add((MapWriter) ew -> {
-            ew.put(entry.getKey(), entry.getValue());
+            for (SortingMap.Entry entry: entryList) {
+              ew.put(entry.getKey(), entry.getValue());
+            }
           });
         }
 /*        for (int i = outDocsIndex; i >= 0; --i) {
@@ -492,25 +499,9 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
   }
 
   private static class SortingMap implements IteratorWriter.ItemWriter {
-    private final List<SortingMap.Entry> entries = new ArrayList<>();
+    private final List<DocEntryList> entries = new ArrayList<>();
+
     private int currentOrderIndex = -1;
-    private final EntryWriter writer = new MapWriter.EntryWriter() {
-      @Override
-      public MapWriter.EntryWriter put(CharSequence k, Object v) throws IOException {
-        if (v instanceof IteratorWriter) { // Expand immediately
-          ((IteratorWriter)v).writeIter(new IteratorWriter.ItemWriter() {
-            @Override
-            public IteratorWriter.ItemWriter add(Object o) throws IOException {
-              entries.add(new Entry(currentOrderIndex, k, o));
-              return this;
-            }
-          });
-        } else {
-          entries.add(new Entry(currentOrderIndex, k, v));
-        }
-        return this;
-      }
-    };
 
     public void setOrderIndex(int orderIndex) {
       currentOrderIndex = orderIndex;
@@ -522,43 +513,120 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
       if (!(o instanceof MapWriter)) {
         throw new UnsupportedOperationException("Special ItemWriter SortingMap only supports addition of MapWriters");
       }
-      ((MapWriter)o).writeMap(writer);
+      ((MapWriter)o).writeMap(new OrderWriter(currentOrderIndex));
       return this;
     }
 
-    static class Entry implements Comparable<Entry> {
-      private final int orderIndex;
-      private final CharSequence key;
-      private final Object value;
+    private class OrderWriter implements MapWriter.EntryWriter {
+      private DocEntryList current;
 
-      public Entry(int orderIndex, CharSequence key, Object value) {
-        this.orderIndex = orderIndex;
+      public OrderWriter(int orderIndex) {
+        current = new DocEntryList(orderIndex);
+        entries.add(current);
+      }
+
+      @Override
+      public MapWriter.EntryWriter put(CharSequence k, Object v) throws IOException {
+        if (v instanceof IteratorWriter) {
+          current.add(new ListEntry(currentOrderIndex, k, (IteratorWriter) v));
+        } if (v instanceof MapWriter) {
+          current.add(new MapEntry(currentOrderIndex, k, (MapWriter) v));
+        } else {
+          current.add(new AtomicEntry(currentOrderIndex, k, v));
+        }
+        return this;
+      }
+    };
+    static abstract class Entry implements Comparable<Entry> {
+      protected final CharSequence key;
+      protected final int orderIndex;
+
+      protected Entry(CharSequence key) {
         this.key = key;
-        this.value = value;
+        orderIndex = -1; // Used by Maps & Lists
+      }
+
+      public Entry(CharSequence key, int orderIndex) {
+        this.key = key;
+        this.orderIndex = orderIndex;
       }
 
       public CharSequence getKey() {
         return key;
       }
 
-      public Object getValue() {
-        return value;
-      }
+      abstract Object getValue();
 
       @Override
       public int compareTo(Entry o) {
         return o.orderIndex-orderIndex;
       }
+    }
+
+    static class MapEntry extends Entry {
+      private final Map<String, Object> values = new LinkedHashMap<>();
+
+      public MapEntry(int orderIndex, CharSequence key, MapWriter mw) throws IOException {
+        super(key, orderIndex);
+        mw.toMap(values);
+      }
+
+      @Override
+      Object getValue() {
+        return values;
+      }
+    }
+
+    static class ListEntry extends Entry {
+      private final List<Object> values = new ArrayList<>();
+
+      public ListEntry(int orderIndex, CharSequence key, IteratorWriter iw) throws IOException {
+        super(key, orderIndex);
+        iw.toList(values);
+      }
+
+      @Override
+      Object getValue() {
+        return values;
+      }
+    }
+    
+    static class DocEntryList extends ArrayList<Entry> implements Comparable<DocEntryList> {
+      private final int orderIndex;
+
+      public DocEntryList(int orderIndex) {
+        this.orderIndex = orderIndex;
+      }
+
+      @Override
+      public int compareTo(DocEntryList o) {
+        return o.orderIndex-orderIndex;
+      }
+    }
+
+    static class AtomicEntry extends Entry {
+      private final Object value;
+
+      public AtomicEntry(int orderIndex, CharSequence key, Object value) {
+        super(key, orderIndex);
+        this.value = value;
+      }
+
+      @Override
+      Object getValue() {
+        return value;
+      }
 
       public String toString() {
         return key + "=\"" + value + "\" (order " + orderIndex + ")";
       }
+
     }
 
     /**
      * @return the entries in the order they should be delivered to the outer caller.
      */
-    public List<Entry> getSortedEntries() {
+    public List<DocEntryList> getSortedEntries() {
       Collections.sort(entries);
       return entries;
     }
@@ -599,7 +667,5 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
     public SortDoc[] getDocIDOrdered() {
       return null;
     }
-
-    
   }
 }
