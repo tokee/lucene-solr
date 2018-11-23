@@ -214,6 +214,17 @@ public class TestExportWriter extends SolrTestCaseJ4 {
   }
 
   @Test
+  public void testMultivalue() throws Exception {
+    clearIndex();
+    createIndex();
+
+    String s =  h.query(req("q", "id:7", "qt", "/export", "fl", "intdv_m,floatdv_m", "sort", "intdv asc"));
+    assertJsonEquals(s, "{\"responseHeader\": {\"status\": 0}, \"response\":{\"numFound\":1, \"docs\":[{\"floatdv_m\":[123.321,345.123]}]}}");
+
+    clearIndex();
+  }
+
+  @Test
   public void testSmallChains() throws Exception {
     clearIndex();
 
@@ -564,10 +575,7 @@ public class TestExportWriter extends SolrTestCaseJ4 {
         }
       }
     }
-    // 10K: ~2000
-    // 20K: ~6000
-    // 30K: 6500-7000
-    for (int i = 0; i < 100000; i++) {
+    for (int i = 0; i < atLeast(100); i++) {
       if (random().nextInt(20) == 0) {
         //have some empty docs
         assertU(adoc("id", String.valueOf(i)));

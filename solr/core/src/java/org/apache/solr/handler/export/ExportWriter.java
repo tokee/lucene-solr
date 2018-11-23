@@ -644,28 +644,4 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
     }
   }
 
-  /**
-   * The SortMap is an order-destructive mapper for SortDocs, which tracks the original order of the given SortDocs,
-   * sorts them according to docIDs for fast DocValues lookups and provides O(log(n)) mapping back to the original
-   * order.
-   */
-  private static class SortMap {
-    private final long[] orderMap;
-    private final SortDoc[] sortDocs;
-
-    public SortMap(SortDoc[] sortDocs) {
-      this.orderMap = new long[sortDocs.length];
-      this.sortDocs = sortDocs;
-      // Remember the original order
-      for (int i = 0 ; i < sortDocs.length ; i++) {
-        orderMap[i] = (((long)sortDocs[i].docId) << 32) | ((long)i);
-      }
-      // Re-order to docID order
-      Arrays.sort(sortDocs, (o1, o2) -> o2.docId-o1.docId);
-    }
-
-    public SortDoc[] getDocIDOrdered() {
-      return null;
-    }
-  }
 }
