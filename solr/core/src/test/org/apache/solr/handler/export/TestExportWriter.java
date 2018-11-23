@@ -657,8 +657,8 @@ public class TestExportWriter extends SolrTestCaseJ4 {
     }
 
     final Random fixed = new Random(87); // Fixed for reproducibility as we test speed
-    StringBuilder sb = new StringBuilder();
-    for (int docs: new int[]{5_000}) {
+    StringBuilder sb = new StringBuilder("******************\n");
+    for (int docs: new int[]{100}) {
     //for (int docs: new int[]{10_000, 20_000, 50_000, 100_000}) {
 
       assertU(delQ("*:*"));
@@ -718,24 +718,41 @@ public class TestExportWriter extends SolrTestCaseJ4 {
           (String) pickRandom(fixed, pointFields.toArray())).
           replace("s_", "_") + pickRandom(fixed, " asc", " desc");
 
+      long[] ns = new long[4]; // [pointsPlain, triePlain, pointsSorted, trieSorted]
+
       for (int i = 0; i < 5; i++) {
-        for (boolean sort_docs: new boolean[]{Boolean.FALSE, Boolean.TRUE}) {
-        //for (boolean sort_docs: new boolean[]{Boolean.TRUE}) {
+
+        for (boolean sort_docs: new boolean[]{Boolean.TRUE, Boolean.FALSE}) {
+          //for (boolean sort_docs: new boolean[]{Boolean.TRUE}) {
           ExportWriter.SORT_DOCS = sort_docs;
-          long pointsTime = -System.nanoTime();
+          int sortDelta = sort_docs ? 2 : 0;
+
+          ns[0+sortDelta] = -System.nanoTime();
           h.query(req("q", query, "qt", "/export", "fl", pointFieldsFl, "sort", sort));
-          pointsTime += System.nanoTime();
-          long trieTime = -System.nanoTime();
+          ns[0+sortDelta] += System.nanoTime();
+
+          ns[1+sortDelta] = -System.nanoTime();
           h.query(req("q", query, "qt", "/export", "fl", trieFieldsFl, "sort", sort));
-          trieTime += System.nanoTime();
-          String output = String.format(Locale.ENGLISH,
-              "Test %d/%d: %7d documents, sorted %5b, trie %6d ms (%8.0f docs/s), points %6d ms (%8.0f docs/s)",
-              i + 1, 5, docs, sort_docs,
-              trieTime / 1_000_000, docs / (trieTime / 1_000_000_000d), pointsTime / 1_000_000,
-              docs / (pointsTime / 1_000_000_000d));
-          System.out.println(output);
-          sb.append(output).append("\n");
+          ns[1+sortDelta] += System.nanoTime();
         }
+        double dps[] = new double[4];
+        for (int j = 0 ; j < 4 ; j++) {
+          dps[j] = docs / (ns[j] / 1_000_000_000d);
+        }
+        double[] factor = new double[2]; // [factorPoints, factorTrie]
+        for (int j = 0 ; j < 2 ; j++) {
+          factor[j] = dps[j] == 0 ? 0 : dps[j + 2] / dps[j];
+        }
+
+        String output = String.format(Locale.ENGLISH,
+            "Test %d/%d: %7d documents, " +
+                "trie: %8.0f / %8.0f docs/sec (%4.0f%%), " +
+                "points: %8.0f / %8.0f docs/sec (%4.0f%%)",
+            i + 1, 5, docs,
+            dps[3], dps[1], factor[1]*100,
+            dps[2], dps[0], factor[0]*100);
+        System.out.println(output);
+        sb.append(output).append("\n");
       }
     }
     System.out.println("Total output:\n" + sb);

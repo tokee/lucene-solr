@@ -26,6 +26,7 @@ import java.lang.invoke.MethodHandles;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 import org.apache.lucene.index.LeafReader;
@@ -270,20 +271,31 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
               (o1, o2) -> o2.ord == o1.ord ? o2.docId - o1.docId : o2.ord - o1.ord);
         }
 
-        // TODO: Collect the output from the writers
-//        SortingMap sortingMap = new SortingMap(outDocs.length);
-
-        // TODO: Sort the output in orderIndex order
-
-        // TODO: Deliver the output
-
+        // Collect the output from the writers
+        SortingMap sortingMap = new SortingMap();
         for (int i = outDocsIndex; i >= 0; --i) {
+          SortDoc s = outDocs[i];
+          sortingMap.setOrderIndex(s.getOrderIndex()); // Track the original order
+          sortingMap.add((MapWriter) ew -> {
+            writeDoc(s, leaves, ew);
+            s.reset();
+          });
+        }
+
+        // Deliver the collected output in the original order
+        for (SortingMap.Entry entry: sortingMap.getSortedEntries()) {
+          //System.out.println("Adding " + entry);
+          writer.add((MapWriter) ew -> {
+            ew.put(entry.getKey(), entry.getValue());
+          });
+        }
+/*        for (int i = outDocsIndex; i >= 0; --i) {
           SortDoc s = outDocs[i];
           writer.add((MapWriter) ew -> {
             writeDoc(s, leaves, ew);
             s.reset();
           });
-        }
+        }    */
       } catch (Throwable e) {
         Throwable ex = e;
         while (ex != null) {
@@ -479,24 +491,38 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
     }
   }
 
-  private static class SortingMap extends ArrayList<SortingMap.Entry> implements EntryWriter {
+  private static class SortingMap implements IteratorWriter.ItemWriter {
+    private final List<SortingMap.Entry> entries = new ArrayList<>();
     private int currentOrderIndex = -1;
-
-    public SortingMap() {
-    }
-
-    public SortingMap(int initialCapacity) {
-      super(initialCapacity);
-    }
+    private final EntryWriter writer = new MapWriter.EntryWriter() {
+      @Override
+      public MapWriter.EntryWriter put(CharSequence k, Object v) throws IOException {
+        if (v instanceof IteratorWriter) { // Expand immediately
+          ((IteratorWriter)v).writeIter(new IteratorWriter.ItemWriter() {
+            @Override
+            public IteratorWriter.ItemWriter add(Object o) throws IOException {
+              entries.add(new Entry(currentOrderIndex, k, o));
+              return this;
+            }
+          });
+        } else {
+          entries.add(new Entry(currentOrderIndex, k, v));
+        }
+        return this;
+      }
+    };
 
     public void setOrderIndex(int orderIndex) {
       currentOrderIndex = orderIndex;
     }
 
     @Override
-    public EntryWriter put(CharSequence k, Object v) {
-      assert currentOrderIndex != -1 : "setDocID(int) must be called before calling put";
-      add(new Entry(currentOrderIndex, k, v));
+    public IteratorWriter.ItemWriter add(Object o) throws IOException {
+      assert currentOrderIndex != -1 : "setOrderIndexID(int) must be called before calling put";
+      if (!(o instanceof MapWriter)) {
+        throw new UnsupportedOperationException("Special ItemWriter SortingMap only supports addition of MapWriters");
+      }
+      ((MapWriter)o).writeMap(writer);
       return this;
     }
 
@@ -523,6 +549,18 @@ public class ExportWriter implements SolrCore.RawWriter, Closeable {
       public int compareTo(Entry o) {
         return o.orderIndex-orderIndex;
       }
+
+      public String toString() {
+        return key + "=\"" + value + "\" (order " + orderIndex + ")";
+      }
+    }
+
+    /**
+     * @return the entries in the order they should be delivered to the outer caller.
+     */
+    public List<Entry> getSortedEntries() {
+      Collections.sort(entries);
+      return entries;
     }
   }
 
