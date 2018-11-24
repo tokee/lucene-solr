@@ -658,8 +658,21 @@ public class TestExportWriter extends SolrTestCaseJ4 {
 
     final Random fixed = new Random(87); // Fixed for reproducibility as we test speed
     StringBuilder sb = new StringBuilder("******************\n");
-    for (int docs: new int[]{1_000, 10_000, 100_000, 150_000}) {
-      System.out.println("Bulding index with " + docs + " documents");
+
+    String propSizes = System.getenv("TES_SIZES");
+    int[] sizes;
+    if (propSizes != null && !propSizes.isEmpty()) {
+      String[] tokens = propSizes.split(", *");
+      sizes = new int[tokens.length];
+      for (int i = 0 ; i < tokens.length ; i++) {
+        sizes[i] = Integer.parseInt(tokens[i]);
+      }
+    } else {
+      sizes = new int[]{1_000, 10_000};
+    }
+
+    for (int docs: sizes) {
+      System.out.println("TES: Bulding index with " + docs + " documents");
 
       assertU(delQ("*:*"));
       assertU(commit());
@@ -710,7 +723,7 @@ public class TestExportWriter extends SolrTestCaseJ4 {
       }
       assertU(commit());
 
-      System.out.println("Performing full export performance tests");
+      System.out.println("TES: Performing full export performance tests");
       final String query = "*:*";
       String trieFieldsFl = String.join(",", trieFields);
       String pointFieldsFl = String.join(",", pointFields);
@@ -745,7 +758,7 @@ public class TestExportWriter extends SolrTestCaseJ4 {
         }
 
         String output = String.format(Locale.ENGLISH,
-            "Test %d/%d:%7d documents, " +
+            "TES: Test %d/%d:%7d documents, " +
                 "trie:%7.0f /%7.0f docs/sec (%4.0f%%), " +
                 "points:%7.0f /%7.0f docs/sec (%4.0f%%)",
             i + 1, 5, docs,
@@ -754,9 +767,9 @@ public class TestExportWriter extends SolrTestCaseJ4 {
         System.out.println(output);
         sb.append(output).append("\n");
       }
-      sb.append("------------------\n");
+      sb.append("TES: ------------------\n");
     }
-    System.out.println("Total output:\n" + sb);
+    System.out.println("TES: Concatenated output:\n" + sb);
   }
   protected <T> T pickRandom(Random random, T... options) {
     return options[random.nextInt(options.length)];
