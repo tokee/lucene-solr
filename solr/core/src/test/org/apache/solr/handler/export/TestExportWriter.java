@@ -737,15 +737,15 @@ public class TestExportWriter extends SolrTestCaseJ4 {
 
         for (boolean sort_docs: new boolean[]{Boolean.TRUE, Boolean.FALSE}) {
           //for (boolean sort_docs: new boolean[]{Boolean.TRUE}) {
-          ExportWriter.SORT_DOCS = sort_docs;
+//          ExportWriter.SORT_DOCS = sort_docs;
           int sortDelta = sort_docs ? 2 : 0;
 
           ns[0+sortDelta] = -System.nanoTime();
-          h.query(req("q", query, "qt", "/export", "fl", pointFieldsFl, "sort", sort));
+          h.query(req("q", query, "qt", "/export", "fl", pointFieldsFl, "sort", sort, "solr13013", Boolean.toString(sort_docs)));
           ns[0+sortDelta] += System.nanoTime();
 
           ns[1+sortDelta] = -System.nanoTime();
-          h.query(req("q", query, "qt", "/export", "fl", trieFieldsFl, "sort", sort));
+          h.query(req("q", query, "qt", "/export", "fl", trieFieldsFl, "sort", sort, "solr13013", Boolean.toString(sort_docs)));
           ns[1+sortDelta] += System.nanoTime();
         }
         double dps[] = new double[4];
