@@ -26,8 +26,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 
+import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.TestUtil;
 import org.apache.solr.SolrTestCaseJ4;
 import org.apache.solr.common.SolrInputDocument;
@@ -41,6 +43,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.noggit.ObjectBuilder;
 
+@LuceneTestCase.SuppressCodecs({"SimpleText", "Direct", "Lucene50", "Lucene60", "MockRandom"})
 public class TestExportWriter extends SolrTestCaseJ4 {
   
   @BeforeClass
@@ -206,6 +209,17 @@ public class TestExportWriter extends SolrTestCaseJ4 {
     testExportRequiredParams();
     testDates();
     testDuplicates();
+
+    clearIndex();
+  }
+
+  @Test
+  public void testMultivalue() throws Exception {
+    clearIndex();
+    createIndex();
+
+    String s =  h.query(req("q", "id:7", "qt", "/export", "fl", "intdv_m,floatdv_m", "sort", "intdv asc"));
+    assertJsonEquals(s, "{\"responseHeader\": {\"status\": 0}, \"response\":{\"numFound\":1, \"docs\":[{\"floatdv_m\":[123.321,345.123]}]}}");
 
     clearIndex();
   }
@@ -611,6 +625,154 @@ public class TestExportWriter extends SolrTestCaseJ4 {
     doTestQuery("id:[0 TO 2]", trieFields, pointFields);// "id" field is really a string, this is not a numeric range query
     doTestQuery("id:[0 TO 9]", trieFields, pointFields);
     doTestQuery("id:DOES_NOT_EXIST", trieFields, pointFields);
+  }
+
+  /**
+   * This test doesn't validate the correctness of results, it just compares the response of the same request
+   * when asking for Trie fields vs Point fields. Can be removed once Trie fields are no longer supported
+   */
+  @Test
+  @SuppressForbidden(reason="using new Date(time) to create random dates")
+  public void testExportSpeed() throws Exception {
+    SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.ROOT);
+    List<String> trieFields = new ArrayList<String>();
+    List<String> pointFields = new ArrayList<String>();
+    for (String mv:new String[]{"s", ""}) {
+      for (String indexed:new String[]{"_ni", ""}) {
+        for (String type:new String[]{"i", "l", "f", "d", "dt"}) {
+          String field = "number_" + type + mv + indexed;
+          SchemaField sf = h.getCore().getLatestSchema().getField(field + "_t");
+          assertTrue(sf.hasDocValues());
+          assertTrue(sf.getType().getNumberType() != null);
+          
+          sf = h.getCore().getLatestSchema().getField(field + "_p");
+          assertTrue(sf.hasDocValues());
+          assertTrue(sf.getType().getNumberType() != null);
+          assertTrue(sf.getType().isPointField());
+          
+          trieFields.add(field + "_t");
+          pointFields.add(field + "_p");
+        }
+      }
+    }
+
+    final Random fixed = new Random(87); // Fixed for reproducibility as we test speed
+    StringBuilder sb = new StringBuilder("******************\n");
+
+    String propSizes = System.getenv("TES_SIZES");
+    int[] sizes;
+    if (propSizes != null && !propSizes.isEmpty()) {
+      String[] tokens = propSizes.split(", *");
+      sizes = new int[tokens.length];
+      for (int i = 0 ; i < tokens.length ; i++) {
+        sizes[i] = Integer.parseInt(tokens[i]);
+      }
+    } else {
+      sizes = new int[]{1_000, 10_000};
+    }
+
+    for (int docs: sizes) {
+      System.out.println("TES: Bulding index with " + docs + " documents");
+
+      assertU(delQ("*:*"));
+      assertU(commit());
+
+      for (int i = 0; i < docs; i++) {
+        if (fixed.nextInt(20) == 0) {
+          //have some empty docs
+          assertU(adoc("id", String.valueOf(i)));
+          continue;
+        }
+
+        if (fixed.nextInt(20) == 0 && i > 0) {
+          //delete some docs
+          assertU(delI(String.valueOf(i - 1)));
+        }
+
+        SolrInputDocument doc = new SolrInputDocument();
+        doc.addField("id", String.valueOf(i));
+        addInt(doc, fixed.nextInt(), false);
+        addLong(doc, fixed.nextLong(), false);
+        addFloat(doc, fixed.nextFloat() * 3000 * (fixed.nextBoolean() ? 1 : -1), false);
+        addDouble(doc, fixed.nextDouble() * 3000 * (fixed.nextBoolean() ? 1 : -1), false);
+        addDate(doc, dateFormat.format(new Date()), false);
+
+        // MV need to be unique in order to be the same in Trie vs Points
+        Set<Integer> ints = new HashSet<>();
+        Set<Long> longs = new HashSet<>();
+        Set<Float> floats = new HashSet<>();
+        Set<Double> doubles = new HashSet<>();
+        Set<String> dates = new HashSet<>();
+        for (int j = 0; j < fixed.nextInt(20); j++) {
+          ints.add(fixed.nextInt());
+          longs.add(fixed.nextLong());
+          floats.add(fixed.nextFloat() * 3000 * (fixed.nextBoolean() ? 1 : -1));
+          doubles.add(fixed.nextDouble() * 3000 * (fixed.nextBoolean() ? 1 : -1));
+          dates.add(dateFormat.format(new Date(System.currentTimeMillis() + fixed.nextInt())));
+        }
+        ints.stream().forEach((val) -> addInt(doc, val, true));
+        longs.stream().forEach((val) -> addLong(doc, val, true));
+        floats.stream().forEach((val) -> addFloat(doc, val, true));
+        doubles.stream().forEach((val) -> addDouble(doc, val, true));
+        dates.stream().forEach((val) -> addDate(doc, val, true));
+
+        assertU(adoc(doc));
+        if (fixed.nextInt(20) == 0) {
+          assertU(commit());
+        }
+      }
+      assertU(commit());
+
+      System.out.println("TES: Performing full export performance tests");
+      final String query = "*:*";
+      String trieFieldsFl = String.join(",", trieFields);
+      String pointFieldsFl = String.join(",", pointFields);
+      String sort = pickRandom(fixed, (String) pickRandom(fixed, trieFields.toArray()),
+          (String) pickRandom(fixed, pointFields.toArray())).
+          replace("s_", "_") + pickRandom(fixed, " asc", " desc");
+
+      long[] ns = new long[4]; // [pointsPlain, triePlain, pointsSorted, trieSorted]
+
+      for (int i = 0; i < 5; i++) {
+
+        for (boolean sort_docs: new boolean[]{Boolean.TRUE, Boolean.FALSE}) {
+          //for (boolean sort_docs: new boolean[]{Boolean.TRUE}) {
+//          ExportWriter.SORT_DOCS = sort_docs;
+          int sortDelta = sort_docs ? 2 : 0;
+
+          ns[0+sortDelta] = -System.nanoTime();
+          h.query(req("q", query, "qt", "/export", "fl", pointFieldsFl, "sort", sort, "solr13013", Boolean.toString(sort_docs)));
+          ns[0+sortDelta] += System.nanoTime();
+
+          ns[1+sortDelta] = -System.nanoTime();
+          h.query(req("q", query, "qt", "/export", "fl", trieFieldsFl, "sort", sort, "solr13013", Boolean.toString(sort_docs)));
+          ns[1+sortDelta] += System.nanoTime();
+        }
+        double dps[] = new double[4];
+        for (int j = 0 ; j < 4 ; j++) {
+          dps[j] = docs / (ns[j] / 1_000_000_000d);
+        }
+        double[] factor = new double[2]; // [factorPoints, factorTrie]
+        for (int j = 0 ; j < 2 ; j++) {
+          factor[j] = dps[j] == 0 ? 0 : dps[j + 2] / dps[j];
+        }
+
+        String output = String.format(Locale.ENGLISH,
+            "TES: Test %d/%d:%7d documents, " +
+                "trie:%7.0f /%7.0f docs/sec (%4.0f%%), " +
+                "points:%7.0f /%7.0f docs/sec (%4.0f%%)",
+            i + 1, 5, docs,
+            dps[3], dps[1], factor[1]*100,
+            dps[2], dps[0], factor[0]*100);
+        System.out.println(output);
+        sb.append(output).append("\n");
+      }
+      sb.append("TES: ------------------\n");
+    }
+    System.out.println("TES: Concatenated output:\n" + sb);
+  }
+  protected <T> T pickRandom(Random random, T... options) {
+    return options[random.nextInt(options.length)];
   }
 
   @Test

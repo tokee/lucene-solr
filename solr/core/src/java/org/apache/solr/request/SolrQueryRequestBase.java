@@ -21,6 +21,7 @@ import org.apache.solr.api.ApiBag;
 import org.apache.solr.common.SolrException;
 import org.apache.solr.common.util.ValidatingJsonMap;
 import org.apache.solr.common.util.SuppressForbidden;
+import org.apache.solr.handler.export.ExportWriter;
 import org.apache.solr.search.SolrIndexSearcher;
 import org.apache.solr.common.util.CommandOperation;
 import org.apache.solr.common.util.JsonSchemaValidator;
@@ -80,6 +81,14 @@ public abstract class SolrQueryRequestBase implements SolrQueryRequest, Closeabl
         System.out.println("Changed static cache switches to " + newSw);
       }
     }
+    // TODO (Toke): Remove all tracks of this cache switch hack before releasing SOLR-13013
+    if (params.get("solr13013", null) != null) {
+      boolean oldEnabled = ExportWriter.SORT_DOCS;
+      if (oldEnabled != (ExportWriter.SORT_DOCS = Boolean.parseBoolean(params.get("solr13013")))) {
+        System.out.println("Changed SOLR-13013 status to enabled=" + ExportWriter.SORT_DOCS);
+      }
+    }
+
   }
 
   public SolrQueryRequestBase(SolrCore core, SolrParams params) {

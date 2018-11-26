@@ -24,32 +24,19 @@ import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.NumericDocValues;
 import org.apache.solr.common.MapWriter;
 
-class IntFieldWriter extends FieldWriter {
-  private String field;
+class IntFieldWriter extends FieldWriterImpl<NumericDocValues> {
 
   public IntFieldWriter(String field) {
-    this.field = field;
+    super(field);
   }
 
-  public boolean write(SortDoc sortDoc, LeafReader reader, MapWriter.EntryWriter ew, int fieldIndex) throws IOException {
-    int val;
-    SortValue sortValue = sortDoc.getSortValue(this.field);
-    if (sortValue != null) {
-      if (sortValue.isPresent()) {
-        val = (int) sortValue.getCurrentValue();
-      } else { //empty-value
-        return false;
-      }
-    } else {
-      // field is not part of 'sort' param, but part of 'fl' param
-      NumericDocValues vals = DocValues.getNumeric(reader, this.field);
-      if (vals.advance(sortDoc.docId) == sortDoc.docId) {
-        val = (int) vals.longValue();
-      } else {
-        return false;
-      }
-    }
-    ew.put(this.field, val);
-    return true;
+  @Override
+  protected void addCurrentValue(MapWriter.EntryWriter out) throws IOException {
+    out.put(field, (int)docValuesIterator.longValue());
+  }
+
+  @Override
+  protected NumericDocValues createDocValuesIterator(LeafReader reader, String field) throws IOException {
+    return DocValues.getNumeric(reader, this.field);
   }
 }
