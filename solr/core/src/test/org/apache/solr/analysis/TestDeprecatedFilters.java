@@ -14,26 +14,23 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.lucene.index;
 
+package org.apache.solr.analysis;
 
-import org.apache.lucene.util.BytesRef;
+import org.apache.solr.SolrTestCaseJ4;
+import org.junit.BeforeClass;
 
-/**
- * A per-document byte[]
- *
- * @deprecated Use {@link BinaryDocValues} instead.
- */
-@Deprecated
-public abstract class LegacyBinaryDocValues {
-  
-  /** Sole constructor. (For invocation by subclass 
-   * constructors, typically implicit.) */
-  protected LegacyBinaryDocValues() {}
+public class TestDeprecatedFilters extends SolrTestCaseJ4 {
 
-  /** Lookup the value for document.  The returned {@link BytesRef} may be
-   * re-used across calls to {@link #get(int)} so make sure to
-   * {@link BytesRef#deepCopyOf(BytesRef) copy it} if you want to keep it
-   * around. */
-  public abstract BytesRef get(int docID);
+  @BeforeClass
+  public static void beforeClass() throws Exception {
+    initCore("solrconfig-master.xml","schema-deprecations.xml");
+  }
+
+  public void testLowerCaseTokenizer() {
+    assertU(adoc("id", "1", "lowertext", "THIS IS A TEST"));
+    assertU(commit());
+    assertQ(req("lowertext:test"), "//result[@numFound=1]");
+  }
+
 }

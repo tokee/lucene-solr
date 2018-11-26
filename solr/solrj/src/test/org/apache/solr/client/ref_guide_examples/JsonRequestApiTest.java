@@ -27,6 +27,9 @@ import org.apache.solr.client.solrj.request.AbstractUpdateRequest;
 import org.apache.solr.client.solrj.request.CollectionAdminRequest;
 import org.apache.solr.client.solrj.request.ContentStreamUpdateRequest;
 import org.apache.solr.client.solrj.request.json.JsonQueryRequest;
+import org.apache.solr.client.solrj.request.json.TermsFacetMap;
+import org.apache.solr.client.solrj.response.json.BucketJsonFacet;
+import org.apache.solr.client.solrj.response.json.NestableJsonFacet;
 import org.apache.solr.client.solrj.response.QueryResponse;
 import org.apache.solr.client.solrj.response.UpdateResponse;
 import org.apache.solr.cloud.SolrCloudTestCase;
@@ -58,7 +61,7 @@ public class JsonRequestApiTest extends SolrCloudTestCase {
 
     ContentStreamUpdateRequest up = new ContentStreamUpdateRequest("/update");
     up.setParam("collection", COLLECTION_NAME);
-    up.addFile(getFile("solrj/docs2.xml"), "application/xml"); // A subset of the 'techproducts' documents
+    up.addFile(getFile("solrj/techproducts.xml"), "application/xml");
     up.setAction(AbstractUpdateRequest.ACTION.COMMIT, true, true);
     UpdateResponse updateResponse = up.process(cluster.getSolrClient());
     assertEquals(0, updateResponse.getStatus());
@@ -67,7 +70,7 @@ public class JsonRequestApiTest extends SolrCloudTestCase {
   @Test
   public void testSimpleJsonQuery() throws Exception {
     SolrClient solrClient = cluster.getSolrClient();
-    final int expectedResults = 3;
+    final int expectedResults = 4;
 
     // tag::solrj-json-query-simple[]
     final JsonQueryRequest simpleQuery = new JsonQueryRequest()
@@ -116,7 +119,77 @@ public class JsonRequestApiTest extends SolrCloudTestCase {
     // end::solrj-json-query-macro-expansion[]
 
     assertEquals(0, queryResponse.getStatus());
-    assertEquals(3, queryResponse.getResults().size());
+    assertEquals(5, queryResponse.getResults().size());
   }
 
+  @Test
+  public void testSimpleJsonTermsFacet() throws Exception {
+    SolrClient solrClient = cluster.getSolrClient();
+
+    //tag::solrj-json-simple-terms-facet[]
+    final TermsFacetMap categoryFacet = new TermsFacetMap("cat").setLimit(3);
+    final JsonQueryRequest request = new JsonQueryRequest()
+        .setQuery("*:*")
+        .withFacet("categories", categoryFacet);
+    QueryResponse queryResponse = request.process(solrClient, COLLECTION_NAME);
+    //end::solrj-json-simple-terms-facet[]
+
+    assertEquals(0, queryResponse.getStatus());
+    assertEquals(32, queryResponse.getResults().getNumFound());
+    assertEquals(10, queryResponse.getResults().size());
+    final NestableJsonFacet topLevelFacetingData = queryResponse.getJsonFacetingResponse();
+    assertHasFacetWithBucketValues(topLevelFacetingData,"categories",
+        new FacetBucket("electronics",12),
+        new FacetBucket("currency", 4),
+        new FacetBucket("memory", 3));
+  }
+
+  @Test
+  public void testTermsFacet2() throws Exception {
+    SolrClient solrClient = cluster.getSolrClient();
+
+    //tag::solrj-json-terms-facet2[]
+    final TermsFacetMap categoryFacet = new TermsFacetMap("cat").setLimit(5);
+    final JsonQueryRequest request = new JsonQueryRequest()
+        .setQuery("*:*")
+        .withFacet("categories", categoryFacet);
+    QueryResponse queryResponse = request.process(solrClient, COLLECTION_NAME);
+    //end::solrj-json-terms-facet2[]
+
+    assertEquals(0, queryResponse.getStatus());
+    assertEquals(32, queryResponse.getResults().getNumFound());
+    assertEquals(10, queryResponse.getResults().size());
+    final NestableJsonFacet topLevelFacetingData = queryResponse.getJsonFacetingResponse();
+    assertHasFacetWithBucketValues(topLevelFacetingData,"categories",
+        new FacetBucket("electronics",12),
+        new FacetBucket("currency", 4),
+        new FacetBucket("memory", 3),
+        new FacetBucket("connector", 2),
+        new FacetBucket("graphics card", 2));
+  }
+
+  private class FacetBucket {
+    private final Object val;
+    private final int count;
+    FacetBucket(Object val, int count) {
+      this.val = val;
+      this.count = count;
+    }
+
+    public Object getVal() { return val; }
+    public int getCount() { return count; }
+  }
+
+  private void assertHasFacetWithBucketValues(NestableJsonFacet response, String expectedFacetName, FacetBucket... expectedBuckets) {
+    assertTrue("Expected response to have facet with name " + expectedFacetName,
+        response.getBucketBasedFacets(expectedFacetName) != null);
+    final List<BucketJsonFacet> buckets = response.getBucketBasedFacets(expectedFacetName).getBuckets();
+    assertEquals(expectedBuckets.length, buckets.size());
+    for (int i = 0; i < expectedBuckets.length; i++) {
+      final FacetBucket expectedBucket = expectedBuckets[i];
+      final BucketJsonFacet actualBucket = buckets.get(i);
+      assertEquals(expectedBucket.getVal(), actualBucket.getVal());
+      assertEquals(expectedBucket.getCount(), actualBucket.getCount());
+    }
+  }
 }

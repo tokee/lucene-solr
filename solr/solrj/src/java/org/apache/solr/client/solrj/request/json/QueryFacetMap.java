@@ -14,25 +14,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.lucene.index;
 
+package org.apache.solr.client.solrj.request.json;
+
+import java.util.Map;
 
 /**
- * A per-document numeric value.
+ * Represents a "query" facet in a JSON query request.
  *
- * @deprecated Use {@link NumericDocValues} instead.
+ * Ready for use in {@link JsonQueryRequest#withFacet(String, Map)}
  */
-@Deprecated
-public abstract class LegacyNumericDocValues {
-  
-  /** Sole constructor. (For invocation by subclass 
-   *  constructors, typically implicit.) */
-  protected LegacyNumericDocValues() {}
+public class QueryFacetMap extends JsonFacetMap<QueryFacetMap> {
+  public QueryFacetMap(String queryString) {
+    super("query");
 
-  /**
-   * Returns the numeric value for the specified document ID.
-   * @param docID document ID to lookup
-   * @return numeric value
-   */
-  public abstract long get(int docID);
+    if (queryString == null) {
+      throw new IllegalArgumentException("Parameter 'queryString' must be non-null");
+    }
+    put("q", queryString);
+  }
+
+  @Override
+  public QueryFacetMap getThis() { return this; }
 }
