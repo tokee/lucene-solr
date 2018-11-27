@@ -204,6 +204,9 @@ Optimizations
   to early terminate the iterator if the minimum score is greater than the constant
   score. (Christophe Bismuth via Jim Ferenczi)
 
+* LUCENE-8374: Reduce reads for sparse DocValues and whole number numeric DocValues.
+  (Toke Eskildsen)
+  
 ======================= Lucene 7.7.0 =======================
 
 Build
@@ -230,9 +233,6 @@ Optimizations
 * LUCENE-8552: FieldInfos.getMergedFieldInfos no longer does any merging if there is <= 1 segment.
   (Christophe Bismuth via David Smiley)
 
-* LUCENE-8374: Reduce reads for sparse DocValues and whole number numeric DocValues.
-  (Toke Eskildsen)
-  
 ======================= Lucene 7.6.0 =======================
 
 Build
