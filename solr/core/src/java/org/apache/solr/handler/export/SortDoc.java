@@ -26,6 +26,7 @@ class SortDoc {
   protected int docId = -1;
   protected int ord = -1;
   protected int docBase = -1;
+  private int orderIndex = -1; // Used for DocValues extraction order optimization
 
   private SortValue[] sortValues;
 
@@ -115,6 +116,17 @@ class SortDoc {
     return 0;
   }
 
+  public void setOrderIndex(int orderIndex) {
+    this.orderIndex = orderIndex;
+  }
+  public int getOrderIndex() {
+    return orderIndex;
+  }
+
+  public int compareToWithOrderIndex(SortDoc other) {
+    assert orderIndex != -1 : "compareToWithOrderIndex requires orderIndex to be set but it was -1";
+    return other.orderIndex-this.orderIndex;
+  }
 
   public String toString() {
     StringBuilder builder = new StringBuilder();

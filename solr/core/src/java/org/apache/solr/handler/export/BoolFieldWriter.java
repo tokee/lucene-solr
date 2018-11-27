@@ -27,37 +27,30 @@ import org.apache.lucene.util.CharsRefBuilder;
 import org.apache.solr.common.MapWriter;
 import org.apache.solr.schema.FieldType;
 
-class BoolFieldWriter extends FieldWriter {
-  private String field;
+class BoolFieldWriter extends FieldWriterImpl<SortedDocValues> {
   private FieldType fieldType;
   private CharsRefBuilder cref = new CharsRefBuilder();
 
   public BoolFieldWriter(String field, FieldType fieldType) {
-    this.field = field;
+    super(field);
     this.fieldType = fieldType;
   }
 
-  public boolean write(SortDoc sortDoc, LeafReader reader, MapWriter.EntryWriter ew, int fieldIndex) throws IOException {
-    BytesRef ref;
-    SortValue sortValue = sortDoc.getSortValue(this.field);
-    if (sortValue != null) {
-      if (sortValue.isPresent()) {
-        ref = (BytesRef) sortValue.getCurrentValue();
-      } else { //empty-value
-        return false;
-      }
-    } else {
-      // field is not part of 'sort' param, but part of 'fl' param
-      SortedDocValues vals = DocValues.getSorted(reader, this.field);
-      if (vals.advance(sortDoc.docId) != sortDoc.docId) {
-        return false;
-      }
-      int ord = vals.ordValue();
-      ref = vals.lookupOrd(ord);
-    }
+  @Override
+  protected void addCurrentValue(MapWriter.EntryWriter out) throws IOException {
+    int ord = docValuesIterator.ordValue();
+    BytesRef ref = docValuesIterator.lookupOrd(ord);
+    out.put(this.field, externalize(ref));
+  }
 
-    fieldType.indexedToReadable(ref, cref);
-    ew.put(this.field, "true".equals(cref.toString()));
-    return true;
+  @Override
+  protected SortedDocValues createDocValuesIterator(LeafReader reader, String field) throws IOException {
+    return DocValues.getSorted(reader, this.field);
+  }
+
+  @Override
+  protected Object externalize(Object val) {
+    fieldType.indexedToReadable((BytesRef) val, cref);
+    return "true".equals(cref.toString());
   }
 }
