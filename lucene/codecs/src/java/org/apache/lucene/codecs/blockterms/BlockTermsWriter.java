@@ -310,7 +310,7 @@ public class BlockTermsWriter extends FieldsConsumer implements Closeable {
     private final RAMOutputStream bufferWriter = new RAMOutputStream();
 
     private void flushBlock() throws IOException {
-      //System.out.println("BTW.flushBlock seg=" + segment + " pendingCount=" + pendingCount + " fp=" + out.getFilePointer());
+      //System.out.println("BTW.flushBlock seg=" + segment + " pendingCount=" + pendingCount + " fp=" + out.getFilePointerForBlock());
 
       // First pass: compute common prefix for all terms
       // in the block, against term before first term in

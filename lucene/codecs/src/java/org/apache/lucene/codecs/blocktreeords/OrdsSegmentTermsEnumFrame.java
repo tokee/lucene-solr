@@ -203,7 +203,7 @@ final class OrdsSegmentTermsEnumFrame {
     if (statBytes.length < numBytes) {
       statBytes = new byte[ArrayUtil.oversize(numBytes, 1)];
     }
-    // System.out.println("READ stats numBytes=" + numBytes + " fp=" + ste.in.getFilePointer());
+    // System.out.println("READ stats numBytes=" + numBytes + " fp=" + ste.in.getFilePointerForBlock());
     ste.in.readBytes(statBytes, 0, numBytes);
     statsReader.reset(statBytes, 0, numBytes);
     metaDataUpto = 0;

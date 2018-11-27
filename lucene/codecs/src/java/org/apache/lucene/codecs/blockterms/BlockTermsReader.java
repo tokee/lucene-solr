@@ -745,7 +745,7 @@ public class BlockTermsReader extends FieldsProducer {
         // all N terms up front then seeking could do a fast
         // bsearch w/in the block...
 
-        //System.out.println("BTR.nextBlock() fp=" + in.getFilePointer() + " this=" + this);
+        //System.out.println("BTR.nextBlock() fp=" + in.getFilePointerForBlock() + " this=" + this);
         state.blockFilePointer = in.getFilePointer();
         blockTermCount = in.readVInt();
         //System.out.println("  blockTermCount=" + blockTermCount);

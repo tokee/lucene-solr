@@ -1316,7 +1316,7 @@ final class SimpleTextBKDWriter implements Closeable {
 
       // Save the block file pointer:
       leafBlockFPs[nodeID - leafNodeOffset] = out.getFilePointer();
-      //System.out.println("  write leaf block @ fp=" + out.getFilePointer());
+      //System.out.println("  write leaf block @ fp=" + out.getFilePointerForBlock());
 
       // Write docIDs first, as their own chunk, so that at intersect time we can add all docIDs w/o
       // loading the values:
