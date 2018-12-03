@@ -17,8 +17,6 @@
 
 package org.apache.solr.update;
 
-import java.util.List;
-
 import org.apache.solr.SolrJettyTestBase;
 import org.apache.solr.client.solrj.SolrClient;
 import org.apache.solr.client.solrj.SolrQuery;
@@ -49,8 +47,8 @@ public class RootFieldTest extends SolrJettyTestBase {
   @BeforeClass
   public static void beforeTest() throws Exception {
     useRootSchema = random().nextBoolean();
-    // schema.xml declares _root_ field while schema11.xml does not.
-    String schema = useRootSchema ? "schema.xml" : "schema11.xml";
+    // schema15.xml declares _root_ field, while schema-rest.xml does not.
+    String schema = useRootSchema ? "schema15.xml" : "schema-rest.xml";
     initCore("solrconfig.xml", schema);
   }
 
@@ -78,7 +76,7 @@ public class RootFieldTest extends SolrJettyTestBase {
 
     // Check retrieved field values
     assertThat(foundDoc.getFieldValue( "id" ), is(docId));
-    assertThat( ((List)foundDoc.getFieldValue( "name" )).get(0), is("child free doc"));
+    assertThat(foundDoc.getFieldValue( "name" ), is("child free doc"));
 
     String expectedRootValue = expectRoot() ? docId : null;
     assertThat(MESSAGE, foundDoc.getFieldValue( "_root_" ), is(expectedRootValue));
@@ -94,7 +92,7 @@ public class RootFieldTest extends SolrJettyTestBase {
 
     // Check updated field values
     assertThat(foundDoc.getFieldValue( "id" ), is(docId));
-    assertThat( ((List)foundDoc.getFieldValue( "name" )).get(0), is("updated doc"));
+    assertThat(foundDoc.getFieldValue( "name" ), is("updated doc"));
     assertThat(MESSAGE, foundDoc.getFieldValue( "_root_" ), is(expectedRootValue));
   }
 
