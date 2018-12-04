@@ -150,7 +150,7 @@ public class Lucene80Codec extends Codec {
   /** Returns the docvalues format that should be used for writing 
    *  new segments of <code>field</code>.
    *  
-   *  The default implementation always returns "Lucene70".
+   *  The default implementation always returns "Lucene80".
    *  <p>
    *  <b>WARNING:</b> if you subclass, you are responsible for index 
    *  backwards compatibility: future version of Lucene are only 
@@ -166,7 +166,7 @@ public class Lucene80Codec extends Codec {
   }
 
   private final PostingsFormat defaultFormat = PostingsFormat.forName("Lucene50");
-  private final DocValuesFormat defaultDVFormat = DocValuesFormat.forName("Lucene70");
+  private final DocValuesFormat defaultDVFormat = DocValuesFormat.forName("Lucene80");
 
   private final NormsFormat normsFormat = new Lucene70NormsFormat();
 
