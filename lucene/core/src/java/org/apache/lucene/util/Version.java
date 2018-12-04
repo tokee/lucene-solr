@@ -240,7 +240,7 @@ public final class Version {
    * some defaults may have changed and may break functionality 
    * in your application.
    */
-  public static final Version LATEST = LUCENE_7_5_1;
+  public static final Version LATEST = LUCENE_7_5_0;
 
   /**
    * Constant for backwards compatibility.
