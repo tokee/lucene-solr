@@ -109,6 +109,7 @@ final class IndexedDISI extends DocIdSetIterator {
   static final int MAX_ARRAY_LENGTH = (1 << 12) - 1;
 
   private final long jumpTableOffset; // If -1, the use of jump-table is disabled
+  private final long jumpTableEntryCount;
 
   private static void flush(int block, FixedBitSet buffer, int cardinality, IndexOutput out) throws IOException {
     assert block >= 0 && block < 65536;
@@ -137,23 +138,25 @@ final class IndexedDISI extends DocIdSetIterator {
    * increasing gap-less order.
    * @param it  the document IDs.
    * @param out destination for the blocks.
-   * @return the offset in out for the jump-tables that are appended after the blocks.
    * @throws IOException if there was an error writing to out.
    */
-  static long writeBitSet(DocIdSetIterator it, IndexOutput out) throws IOException {
+  static void writeBitSet(DocIdSetIterator it, IndexOutput out) throws IOException {
     int totalCardinality = 0;
     int blockCardinality = 0;
     final FixedBitSet buffer = new FixedBitSet(1<<16);
     long[] jumps = new long[ArrayUtil.oversize(100, Long.BYTES)];
     jumps[0] = out.getFilePointer(); // First block starts at index 0
     int prevBlock = -1;
+    int jumpBlockIndex = 0;
 
     for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
       final int block = doc >>> 16;
       if (prevBlock != -1 && block != prevBlock) {
         // Track offset+index from previous block up to current
-        jumps = addJumps(jumps, out.getFilePointer(), totalCardinality, block, prevBlock);
+        jumps = addJumps(jumps, out.getFilePointer(), totalCardinality, jumpBlockIndex, prevBlock+1);
+        jumpBlockIndex = prevBlock+1;
         // Flush block
+//        System.out.println("Flush with cardinality: " + blockCardinality + " for prevBlock " + prevBlock + " with current=" + block );
         flush(prevBlock, buffer, blockCardinality, out);
         // Reset for next block
         buffer.clear(0, buffer.length());
@@ -161,28 +164,30 @@ final class IndexedDISI extends DocIdSetIterator {
         blockCardinality = 0;
       }
       buffer.set(doc & 0xFFFF);
+//      System.out.println("B" + block + "." + (doc & 0xFFFF));
       blockCardinality++;
       prevBlock = block;
     }
     if (blockCardinality > 0) {
-      // The last jump will be to NO_MORE_DOCS
-      jumps = addJumps(jumps, out.getFilePointer(), totalCardinality, prevBlock+1, prevBlock);
+      jumps = addJumps(jumps, out.getFilePointer(), totalCardinality, jumpBlockIndex, prevBlock+1);
       flush(prevBlock, buffer, blockCardinality, out);
       buffer.clear(0, buffer.length());
+      prevBlock++;
     }
+    final int lastBlock = prevBlock == -1 ? 0 : prevBlock;
+//    jumps = addJumps(jumps, out.getFilePointer(), totalCardinality, lastBlock, lastBlock+1);
     // NO_MORE_DOCS is stored explicitly
     buffer.set(DocIdSetIterator.NO_MORE_DOCS & 0xFFFF);
     flush(DocIdSetIterator.NO_MORE_DOCS >>> 16, buffer, 1, out);
-    // offset+indes jump-table stored at the end
-    final long jumpTableOffset = out.getFilePointer();
-    flushBlockJumps(jumps, prevBlock+1, out);
-    return jumpTableOffset;
+    // offset+index jump-table stored at the end
+    flushBlockJumps(jumps, lastBlock, out);
   }
 
-  private static long[] addJumps(long[] jumps, long offset, long index, int endBlock, int startBlock) {
+  private static long[] addJumps(long[] jumps, long offset, long index, int startBlock, int endBlock) {
     jumps = ArrayUtil.grow(jumps, endBlock +1);
     final long jump = (index << BLOCK_INDEX_SHIFT) | offset;
     for (int b = startBlock; b < endBlock; b++) {
+//      System.out.println("Adding jump " + b + ": offset=" + offset + " index=" + index + " group " + startBlock + "->" + endBlock);
       jumps[b] = jump;
     }
     return jumps;
@@ -190,8 +195,19 @@ final class IndexedDISI extends DocIdSetIterator {
 
   private static void flushBlockJumps(long[] jumps, int blockCount, IndexOutput out) throws IOException {
     for (int i = 0 ; i < blockCount ; i++) {
+      final long offset = jumps[i] & BLOCK_LOOKUP_MASK;
+      final long index = jumps[i] >>> BLOCK_INDEX_SHIFT;
+//      System.out.println("> block[" + i + "]: offset=" + offset + ", index=" + index);
       out.writeLong(jumps[i]);
     }
+    // The jumpTableOffset is written at the end along with the number of jump-tabled blocks.
+    // This is the last data for the IndexedDISI structure and allows for a single lookup to get jumpTableOffset
+    // If the blockCount is 0, the offset is set to -1, disabling the cache
+//    if (blockCount == 0) {
+//      System.out.println("Disabling cache as blockCount=0");
+//    }
+    out.writeLong(blockCount == 0 ? -1 : out.getFilePointer()-Long.BYTES*blockCount);
+    out.writeInt(blockCount);
   }
 
   /** The slice that stores the {@link DocIdSetIterator}. */
@@ -241,10 +257,14 @@ final class IndexedDISI extends DocIdSetIterator {
    * @param cost normally the number of logical docIDs.
    * @param jumpTableOffset the offset in slice for the offset+index jump-table. -1 means no jump-table.
    */
-  IndexedDISI(IndexInput slice, long cost, long jumpTableOffset) {
+  IndexedDISI(IndexInput slice, long cost, long jumpTableOffset) throws IOException {
     this.slice = slice;
     this.cost = cost;
-    this.jumpTableOffset = jumpTableOffset;
+    final long startOffset = slice.getFilePointer();
+    slice.seek(startOffset+slice.length()-Long.BYTES-Integer.BYTES);
+    this.jumpTableOffset = slice.readLong();
+    this.jumpTableEntryCount = slice.readInt();
+    slice.seek(startOffset);
   }
 
   private int block = -1;
@@ -302,15 +322,16 @@ final class IndexedDISI extends DocIdSetIterator {
   }
 
   private void advanceBlock(int targetBlock) throws IOException {
+    final int blockIndex = targetBlock >> 16;
     // If the destination block is 2 blocks or more ahead, we use the jump-table.
-    if (jumpTableOffset != -1L && targetBlock >= block+2) {
-      slice.seek(jumpTableOffset + Long.BYTES * block);
+    if (jumpTableOffset != -1L && blockIndex >= (block >> 16)+2 && blockIndex < jumpTableEntryCount) {
+      slice.seek(jumpTableOffset + Long.BYTES * blockIndex);
       final long jumpEntry = slice.readLong();
 
       final long offset = jumpEntry & BLOCK_LOOKUP_MASK;
       // TODO LUCENE-8585: Check that empty blocks works with this (see IndexedDISICache.getIndexForBlock)
       final long index = jumpEntry >>> BLOCK_INDEX_SHIFT;
-
+      //System.out.println("Jump to block " + blockIndex + " with current block=" + (block >> 16) + ": offset=" + offset + ", index=" + index);
       this.nextBlockIndex = (int) (index - 1); // -1 to compensate for the always-added 1 in readBlockHeader
       slice.seek(offset);
       readBlockHeader();

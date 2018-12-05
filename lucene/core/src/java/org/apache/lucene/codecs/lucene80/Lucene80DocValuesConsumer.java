@@ -207,6 +207,7 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
       meta.writeLong(offset);                 // meta[data.offset, data.length]: IndexedDISI structure for documents with values
       values = valuesProducer.getSortedNumeric(field);
       IndexedDISI.writeBitSet(values, data);
+
       meta.writeLong(data.getFilePointer() - offset);
     }
 
