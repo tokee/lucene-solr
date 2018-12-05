@@ -41,16 +41,6 @@ public class TestIndexedDISI extends LuceneTestCase {
     }
   }
 
-/*  > block[0]: offset=0, index=0
-  > block[1]: offset=8, index=2
-  > block[2]: offset=16, index=4
-  > block[3]: offset=26, index=7
-  > block[4]: offset=32, index=8
-  > block[5]: offset=40, index=10
-  > block[6]: offset=48, index=12
-  > block[7]: offset=56, index=14
-  > block[8]: offset=66, index=17
-  */
   // TODO LUCENE-8585: Investigative unit-test. Remove before releasing
   public void testSpecificVerySparse() throws IOException {
     final int B = 65536;
@@ -67,6 +57,18 @@ public class TestIndexedDISI extends LuceneTestCase {
   }
 
   // TODO LUCENE-8585: Investigative unit-test. Remove before releasing
+  public void testSpecificLastHalfDense() throws IOException {
+    int maxDoc = 9000;
+    FixedBitSet set = new FixedBitSet(maxDoc);
+    for (int i = 0 ; i < maxDoc ; i+=2) {
+      set.set(i);
+    }
+    try (Directory dir = newDirectory()) {
+      doTest(set, dir);
+    }
+  }
+
+  // TODO LUCENE-8585: Investigative unit-test. Remove before releasing
   public void testSpecificMixedBlockTypes() throws IOException {
     final int B = 65536;
     int maxDoc = B*10;
@@ -77,10 +79,10 @@ public class TestIndexedDISI extends LuceneTestCase {
     // block 3: EMPTY
     set.set(B*4+5); // block 4: SPARSE
 
-/*    for (int i = 0 ; i < B ; i++) {
+    for (int i = 0 ; i < B ; i++) {
       set.set(B*6+i); // block 6: ALL
     }
-    for (int i = 0 ; i < B ; i+=2) {
+    for (int i = 0 ; i < B ; i+=3) {
       set.set(B*7+i); // block 7: DENSE
     }
     for (int i = 0 ; i < B ; i++) {
@@ -89,7 +91,7 @@ public class TestIndexedDISI extends LuceneTestCase {
       }
     }
     // block 9: EMPTY
-  */
+  
     try (Directory dir = newDirectory()) {
       doTestAllSingleJump(set, dir);
     }

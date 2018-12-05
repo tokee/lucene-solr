@@ -140,12 +140,12 @@ final class IndexedDISI extends DocIdSetIterator {
     final short[] rank = new short[128];
     final long[] bits = buffer.getBits();
     int bitCount = 0;
-    for (int i = 0 ; i < 1024 ; i++) {
-      bitCount += Long.bitCount(bits[i]);
-      if (i >> RANK_BLOCK_BITS << RANK_BLOCK_BITS == i) {
-        // TODO LUCENE-8585: Check that the bit pattern is intact after casting
-        rank[i >> RANK_BLOCK_BITS] = (short)bitCount;
+    for (int word = 0 ; word < 1024 ; word++) {
+      if (word >> 3 << 3 == word) { // Every 8 longs
+//        System.out.println("Writing rank[" + (word>>3) + "] for docID " + (word*8*Long.BYTES) + ": " + bitCount);
+        rank[word >> 3] = (short)bitCount;
       }
+      bitCount += Long.bitCount(bits[word]);
     }
     return rank;
   }
@@ -288,7 +288,7 @@ final class IndexedDISI extends DocIdSetIterator {
 
   private int block = -1;
   private long blockEnd;
-  private long rankOrigo = -1; // Only used for DENSE blocks
+  private long rankOrigoOffset = -1; // Only used for DENSE blocks
   private int nextBlockIndex = -1;
   Method method;
 
@@ -381,7 +381,8 @@ final class IndexedDISI extends DocIdSetIterator {
     } else {
       method = Method.DENSE;
       blockEnd = slice.getFilePointer() + RANKS_PER_BLOCK*Short.BYTES + (1 << 13);
-      slice.seek(slice.getFilePointer() + RANKS_PER_BLOCK*Short.BYTES);
+      rankOrigoOffset = slice.getFilePointer();
+      slice.seek(rankOrigoOffset + RANKS_PER_BLOCK*Short.BYTES); // Position at DENSE block bitmap start
       wordIndex = -1;
       numberOfOnes = index + 1;
       denseOrigoIndex = numberOfOnes;
@@ -534,42 +535,30 @@ final class IndexedDISI extends DocIdSetIterator {
    * @param target the wanted docID for which to calculate set-flag and index.
    * @throws IOException if a disi seek failed.
    */
-  private void rankSkip(IndexedDISI disi, int target) throws IOException {
-    final int targetInBlock = target & 0xFFFF;
-    final int targetWordIndex = targetInBlock >>> 6;
+  private static void rankSkip(IndexedDISI disi, int target) throws IOException {
+    final int targetInBlock = target & 0xFFFF;       // Lower 16 bits
+    final int targetWordIndex = targetInBlock >>> 6; // long: 2^6 = 64
 
-    // If the distance between the current position and the target is >= 8
-    // then it pays to use the rank to jump
-    return;
-
-    // TODO LUCENE-8585: Use the rank skip from the persistent jump-table
-    /*
-    if (!(disi.cache.hasRank() && targetWordIndex - disi.wordIndex >= IndexedDISICache.RANK_BLOCK_LONGS)) {
+    // If the distance between the current position and the target is > 8 longs
+    // then it pays to use the rank to jump.
+    if (targetWordIndex - disi.wordIndex < RANK_BLOCK_LONGS) {
       return;
     }
 
-    int rankPos = disi.cache.denseRankPosition(target);
-    if (rankPos == -1) {
-      return;
-    }
-    int rank = disi.cache.getRankInBlock(rankPos);
-    if (rank == -1) {
-      return;
-    }
-    int rankIndex = disi.denseOrigoIndex + rank;
-    int rankWordIndex = (rankPos & 0xFFFF) >> 6;
-    long rankOffset = disi.blockStart + 4 + (rankWordIndex * 8);
+    // Resolve the rank as close to targetInBlock as possible (maximum distance is 8 longs)
+    final int rankIndex = targetInBlock >> RANK_BLOCK_BITS; // 8 longs: 2^3 * 2^6 = 512
+    disi.slice.seek(disi.rankOrigoOffset + rankIndex*Short.BYTES);
+    final int rank = disi.denseOrigoIndex + (disi.slice.readShort() & 0xFFFF);
+//    System.out.println("Read rank[" + rankIndex + "] as " + (rank-disi.denseOrigoIndex) + " for block docID " + targetInBlock);
 
-    long mark = disi.slice.getFilePointer();
-    disi.slice.seek(rankOffset);
+    // Position the counting logic just after the rank point
+    final int rankAlignedWordIndex = rankIndex << RANK_BLOCK_BITS >> 6;
+    disi.slice.seek(disi.rankOrigoOffset + RANKS_PER_BLOCK*Short.BYTES + rankAlignedWordIndex*Long.BYTES);
     long rankWord = disi.slice.readLong();
-    int rankNOO = rankIndex + Long.bitCount(rankWord);
-    rankOffset += Long.BYTES;
+    int rankNOO = rank + Long.bitCount(rankWord);
 
-
-    //disi.slice.seek(mark);
-    disi.wordIndex = rankWordIndex;
+    disi.wordIndex = rankAlignedWordIndex;
     disi.word = rankWord;
-    disi.numberOfOnes = rankNOO;*/
+    disi.numberOfOnes = rankNOO;
   }
 }
