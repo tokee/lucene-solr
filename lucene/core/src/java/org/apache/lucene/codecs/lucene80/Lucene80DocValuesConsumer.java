@@ -28,8 +28,6 @@ import java.util.Set;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.DocValuesConsumer;
 import org.apache.lucene.codecs.DocValuesProducer;
-import org.apache.lucene.codecs.lucene80.IndexedDISI;
-import org.apache.lucene.codecs.lucene80.Lucene80DocValuesFormat;
 import org.apache.lucene.index.BinaryDocValues;
 import org.apache.lucene.index.DocValues;
 import org.apache.lucene.index.EmptyDocValuesProducer;
@@ -198,25 +196,25 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
     final long max = minMax.max;
     assert blockMinMax.spaceInBits <= minMax.spaceInBits;
 
-    if (numDocsWithValue == 0) {
+    if (numDocsWithValue == 0) {              // meta[-2, 0]: No documents with values
       meta.writeLong(-2);
       meta.writeLong(0L);
-    } else if (numDocsWithValue == maxDoc) {
+    } else if (numDocsWithValue == maxDoc) {  // meta[-1, 0]: All documents has values
       meta.writeLong(-1);
       meta.writeLong(0L);
     } else {
       long offset = data.getFilePointer();
-      meta.writeLong(offset);
+      meta.writeLong(offset);                 // meta[data.offset, data.length]: IndexedDISI structure for documents with values
       values = valuesProducer.getSortedNumeric(field);
       IndexedDISI.writeBitSet(values, data);
       meta.writeLong(data.getFilePointer() - offset);
     }
 
-    meta.writeLong(numValues);
+    meta.writeLong(numValues);                // meta[numValues]
     final int numBitsPerValue;
     boolean doBlocks = false;
     Map<Long, Integer> encode = null;
-    if (min >= max) {
+    if (min >= max) {                         // meta[-1]: All values are 0
       numBitsPerValue = 0;
       meta.writeInt(-1);
     } else {
