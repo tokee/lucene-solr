@@ -118,7 +118,10 @@ final class IndexedDISI extends DocIdSetIterator {
     out.writeShort((short) (cardinality - 1));
     if (cardinality > MAX_ARRAY_LENGTH) {
       if (cardinality != 65536) { // all docs are set
-        // TODO LUCENE-8585: Prepend with ranks for the DENSE block
+        final short[] rank = createRank(buffer);
+        for (int i = 0 ; i < rank.length ; i++) {
+          out.writeShort(rank[i]);
+        }
         for (long word : buffer.getBits()) {
           out.writeLong(word);
         }
@@ -129,6 +132,22 @@ final class IndexedDISI extends DocIdSetIterator {
         out.writeShort((short) doc);
       }
     }
+  }
+
+  // Creates a rank-entry (the number of set bits up to a given point) for the buffer.
+  // One rank-entry for every 512 bits/8 longs for a total of 128 chars.
+  private static short[] createRank(FixedBitSet buffer) {
+    final short[] rank = new short[128];
+    final long[] bits = buffer.getBits();
+    int bitCount = 0;
+    for (int i = 0 ; i < 1024 ; i++) {
+      bitCount += Long.bitCount(bits[i]);
+      if (i >> RANK_BLOCK_BITS << RANK_BLOCK_BITS == i) {
+        // TODO LUCENE-8585: Check that the bit pattern is intact after casting
+        rank[i >> RANK_BLOCK_BITS] = (short)bitCount;
+      }
+    }
+    return rank;
   }
 
   // TODO LUCENE-8585: Store the returned offset to the jump-table in meta
@@ -269,6 +288,7 @@ final class IndexedDISI extends DocIdSetIterator {
 
   private int block = -1;
   private long blockEnd;
+  private long rankOrigo = -1; // Only used for DENSE blocks
   private int nextBlockIndex = -1;
   Method method;
 
@@ -360,7 +380,8 @@ final class IndexedDISI extends DocIdSetIterator {
       gap = block - index - 1;
     } else {
       method = Method.DENSE;
-      blockEnd = slice.getFilePointer() + (1 << 13);
+      blockEnd = slice.getFilePointer() + RANKS_PER_BLOCK*Short.BYTES + (1 << 13);
+      slice.seek(slice.getFilePointer() + RANKS_PER_BLOCK*Short.BYTES);
       wordIndex = -1;
       numberOfOnes = index + 1;
       denseOrigoIndex = numberOfOnes;
