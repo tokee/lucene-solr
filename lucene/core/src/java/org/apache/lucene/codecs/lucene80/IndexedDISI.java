@@ -150,8 +150,6 @@ final class IndexedDISI extends DocIdSetIterator {
     return rank;
   }
 
-  // TODO LUCENE-8585: Store the returned offset to the jump-table in meta
-
   /**
    * Writes the docIDs from it to out, in logical blocks, one for each 65536 docIDs in monotonically
    * increasing gap-less order.
@@ -349,7 +347,6 @@ final class IndexedDISI extends DocIdSetIterator {
       final long jumpEntry = slice.readLong();
 
       final long offset = jumpEntry & BLOCK_LOOKUP_MASK;
-      // TODO LUCENE-8585: Check that empty blocks works with this (see IndexedDISICache.getIndexForBlock)
       final long index = jumpEntry >>> BLOCK_INDEX_SHIFT;
       //System.out.println("Jump to block " + blockIndex + " with current block=" + (block >> 16) + ": offset=" + offset + ", index=" + index);
       this.nextBlockIndex = (int) (index - 1); // -1 to compensate for the always-added 1 in readBlockHeader
@@ -382,6 +379,10 @@ final class IndexedDISI extends DocIdSetIterator {
       method = Method.DENSE;
       blockEnd = slice.getFilePointer() + RANKS_PER_BLOCK*Short.BYTES + (1 << 13);
       rankOrigoOffset = slice.getFilePointer();
+      // Performance consideration: All rank (128 shorts) could be loaded up front, but that would be wasted if the
+      // DENSE block is iterated in steps less than 512 bits. As the whole point of rank in DENSE is to speed up
+      // large jumps, it seems counter-intuitive to have a non-trivial up-front cost as chances are only few of the
+      // rank entries will be used.
       slice.seek(rankOrigoOffset + RANKS_PER_BLOCK*Short.BYTES); // Position at DENSE block bitmap start
       wordIndex = -1;
       numberOfOnes = index + 1;
@@ -533,14 +534,14 @@ final class IndexedDISI extends DocIdSetIterator {
    * responsibility of the caller to iterate further to reach target.
    * @param disi standard DISI.
    * @param target the wanted docID for which to calculate set-flag and index.
-   * @throws IOException if a disi seek failed.
+   * @throws IOException if a DISI seek failed.
    */
   private static void rankSkip(IndexedDISI disi, int target) throws IOException {
     final int targetInBlock = target & 0xFFFF;       // Lower 16 bits
     final int targetWordIndex = targetInBlock >>> 6; // long: 2^6 = 64
 
-    // If the distance between the current position and the target is > 8 longs
-    // then it pays to use the rank to jump.
+    // If the distance between the current position and the target is < 8 longs
+    // there is no sense in using rank
     if (targetWordIndex - disi.wordIndex < RANK_BLOCK_LONGS) {
       return;
     }
