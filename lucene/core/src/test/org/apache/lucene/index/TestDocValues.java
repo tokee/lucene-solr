@@ -136,12 +136,6 @@ public class TestDocValues extends LuceneTestCase {
   }
 
 
-  public void testNumericFieldJumpTables50() throws Exception {
-    for (int i = 0 ; i < 150 ; i++) {
-      testNumericFieldJumpTables();
-    }
-  }
-
 
   // The LUCENE-8585 jump-tables enables O(1) skipping of IndexedDISI blocks,
   // DENSE block lookup and numeric multi blocks. This test focuses on random
@@ -245,7 +239,9 @@ public class TestDocValues extends LuceneTestCase {
     dir.close();
   }
 
-  // LUCENE-8374 had a bug where a vBPV-block with BPV==0 as the very end of the numeric DocValues made it fail
+  // LUCENE-8585 has a bug where a vBPV-block with BPV==0 as the very end of the numeric DocValues makes it fail
+  //java.lang.IndexOutOfBoundsException: 24649
+  //  	at __randomizedtesting.SeedInfo.seed([A1D4EA1163EBC724:FC63056775290A90]:0)
   public void testNumericEntryZeroesLastBlock() throws IOException {
     List<Long> docValues = new ArrayList<>(2*16384);
     for (int id = 0 ; id < 2*16384 ; id++) { // 2 vBPV-blocks for the dv-field

@@ -1373,17 +1373,14 @@ final class Lucene80DocValuesProducer extends DocValuesProducer implements Close
 
     long getLongValue(long index) throws IOException {
       final long block = index >>> shift;
-      System.out.println("Index " + index);
       if (this.block != block) {
         int bitsPerValue;
         do {
-          System.out.println("Checking jump " + this.block + "  -> " + block);
           // If the needed block is the one directly following the current block, it is cheaper to avoid the cache
           if (entry.jumpTableOffset != -1 && block != this.block+1) {
             data.seek(entry.jumpTableOffset+block*Long.BYTES);
             blockEndOffset = data.readLong();
             this.block = block-1;
-            System.out.println("Using jump-table for index=" + index);
           }
           offset = blockEndOffset;
           bitsPerValue = slice.readByte(offset++);

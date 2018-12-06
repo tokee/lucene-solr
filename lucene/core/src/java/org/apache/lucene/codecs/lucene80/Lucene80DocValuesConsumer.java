@@ -261,7 +261,6 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
     meta.writeLong(startOffset);
     long jumpTableOffset = -1;
     if (doBlocks) {
-      System.out.println("Lucene80 multi value numeric DVs activated");
       jumpTableOffset = writeValuesMultipleBlocks(valuesProducer.getSortedNumeric(field), gcd);
     } else if (numBitsPerValue != 0) {
       writeValuesSingleBlock(valuesProducer.getSortedNumeric(field), numValues, numBitsPerValue, min, gcd, encode);
