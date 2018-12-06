@@ -22,8 +22,6 @@ import java.io.IOException;
 import org.apache.lucene.codecs.DocValuesConsumer;
 import org.apache.lucene.codecs.DocValuesFormat;
 import org.apache.lucene.codecs.DocValuesProducer;
-import org.apache.lucene.codecs.lucene80.Lucene80DocValuesConsumer;
-import org.apache.lucene.codecs.lucene80.Lucene80DocValuesProducer;
 import org.apache.lucene.index.DocValuesType;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.SegmentReadState;
@@ -33,7 +31,7 @@ import org.apache.lucene.util.SmallFloat;
 import org.apache.lucene.util.packed.DirectWriter;
 
 /**
- * Lucene 7.0 DocValues format.
+ * Lucene 8.0 DocValues format.
  * <p>
  * Documents that have a value for the field are encoded in a way that it is always possible to
  * know the ordinal of the current document in the set of documents that have a value. For instance,
@@ -115,6 +113,7 @@ import org.apache.lucene.util.packed.DirectWriter;
  *   <li><tt>.dvd</tt>: DocValues data</li>
  *   <li><tt>.dvm</tt>: DocValues metadata</li>
  * </ol>
+ // TODO LUCENE-8585: Expand with explanation of jump-tables for block-skip and DENSE rank + vBPV skip
  * @lucene.experimental
  */
 public final class Lucene80DocValuesFormat extends DocValuesFormat {

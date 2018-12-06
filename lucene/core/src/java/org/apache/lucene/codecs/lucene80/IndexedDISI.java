@@ -134,15 +134,14 @@ final class IndexedDISI extends DocIdSetIterator {
     }
   }
 
-  // Creates a rank-entry (the number of set bits up to a given point) for the buffer.
-  // One rank-entry for every 512 bits/8 longs for a total of 128 chars.
+  // Creates a DENSE rank-entry (the number of set bits up to a given point) for the buffer.
+  // One rank-entry for every 512 bits/8 longs for a total of 128 shorts.
   private static short[] createRank(FixedBitSet buffer) {
     final short[] rank = new short[128];
     final long[] bits = buffer.getBits();
     int bitCount = 0;
     for (int word = 0 ; word < 1024 ; word++) {
       if (word >> 3 << 3 == word) { // Every 8 longs
-//        System.out.println("Writing rank[" + (word>>3) + "] for docID " + (word*8*Long.BYTES) + ": " + bitCount);
         rank[word >> 3] = (short)bitCount;
       }
       bitCount += Long.bitCount(bits[word]);
@@ -158,11 +157,12 @@ final class IndexedDISI extends DocIdSetIterator {
    * @throws IOException if there was an error writing to out.
    */
   static void writeBitSet(DocIdSetIterator it, IndexOutput out) throws IOException {
+    final long origo = out.getFilePointer(); // All jumps are relative to the origo
     int totalCardinality = 0;
     int blockCardinality = 0;
     final FixedBitSet buffer = new FixedBitSet(1<<16);
     long[] jumps = new long[ArrayUtil.oversize(100, Long.BYTES)];
-    jumps[0] = out.getFilePointer(); // First block starts at index 0
+    jumps[0] = out.getFilePointer()-origo; // First block starts at index 0
     int prevBlock = -1;
     int jumpBlockIndex = 0;
 
@@ -170,10 +170,9 @@ final class IndexedDISI extends DocIdSetIterator {
       final int block = doc >>> 16;
       if (prevBlock != -1 && block != prevBlock) {
         // Track offset+index from previous block up to current
-        jumps = addJumps(jumps, out.getFilePointer(), totalCardinality, jumpBlockIndex, prevBlock+1);
+        jumps = addJumps(jumps, out.getFilePointer()-origo, totalCardinality, jumpBlockIndex, prevBlock+1);
         jumpBlockIndex = prevBlock+1;
         // Flush block
-//        System.out.println("Flush with cardinality: " + blockCardinality + " for prevBlock " + prevBlock + " with current=" + block );
         flush(prevBlock, buffer, blockCardinality, out);
         // Reset for next block
         buffer.clear(0, buffer.length());
@@ -181,12 +180,11 @@ final class IndexedDISI extends DocIdSetIterator {
         blockCardinality = 0;
       }
       buffer.set(doc & 0xFFFF);
-//      System.out.println("B" + block + "." + (doc & 0xFFFF));
       blockCardinality++;
       prevBlock = block;
     }
     if (blockCardinality > 0) {
-      jumps = addJumps(jumps, out.getFilePointer(), totalCardinality, jumpBlockIndex, prevBlock+1);
+      jumps = addJumps(jumps, out.getFilePointer()-origo, totalCardinality, jumpBlockIndex, prevBlock+1);
       flush(prevBlock, buffer, blockCardinality, out);
       buffer.clear(0, buffer.length());
       prevBlock++;
@@ -197,33 +195,34 @@ final class IndexedDISI extends DocIdSetIterator {
     buffer.set(DocIdSetIterator.NO_MORE_DOCS & 0xFFFF);
     flush(DocIdSetIterator.NO_MORE_DOCS >>> 16, buffer, 1, out);
     // offset+index jump-table stored at the end
-    flushBlockJumps(jumps, lastBlock, out);
+    flushBlockJumps(jumps, lastBlock, out, origo);
   }
 
+  // Adds entries to the offset & index jump-table for blocks
   private static long[] addJumps(long[] jumps, long offset, long index, int startBlock, int endBlock) {
     jumps = ArrayUtil.grow(jumps, endBlock +1);
     final long jump = (index << BLOCK_INDEX_SHIFT) | offset;
     for (int b = startBlock; b < endBlock; b++) {
-//      System.out.println("Adding jump " + b + ": offset=" + offset + " index=" + index + " group " + startBlock + "->" + endBlock);
       jumps[b] = jump;
     }
     return jumps;
   }
 
-  private static void flushBlockJumps(long[] jumps, int blockCount, IndexOutput out) throws IOException {
+  // Flushes the offet & index jump-table for blocks. This should be the last data written to out
+  private static void flushBlockJumps(long[] jumps, int blockCount, IndexOutput out, long origo) throws IOException {
     for (int i = 0 ; i < blockCount ; i++) {
       final long offset = jumps[i] & BLOCK_LOOKUP_MASK;
       final long index = jumps[i] >>> BLOCK_INDEX_SHIFT;
-//      System.out.println("> block[" + i + "]: offset=" + offset + ", index=" + index);
       out.writeLong(jumps[i]);
     }
     // The jumpTableOffset is written at the end along with the number of jump-tabled blocks.
     // This is the last data for the IndexedDISI structure and allows for a single lookup to get jumpTableOffset
-    // If the blockCount is 0, the offset is set to -1, disabling the cache
-//    if (blockCount == 0) {
-//      System.out.println("Disabling cache as blockCount=0");
+    // If the blockCount is 1, the offset is set to -1, disabling the cache
+//    if (blockCount != 1) {
+//      System.out.println("DISI-jump write end marker @" + out.getFilePointer() +
+//          ", jumpOffset=" + (out.getFilePointer() - Long.BYTES * blockCount) + ", blocks=" + blockCount);
 //    }
-    out.writeLong(blockCount == 0 ? -1 : out.getFilePointer()-Long.BYTES*blockCount);
+    out.writeLong(blockCount <= 1 ? -1 : out.getFilePointer()-origo-Long.BYTES*blockCount);
     out.writeInt(blockCount);
   }
 
@@ -277,13 +276,18 @@ final class IndexedDISI extends DocIdSetIterator {
   IndexedDISI(IndexInput slice, long cost, long jumpTableOffset) throws IOException {
     this.slice = slice;
     this.cost = cost;
-    final long startOffset = slice.getFilePointer();
-    slice.seek(startOffset+slice.length()-Long.BYTES-Integer.BYTES);
+    origo = slice.getFilePointer();
+    slice.seek(slice.length()-Long.BYTES-Integer.BYTES); // TODO LUCENE-8585: Check that length is always the last
     this.jumpTableOffset = slice.readLong();
     this.jumpTableEntryCount = slice.readInt();
-    slice.seek(startOffset);
+    slice.seek(origo);
+//    if (jumpTableOffset != -1) {
+//      System.out.println("DISI-open. origo=" + origo + ", offset=" + slice.getFilePointer() + ", length=" + slice.length()
+//          + ", jumpOffset=" + jumpTableOffset + ", jumpEntries=" + jumpTableEntryCount);
+//    }
   }
 
+  private final long origo;
   private int block = -1;
   private long blockEnd;
   private long rankOrigoOffset = -1; // Only used for DENSE blocks
@@ -343,14 +347,16 @@ final class IndexedDISI extends DocIdSetIterator {
     final int blockIndex = targetBlock >> 16;
     // If the destination block is 2 blocks or more ahead, we use the jump-table.
     if (jumpTableOffset != -1L && blockIndex >= (block >> 16)+2 && blockIndex < jumpTableEntryCount) {
-      slice.seek(jumpTableOffset + Long.BYTES * blockIndex);
+//      System.out.println("DISI-advance: block>>16=" + (block >> 16) + ", blockIndex=" + blockIndex +
+//          ", jumpOffset=" + jumpTableOffset + ", blocks=" + jumpTableEntryCount +
+//          ", destOffset=" + (jumpTableOffset + Long.BYTES * blockIndex) + ", slice.length=" + slice.length());
+      slice.seek(origo+jumpTableOffset + Long.BYTES * blockIndex);
       final long jumpEntry = slice.readLong();
 
       final long offset = jumpEntry & BLOCK_LOOKUP_MASK;
       final long index = jumpEntry >>> BLOCK_INDEX_SHIFT;
-      //System.out.println("Jump to block " + blockIndex + " with current block=" + (block >> 16) + ": offset=" + offset + ", index=" + index);
       this.nextBlockIndex = (int) (index - 1); // -1 to compensate for the always-added 1 in readBlockHeader
-      slice.seek(offset);
+      slice.seek(origo+offset);
       readBlockHeader();
       return;
     }
@@ -452,7 +458,7 @@ final class IndexedDISI extends DocIdSetIterator {
         final int targetWordIndex = targetInBlock >>> 6;
 
         // If possible, skip ahead using the rank cache
-        disi.rankSkip(disi, target);
+        rankSkip(disi, target);
 
         for (int i = disi.wordIndex + 1; i <= targetWordIndex; ++i) {
           disi.word = disi.slice.readLong();
@@ -489,7 +495,7 @@ final class IndexedDISI extends DocIdSetIterator {
         final int targetWordIndex = targetInBlock >>> 6;
 
         // If possible, skip ahead using the rank cache
-        disi.rankSkip(disi, target);
+        rankSkip(disi, target);
 
         for (int i = disi.wordIndex + 1; i <= targetWordIndex; ++i) {
           disi.word = disi.slice.readLong();
@@ -547,10 +553,10 @@ final class IndexedDISI extends DocIdSetIterator {
     }
 
     // Resolve the rank as close to targetInBlock as possible (maximum distance is 8 longs)
+    // Note: rankOrigoOffset is tracked on block open, so it is absolute (e.g. don't add origo)
     final int rankIndex = targetInBlock >> RANK_BLOCK_BITS; // 8 longs: 2^3 * 2^6 = 512
     disi.slice.seek(disi.rankOrigoOffset + rankIndex*Short.BYTES);
     final int rank = disi.denseOrigoIndex + (disi.slice.readShort() & 0xFFFF);
-//    System.out.println("Read rank[" + rankIndex + "] as " + (rank-disi.denseOrigoIndex) + " for block docID " + targetInBlock);
 
     // Position the counting logic just after the rank point
     final int rankAlignedWordIndex = rankIndex << RANK_BLOCK_BITS >> 6;

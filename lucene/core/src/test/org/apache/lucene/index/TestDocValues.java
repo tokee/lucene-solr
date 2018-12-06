@@ -28,6 +28,7 @@ import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.BinaryDocValuesField;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
+import org.apache.lucene.document.IntPoint;
 import org.apache.lucene.document.NumericDocValuesField;
 import org.apache.lucene.document.SortedDocValuesField;
 import org.apache.lucene.document.SortedNumericDocValuesField;
@@ -41,8 +42,10 @@ import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.LuceneTestCase;
 
 /** Tests helper methods in DocValues */
+// TODO LUCENE-8585: Attempt to force Lucene80DocValues. Remove before release
+@LuceneTestCase.SuppressCodecs({"SimpleText", "Direct", "Lucene50", "Lucene60", "Lucene70", "MockRandom"})
 public class TestDocValues extends LuceneTestCase {
-  
+
   /** 
    * If the field doesn't exist, we return empty instances:
    * it can easily happen that a segment just doesn't have any docs with the field.
@@ -128,6 +131,75 @@ public class TestDocValues extends LuceneTestCase {
     });
     
     dr.close();
+    iw.close();
+    dir.close();
+  }
+
+
+  public void testNumericFieldJumpTables50() throws Exception {
+    for (int i = 0 ; i < 150 ; i++) {
+      testNumericFieldJumpTables();
+    }
+  }
+
+
+  // The LUCENE-8585 jump-tables enables O(1) skipping of IndexedDISI blocks,
+  // DENSE block lookup and numeric multi blocks. This test focuses on random
+  // jumps
+  // Fails with: NOTE: reproduce with: ant test  -Dtestcase=TestDocValues -Dtests.method=testNumericFieldJumpTables50 -Dtests.seed=5B5FDFBE5605B1EB -Dtests.slow=true -Dtests.badapples=true -Dtests.locale=el-CY -Dtests.timezone=Asia/Choibalsan -Dtests.asserts=true -Dtests.file.encoding=UTF-8
+  public void testNumericFieldJumpTables() throws Exception {
+    Directory dir = newDirectory();
+    IndexWriter iw = new IndexWriter(dir, newIndexWriterConfig(null));
+    final int maxDoc = atLeast(3*65536); // Must be above 3*65536 to trigger IndexedDISI block skips
+    for (int i = 0 ; i < maxDoc ; i++) {
+      Document doc = new Document();
+      doc.add(new StringField("id", Integer.toString(i), Field.Store.NO));
+      if (random().nextInt(100) > 10) { // Skip 10% to make DENSE blocks
+        int value = random().nextInt(100000);
+        doc.add(new NumericDocValuesField("dv", value));
+        doc.add(new StringField("storedValue", Integer.toString(value), Field.Store.YES));
+      }
+      iw.addDocument(doc);
+    }
+    iw.flush();
+    iw.forceMerge(1, true); // Single segment to force large enough structures
+    iw.commit();
+
+    try (DirectoryReader dr = DirectoryReader.open(iw)) {
+      assertEquals("maxDoc should be as expected", maxDoc, dr.maxDoc());
+      LeafReader r = getOnlyLeafReader(dr);
+      
+/*      // Check non-jumping first
+      System.out.println("Iterative check");
+      NumericDocValues numDV = DocValues.getNumeric(r, "dv");
+      for (int i = 0; i < maxDoc; i++) {
+        IndexableField fieldValue = r.document(i).getField("storedValue");
+        if (fieldValue == null) {
+          assertFalse("There should be no DocValue for document #" + i, numDV.advanceExact(i));
+        } else {
+          assertTrue("There should be a DocValue for document #" + i, numDV.advanceExact(i));
+          assertEquals("The value for document #" + i + " should be correct",
+              fieldValue.stringValue(), Long.toString(numDV.longValue()));
+        }
+      }
+  */
+      for (int jump = 8191; jump < maxDoc; jump += 8191) { // Smallest jump-table block (vBPV) is 16384 values
+        // Create a new instance each time to ensure jumps from the beginning
+        NumericDocValues numDV = DocValues.getNumeric(r, "dv");
+        for (int index = 0; index < maxDoc; index += jump) {
+          IndexableField fieldValue = r.document(index).getField("storedValue");
+          if (fieldValue == null) {
+            assertFalse("There should be no DocValue for document #" + jump, numDV.advanceExact(index));
+          } else {
+            assertTrue("There should be a DocValue for document #" + jump, numDV.advanceExact(index));
+            assertEquals("The value for document #" + jump + " should be correct",
+                fieldValue.stringValue(), Long.toString(numDV.longValue()));
+          }
+        }
+      }
+    }
+
+
     iw.close();
     dir.close();
   }

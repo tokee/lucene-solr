@@ -30,7 +30,7 @@ import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.TestUtil;
 
-// TODO LUCENE-8585: Copied directlyly from the lucene70 package. How to avoid duplicate test code?
+// TODO LUCENE-8585: Copied directly from the lucene70 package. How to avoid duplicate test code?
 public class TestIndexedDISI extends LuceneTestCase {
 
   public void testEmpty() throws IOException {

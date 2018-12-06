@@ -43,6 +43,7 @@ import org.apache.lucene.search.SortedSetSelector;
 import org.apache.lucene.store.GrowableByteArrayDataOutput;
 import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.store.RAMOutputStream;
+import org.apache.lucene.util.ArrayUtil;
 import org.apache.lucene.util.BytesRef;
 import org.apache.lucene.util.BytesRefBuilder;
 import org.apache.lucene.util.IOUtils;
@@ -258,14 +259,15 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
     meta.writeLong(gcd);
     long startOffset = data.getFilePointer();
     meta.writeLong(startOffset);
+    long jumpTableOffset = -1;
     if (doBlocks) {
-      writeValuesMultipleBlocks(valuesProducer.getSortedNumeric(field), gcd);
-      // TODO LUCENE-8585: Add offsets jump-table to meta
+      System.out.println("Lucene80 multi value numeric DVs activated");
+      jumpTableOffset = writeValuesMultipleBlocks(valuesProducer.getSortedNumeric(field), gcd);
     } else if (numBitsPerValue != 0) {
       writeValuesSingleBlock(valuesProducer.getSortedNumeric(field), numValues, numBitsPerValue, min, gcd, encode);
     }
     meta.writeLong(data.getFilePointer() - startOffset);
-
+    meta.writeLong(jumpTableOffset);
     return new long[] {numDocsWithValue, numValues};
   }
 
@@ -284,9 +286,11 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
     }
     writer.finish();
   }
- 
-  // TODO LUCENE-8585: Track offsets for blocks and return them (or write directly to meta)
-  private void writeValuesMultipleBlocks(SortedNumericDocValues values, long gcd) throws IOException {
+
+  // Returns the offset to the jump-table
+  private long writeValuesMultipleBlocks(SortedNumericDocValues values, long gcd) throws IOException {
+    long[] offsets = new long[ArrayUtil.oversize(100, Long.BYTES)]; // 100 blocks = 1.6M values
+    int offsetsIndex = 0;
     final long[] buffer = new long[NUMERIC_BLOCK_SIZE];
     final GrowableByteArrayDataOutput encodeBuffer = new GrowableByteArrayDataOutput(NUMERIC_BLOCK_SIZE);
     int upTo = 0;
@@ -294,14 +298,26 @@ final class Lucene80DocValuesConsumer extends DocValuesConsumer implements Close
       for (int i = 0, count = values.docValueCount(); i < count; ++i) {
         buffer[upTo++] = values.nextValue();
         if (upTo == NUMERIC_BLOCK_SIZE) {
+          offsets = ArrayUtil.grow(offsets, offsetsIndex+1);
+          offsets[offsetsIndex++] = data.getFilePointer();
           writeBlock(buffer, NUMERIC_BLOCK_SIZE, gcd, encodeBuffer);
           upTo = 0;
         }
       }
     }
     if (upTo > 0) {
+      offsets = ArrayUtil.grow(offsets, offsetsIndex+1);
+      offsets[offsetsIndex++] = data.getFilePointer();
       writeBlock(buffer, upTo, gcd, encodeBuffer);
     }
+
+    // All blocks has been written. Flush the offset jump-table
+    final long offsetsOrigo = data.getFilePointer();
+    for (int i = 0 ; i < offsetsIndex ; i++) {
+      data.writeLong(offsets[i]);
+    }
+    data.writeLong(offsetsOrigo);
+    return offsetsOrigo;
   }
 
   private void writeBlock(long[] values, int length, long gcd, GrowableByteArrayDataOutput buffer) throws IOException {
