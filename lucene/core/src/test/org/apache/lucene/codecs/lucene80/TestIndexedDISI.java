@@ -30,7 +30,7 @@ import org.apache.lucene.util.FixedBitSet;
 import org.apache.lucene.util.LuceneTestCase;
 import org.apache.lucene.util.TestUtil;
 
-// TODO LUCENE-8585: Copied directly from the lucene70 package. How to avoid duplicate test code?
+// Copied from the lucene70 package for separation of codec-code
 public class TestIndexedDISI extends LuceneTestCase {
 
   public void testEmpty() throws IOException {
@@ -41,34 +41,7 @@ public class TestIndexedDISI extends LuceneTestCase {
     }
   }
 
-  // TODO LUCENE-8585: Investigative unit-test. Remove before releasing
-  public void testSpecificVerySparse() throws IOException {
-    final int B = 65536;
-    int maxDoc = B*10;
-    FixedBitSet set = new FixedBitSet(maxDoc);
-    for (int i = 0 ; i < 10 ; i++) {
-      set.set(B * i + 0);
-      set.set(B * i + 7);
-      set.set(B * i + 65535);
-    }
-    try (Directory dir = newDirectory()) {
-      doTestAllSingleJump(set, dir);
-    }
-  }
-
-  // TODO LUCENE-8585: Investigative unit-test. Remove before releasing
-  public void testSpecificLastHalfDense() throws IOException {
-    int maxDoc = 9000;
-    FixedBitSet set = new FixedBitSet(maxDoc);
-    for (int i = 0 ; i < maxDoc ; i+=2) {
-      set.set(i);
-    }
-    try (Directory dir = newDirectory()) {
-      doTest(set, dir);
-    }
-  }
-
-  // TODO LUCENE-8585: Investigative unit-test. Remove before releasing
+  // EMPTY blocks are special with regard to jumps as they have size 0
   public void testSpecificMixedBlockTypes() throws IOException {
     final int B = 65536;
     int maxDoc = B*10;

@@ -241,9 +241,7 @@ public class TestDocValues extends LuceneTestCase {
     dir.close();
   }
 
-  // LUCENE-8585 has a bug where a vBPV-block with BPV==0 as the very end of the numeric DocValues makes it fail
-  //java.lang.IndexOutOfBoundsException: 24649
-  //  	at __randomizedtesting.SeedInfo.seed([A1D4EA1163EBC724:FC63056775290A90]:0)
+  // vBPV with all values being 0 are stored extremely compressed, which might collide with jump-tables
   public void testNumericEntryZeroesLastBlock() throws IOException {
     List<Long> docValues = new ArrayList<>(2*16384);
     for (int id = 0 ; id < 2*16384 ; id++) { // 2 vBPV-blocks for the dv-field
@@ -276,9 +274,7 @@ public class TestDocValues extends LuceneTestCase {
     iw.close();
 
     DirectoryReader dr = DirectoryReader.open(zeroDir);
-    // TODO LUCENE-8585: Debug-change. Iterate from zero
-    //for (int id = 0 ; id < docValues.size() ; id++) {
-    for (int id = docValues.size()-2 ; id < docValues.size() ; id++) {
+    for (int id = 0 ; id < docValues.size() ; id++) {
       int readerIndex = dr.readerIndex(id);
       // We create a new reader each time as we want to test vBPV-skipping and not sequential iteration
       NumericDocValues numDV = dr.leaves().get(readerIndex).reader().getNumericDocValues("dv");

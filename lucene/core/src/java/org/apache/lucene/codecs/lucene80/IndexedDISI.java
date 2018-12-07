@@ -277,14 +277,10 @@ final class IndexedDISI extends DocIdSetIterator {
     this.slice = slice;
     this.cost = cost;
     origo = slice.getFilePointer();
-    slice.seek(slice.length()-Long.BYTES-Integer.BYTES); // TODO LUCENE-8585: Check that length is always the last
+    slice.seek(slice.length()-Long.BYTES-Integer.BYTES);
     this.jumpTableOffset = slice.readLong();
     this.jumpTableEntryCount = slice.readInt();
     slice.seek(origo);
-//    if (jumpTableOffset != -1) {
-//      System.out.println("DISI-open. origo=" + origo + ", offset=" + slice.getFilePointer() + ", length=" + slice.length()
-//          + ", jumpOffset=" + jumpTableOffset + ", jumpEntries=" + jumpTableEntryCount);
-//    }
   }
 
   private final long origo;

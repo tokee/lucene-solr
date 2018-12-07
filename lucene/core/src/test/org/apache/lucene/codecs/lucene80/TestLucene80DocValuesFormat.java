@@ -73,8 +73,8 @@ import org.apache.lucene.util.TestUtil;
 
 /**
  * Tests Lucene80DocValuesFormat
+ * Copied directly from the lucene70 package for separation of codec-code
  */
-// TODO LUCENE-8585: Copied directly from the lucene70 package. Make a shared super class instead
 public class TestLucene80DocValuesFormat extends BaseCompressingDocValuesFormatTestCase {
   private final Codec codec = TestUtil.alwaysDocValuesFormat(new Lucene80DocValuesFormat());
 
