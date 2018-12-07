@@ -140,7 +140,7 @@ public class TestDocValues extends LuceneTestCase {
   // The LUCENE-8585 jump-tables enables O(1) skipping of IndexedDISI blocks,
   // DENSE block lookup and numeric multi blocks. This test focuses on random
   // jumps
-  // Fails with: NOTE: reproduce with: ant test  -Dtestcase=TestDocValues -Dtests.method=testNumericFieldJumpTables50 -Dtests.seed=5B5FDFBE5605B1EB -Dtests.slow=true -Dtests.badapples=true -Dtests.locale=el-CY -Dtests.timezone=Asia/Choibalsan -Dtests.asserts=true -Dtests.file.encoding=UTF-8
+  @Slow
   public void testNumericFieldJumpTables() throws Exception {
     Directory dir = newDirectory();
     IndexWriter iw = new IndexWriter(dir, newIndexWriterConfig(null));
@@ -160,39 +160,41 @@ public class TestDocValues extends LuceneTestCase {
     iw.commit();
 
     try (DirectoryReader dr = DirectoryReader.open(iw)) {
-      assertEquals("maxDoc should be as expected", maxDoc, dr.maxDoc());
-      LeafReader r = getOnlyLeafReader(dr);
-      
-/*      // Check non-jumping first
-      System.out.println("Iterative check");
-      NumericDocValues numDV = DocValues.getNumeric(r, "dv");
-      for (int i = 0; i < maxDoc; i++) {
-        IndexableField fieldValue = r.document(i).getField("storedValue");
-        if (fieldValue == null) {
-          assertFalse("There should be no DocValue for document #" + i, numDV.advanceExact(i));
-        } else {
-          assertTrue("There should be a DocValue for document #" + i, numDV.advanceExact(i));
-          assertEquals("The value for document #" + i + " should be correct",
-              fieldValue.stringValue(), Long.toString(numDV.longValue()));
-        }
-      }
-  */
-      for (int jump = 8191; jump < maxDoc; jump += 8191) { // Smallest jump-table block (vBPV) is 16384 values
-        // Create a new instance each time to ensure jumps from the beginning
+        assertEquals("maxDoc should be as expected", maxDoc, dr.maxDoc());
+        LeafReader r = getOnlyLeafReader(dr);
+
+      // Check non-jumping first
+      {
         NumericDocValues numDV = DocValues.getNumeric(r, "dv");
-        for (int index = 0; index < maxDoc; index += jump) {
-          IndexableField fieldValue = r.document(index).getField("storedValue");
+        for (int i = 0; i < maxDoc; i++) {
+          IndexableField fieldValue = r.document(i).getField("storedValue");
           if (fieldValue == null) {
-            assertFalse("There should be no DocValue for document #" + jump, numDV.advanceExact(index));
+            assertFalse("There should be no DocValue for document #" + i, numDV.advanceExact(i));
           } else {
-            assertTrue("There should be a DocValue for document #" + jump, numDV.advanceExact(index));
-            assertEquals("The value for document #" + jump + " should be correct",
+            assertTrue("There should be a DocValue for document #" + i, numDV.advanceExact(i));
+            assertEquals("The value for document #" + i + " should be correct",
                 fieldValue.stringValue(), Long.toString(numDV.longValue()));
           }
         }
       }
-    }
 
+      {
+        for (int jump = 8191; jump < maxDoc; jump += 8191) { // Smallest jump-table block (vBPV) is 16384 values
+          // Create a new instance each time to ensure jumps from the beginning
+          NumericDocValues numDV = DocValues.getNumeric(r, "dv");
+          for (int index = 0; index < maxDoc; index += jump) {
+            IndexableField fieldValue = r.document(index).getField("storedValue");
+            if (fieldValue == null) {
+              assertFalse("There should be no DocValue for document #" + jump, numDV.advanceExact(index));
+            } else {
+              assertTrue("There should be a DocValue for document #" + jump, numDV.advanceExact(index));
+              assertEquals("The value for document #" + jump + " should be correct",
+                  fieldValue.stringValue(), Long.toString(numDV.longValue()));
+            }
+          }
+        }
+      }
+    }
 
     iw.close();
     dir.close();
@@ -274,7 +276,9 @@ public class TestDocValues extends LuceneTestCase {
     iw.close();
 
     DirectoryReader dr = DirectoryReader.open(zeroDir);
-    for (int id = 0 ; id < docValues.size() ; id++) {
+    // TODO LUCENE-8585: Debug-change. Iterate from zero
+    //for (int id = 0 ; id < docValues.size() ; id++) {
+    for (int id = docValues.size()-2 ; id < docValues.size() ; id++) {
       int readerIndex = dr.readerIndex(id);
       // We create a new reader each time as we want to test vBPV-skipping and not sequential iteration
       NumericDocValues numDV = dr.leaves().get(readerIndex).reader().getNumericDocValues("dv");

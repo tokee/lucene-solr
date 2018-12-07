@@ -441,7 +441,7 @@ final class Lucene80DocValuesProducer extends DocValuesProducer implements Close
         if (entry.blockShift >= 0) {
           // dense but split into blocks of different bits per value
           return new DenseNumericDocValues(maxDoc) {
-            final VaryingBPVReader vBPVReader = new VaryingBPVReader(entry);
+            final VaryingBPVReader vBPVReader = new VaryingBPVReader(entry, slice);
 
             @Override
             public long longValue() throws IOException {
@@ -485,7 +485,7 @@ final class Lucene80DocValuesProducer extends DocValuesProducer implements Close
         if (entry.blockShift >= 0) {
           // sparse and split into blocks of different bits per value
           return new SparseNumericDocValues(disi) {
-            final VaryingBPVReader vBPVReader = new VaryingBPVReader(entry);
+            final VaryingBPVReader vBPVReader = new VaryingBPVReader(entry, slice);
 
             @Override
             public long longValue() throws IOException {
@@ -530,7 +530,7 @@ final class Lucene80DocValuesProducer extends DocValuesProducer implements Close
       final RandomAccessInput slice = data.randomAccessSlice(entry.valuesOffset, entry.valuesLength);
       if (entry.blockShift >= 0) {
         return new LongValues() {
-          final VaryingBPVReader vBPVReader = new VaryingBPVReader(entry);
+          final VaryingBPVReader vBPVReader = new VaryingBPVReader(entry, slice);
           @Override
           public long get(long index) {
             try {
@@ -1364,11 +1364,17 @@ final class Lucene80DocValuesProducer extends DocValuesProducer implements Close
     LongValues values;
 
     VaryingBPVReader(NumericEntry entry) throws IOException {
+      this(entry, data.randomAccessSlice(entry.valuesOffset, entry.valuesLength));
+    }
+    VaryingBPVReader(NumericEntry entry, RandomAccessInput slice) throws IOException {
       this.entry = entry;
-      slice = data.randomAccessSlice(entry.valuesOffset, entry.valuesLength);
+      this.slice = slice;
       shift = entry.blockShift;
       mul = entry.gcd;
       mask = (1 << shift) - 1;
+//      System.out.println("vBPB: Reader created with underlying data(offset=" + data.getFilePointer() + ", length=" +
+//          data.length() + "), slice(offset=" + entry.valuesOffset + ", length=" + entry.valuesLength +
+//          ", total=" + (entry.valuesOffset + entry.valuesLength) + ")");
     }
 
     long getLongValue(long index) throws IOException {
@@ -1378,8 +1384,12 @@ final class Lucene80DocValuesProducer extends DocValuesProducer implements Close
         do {
           // If the needed block is the one directly following the current block, it is cheaper to avoid the cache
           if (entry.jumpTableOffset != -1 && block != this.block+1) {
-            data.seek(entry.jumpTableOffset+block*Long.BYTES);
-            blockEndOffset = data.readLong();
+//            System.out.println("Jumptabling to index=" + index +
+//                ", current(offset=" + data.getFilePointer() + ", length=" + data.length() +
+//                "), jumpTable(offset=" + entry.jumpTableOffset + ", jumpTableOffset=" + block*Long.BYTES + ", absolute=" +
+//                (entry.jumpTableOffset+block*Long.BYTES) + ")");
+            blockEndOffset = slice.readLong(entry.jumpTableOffset+block*Long.BYTES-entry.valuesOffset)-entry.valuesOffset;
+//            System.out.println("vBPV target block=" + block + ", jump-table derived offset=" + blockEndOffset);
             this.block = block-1;
           }
           offset = blockEndOffset;
