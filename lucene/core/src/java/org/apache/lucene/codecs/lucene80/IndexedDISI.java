@@ -218,11 +218,10 @@ final class IndexedDISI extends DocIdSetIterator {
     for (int i = 0 ; i < blockCount ; i++) {
       out.writeLong(jumps[i]);
     }
-    // The jumpTableOffset is written at the end along with the number of jump-tabled blocks.
-    // This is the last data for the IndexedDISI structure and allows for a single lookup to get jumpTableOffset
-    // If the blockCount is 1, the offset is set to -1, disabling the cache
-    out.writeLong(blockCount <= 1 ? -1 : out.getFilePointer()-origo-Long.BYTES*blockCount);
-    out.writeInt(blockCount);
+    // The number of blocks are written as the last data in the IndexedDISI structure.
+    // This makes it possible to infer the jumpTableOffset: lastPos - #blocks * Long.BYTES
+    // As there are at most 32k blocks, the count is stored as a short
+    out.writeShort((short) blockCount);
   }
 
   /** The slice that stores the {@link DocIdSetIterator}. */
@@ -230,8 +229,6 @@ final class IndexedDISI extends DocIdSetIterator {
   private final long cost;
 
   /**
-   * Constructor with jumpTableOffset. All intermediate block from current block to destination block
-   * will be visited when skipping forward. Consider using {@link #IndexedDISI(IndexInput, long, long, long, long)}.
    * @param in backing data.
    * @param offset starting offset for blocks in backing data.
    * @param length the number of bytes in the backing data.
@@ -242,43 +239,19 @@ final class IndexedDISI extends DocIdSetIterator {
   }
 
   /**
-   * Constructor with jumpTableOffset. Highly recommended for segments with 131K+ documents.
-   * @param in backing data.
-   * @param offset starting offset for blocks in backing data.
-   * @param length the number of bytes in the backing data.
-   * @param cost normally the number of logical docIDs.
-   * @param jumpTableOffset the offset in backing data for the offset+index jump-table. -1 means no jump-table.
-   */
-  IndexedDISI(IndexInput in, long offset, long length, long cost, long jumpTableOffset) throws IOException {
-    this(in.slice("docs", offset, length), cost, jumpTableOffset);
-  }
-
-  /**
-   * Constructor without jumpTableOffset. All intermediate block from current block to destination block
-   * will be visited when skipping forward. Consider using {@link #IndexedDISI(IndexInput, long, long)}.
-   *
    * This constructor allows to pass the slice directly in case it helps reuse.
-   * see eg. Lucene70 norms producer's merge instance.
+   * see eg. Lucene80 norms producer's merge instance.
    * @param slice backing data.
    * @param cost normally the number of logical docIDs.
    */
   IndexedDISI(IndexInput slice, long cost) throws IOException {
-    this(slice, cost, -1);
-  }
-
-  /**
-   * Constructor with jumpTableOffset. Highly recommended for segments with 131K+ documents.
-   * @param slice backing data.
-   * @param cost normally the number of logical docIDs.
-   * @param jumpTableOffset the offset in slice for the offset+index jump-table. -1 means no jump-table.
-   */
-  IndexedDISI(IndexInput slice, long cost, long jumpTableOffset) throws IOException {
     this.slice = slice;
     this.cost = cost;
     origo = slice.getFilePointer();
-    slice.seek(slice.length()-Long.BYTES-Integer.BYTES);
-    this.jumpTableOffset = slice.readLong();
-    this.jumpTableEntryCount = slice.readInt();
+    slice.seek(slice.length()-Short.BYTES);
+    jumpTableEntryCount = slice.readShort();
+    jumpTableOffset = jumpTableEntryCount <= 1 ? -1 :
+        slice.getFilePointer()-Short.BYTES-jumpTableEntryCount*Long.BYTES;
     slice.seek(origo);
   }
 
