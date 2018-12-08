@@ -315,13 +315,15 @@ final class IndexedDISI extends DocIdSetIterator {
     final int blockIndex = targetBlock >> 16;
     // If the destination block is 2 blocks or more ahead, we use the jump-table.
     if (jumpTableOffset != -1L && blockIndex >= (block >> 16)+2 && blockIndex < jumpTableEntryCount) {
-      slice.seek(origo+jumpTableOffset + Long.BYTES * blockIndex);
+      // jumpTableOffset is calculated based on the given slice, so origo should not be added when seeking
+      slice.seek(jumpTableOffset + Long.BYTES * blockIndex);
       final long jumpEntry = slice.readLong();
 
-      final long offset = jumpEntry & BLOCK_LOOKUP_MASK;
+      // Entries in the jumpTableOffset are calculated upon build, so origo should be added to get the correct offset
+      final long offset = origo+jumpEntry & BLOCK_LOOKUP_MASK;
       final long index = jumpEntry >>> BLOCK_INDEX_SHIFT;
       this.nextBlockIndex = (int) (index - 1); // -1 to compensate for the always-added 1 in readBlockHeader
-      slice.seek(origo+offset);
+      slice.seek(offset);
       readBlockHeader();
       return;
     }
