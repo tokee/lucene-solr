@@ -42,8 +42,6 @@ import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.LuceneTestCase;
 
 /** Tests helper methods in DocValues */
-// TODO LUCENE-8585: Attempt to force Lucene80DocValues. Remove before release
-@LuceneTestCase.SuppressCodecs({"SimpleText", "Direct", "Lucene50", "Lucene60", "Lucene70", "MockRandom"})
 public class TestDocValues extends LuceneTestCase {
 
   /** 
