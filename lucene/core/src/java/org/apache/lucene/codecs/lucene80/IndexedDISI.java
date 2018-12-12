@@ -208,8 +208,6 @@ final class IndexedDISI extends DocIdSetIterator {
     return jumps;
   }
 
-  // TODO LUCENE-8585: If the jump-table is <= size 1, it is not used, so son't write it
-  // TODO LUCENE-8585: Remove the jumpTableOffset and simply write blockCount (as a short?). The offset can be calculated from that
   // Flushes the offet & index jump-table for blocks. This should be the last data written to out
   private static void flushBlockJumps(long[] jumps, int blockCount, IndexOutput out, long origo) throws IOException {
     if (blockCount == 1) { // A single jump is just wasted space so we ignore that

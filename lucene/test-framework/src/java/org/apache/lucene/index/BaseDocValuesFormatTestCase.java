@@ -1205,7 +1205,7 @@ public abstract class BaseDocValuesFormatTestCase extends BaseIndexFileFormatTes
 
   private void doTestNumericsVsStoredFields(double density, LongSupplier longs) throws Exception {
     doTestNumericsVsStoredFields(density, longs, 256);
-    // TODO LUCENE-8585: 200000 is needed to test jumps, but is quite slow. Maybe it can be nightly?
+    // TODO: 200000 docs are needed to test jumps (see LUCENE-8585), but that is quite slow. Maybe it can be nightly?
     //doTestNumericsVsStoredFields(density, longs, 200000);
   }
   private void doTestNumericsVsStoredFields(double density, LongSupplier longs, int minDocs) throws Exception {
@@ -1258,7 +1258,6 @@ public abstract class BaseDocValuesFormatTestCase extends BaseIndexFileFormatTes
       assertDVAdvance(dir, 8191); // Smallest jump-table block (vBPV) has 16384 entries
     }
     dir.close();
-
   }
 
   // Asserts equality of stored value vs. DocValue by iterating DocValues one at a time

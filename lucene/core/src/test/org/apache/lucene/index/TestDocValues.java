@@ -125,9 +125,8 @@ public class TestDocValues extends LuceneTestCase {
     dir.close();
   }
 
-  // The LUCENE-8585 jump-tables enables O(1) skipping of IndexedDISI blocks,
-  // DENSE block lookup and numeric multi blocks. This test focuses on random
-  // jumps
+  // The LUCENE-8585 jump-tables enables O(1) skipping of IndexedDISI blocks, DENSE block lookup
+  // and numeric multi blocks. This test focuses on testing these jumps.
   @Slow
   public void testNumericFieldJumpTables() throws Exception {
     Directory dir = newDirectory();
@@ -166,8 +165,10 @@ public class TestDocValues extends LuceneTestCase {
         }
       }
 
+      // We use steps of 511 to have a non-divisor for the different possible jump-steps 512 (DENSE),
+      // 16384 (variable bits per value) and 65536 (IndexedDISI blocks)
       {
-        for (int jump = 8191; jump < maxDoc; jump += 8191) { // Smallest jump-table block (vBPV) is 16384 values
+        for (int jump = 511; jump < maxDoc; jump += 511) {
           // Create a new instance each time to ensure jumps from the beginning
           NumericDocValues numDV = DocValues.getNumeric(r, "dv");
           for (int index = 0; index < maxDoc; index += jump) {

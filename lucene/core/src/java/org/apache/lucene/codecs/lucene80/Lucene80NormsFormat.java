@@ -24,7 +24,9 @@ import org.apache.lucene.codecs.NormsFormat;
 import org.apache.lucene.codecs.NormsProducer;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
+import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.store.DataOutput;
+import org.apache.lucene.store.IndexOutput;
 
 /**
  * Lucene 8.0 Score normalization format.
@@ -68,7 +70,7 @@ import org.apache.lucene.store.DataOutput;
  *   <p>Norms data (.nvd) --&gt; Header,&lt; Data &gt;<sup>NumFields</sup>,Footer</p>
  *   <ul>
  *     <li>Header --&gt; {@link CodecUtil#writeIndexHeader IndexHeader}</li>
- *     <li>DocsWithFieldData --&gt; Bit set of MaxDoc bits</li>
+ *     <li>DocsWithFieldData --&gt; {@link IndexedDISI#writeBitSet Bit set of MaxDoc bits}</li>
  *     <li>NormsData --&gt; {@link DataOutput#writeByte(byte) byte}<sup>NumDocsWithField * BytesPerValue</sup></li>
  *     <li>Footer --&gt; {@link CodecUtil#writeFooter CodecFooter}</li>
  *   </ul>

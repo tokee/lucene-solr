@@ -47,15 +47,25 @@ import org.apache.lucene.util.packed.DirectWriter;
  *         bits of doc IDs are stored as {@link DataOutput#writeShort(short) shorts} while the upper
  *         16 bits are given by the block ID.
  *     <li>DENSE: This strategy is used when a block contains between 4096 and 65535 documents. The
- *         lower bits of doc IDs are stored in a bit set. Advancing is performed using
+ *         lower bits of doc IDs are stored in a bit set. Advancing < 512 documents is performed using
  *         {@link Long#numberOfTrailingZeros(long) ntz} operations while the index is computed by
  *         accumulating the {@link Long#bitCount(long) bit counts} of the visited longs.
+ *         Advancing >= 512 documents is performed by skipping to the start of the needed 512 document
+ *         sub-block and iterating to the specific document within that block. The index for the
+ *         sub-block that is skipped to is retrieved from a rank-table positioned beforethe bit set.
+ *         The rank-table holds the origo index numbers for all 512 documents sub-blocks, represented
+ *         as an unsigned short for each 128 blocks.
  *     <li>ALL: This strategy is used when a block contains exactly 65536 documents, meaning that
  *         the block is full. In that case doc IDs do not need to be stored explicitly. This is
  *         typically faster than both SPARSE and DENSE which is a reason why it is preferable to have
  *         all documents that have a value for a field using contiguous doc IDs, for instance by
  *         using {@link IndexWriterConfig#setIndexSort(org.apache.lucene.search.Sort) index sorting}.
  * </ul>
+ * <p>
+ * Skipping blocks to arrive at a wanted document is either done on an iterative basis or by using the
+ * jump-table stored at the end of the chain of blocks. The jump-table holds the offset as well as the
+ * index for all blocks, packed in a single long per block.
+ * </p>
  * <p>
  * Then the five per-document value types (Numeric,Binary,Sorted,SortedSet,SortedNumeric) are
  * encoded using the following strategies:
@@ -75,6 +85,10 @@ import org.apache.lucene.util.packed.DirectWriter;
  *    <li>Const-compressed: when there is only one possible value, no per-document data is needed and
  *        this value is encoded alone.
  * </ul>
+ * <p>
+ * Depending on calculated gains, the numbers might be split into blocks of 16384 values. In that case,
+ * a jump-table with block offsets is appended to the blocks for O(1) access to the needed block.
+ * </p>
  * <p>
  * {@link DocValuesType#BINARY BINARY}:
  * <ul>
@@ -113,7 +127,6 @@ import org.apache.lucene.util.packed.DirectWriter;
  *   <li><tt>.dvd</tt>: DocValues data</li>
  *   <li><tt>.dvm</tt>: DocValues metadata</li>
  * </ol>
- // TODO LUCENE-8585: Expand with explanation of jump-tables for block-skip and DENSE rank + vBPV skip
  * @lucene.experimental
  */
 public final class Lucene80DocValuesFormat extends DocValuesFormat {
