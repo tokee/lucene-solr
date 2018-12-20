@@ -236,6 +236,7 @@ final class IndexedDISI extends DocIdSetIterator {
    * @param cost normally the number of logical docIDs.
    */
   IndexedDISI(IndexInput in, long offset, long length, int jumpTableEntryCount, long cost) throws IOException {
+    // TODO: Question: Does thic create a new file handle? If so, we should avoid it
     this(in.slice("docs", offset, length), jumpTableEntryCount, cost);
   }
 
@@ -327,7 +328,14 @@ final class IndexedDISI extends DocIdSetIterator {
       final long offset = origo + (jumpEntry & BLOCK_LOOKUP_MASK);
       final long index = jumpEntry >>> BLOCK_INDEX_SHIFT;
       this.nextBlockIndex = (int) (index - 1); // -1 to compensate for the always-added 1 in readBlockHeader
-      slice.seek(offset);
+      try {
+        slice.seek(offset);
+      } catch (Exception e) {
+        throw new RuntimeException("Exception seeking to offset=" + offset + " (origo=" + origo + ", jumpEntry=" +
+            (jumpEntry & BLOCK_LOOKUP_MASK) + ") on slice length=" + slice.length() +
+            " with targetBlock(docID)=" + targetBlock + ", blockIndex(targetBlock >> 16)=" + blockIndex +
+            ", jumpEntry=" + jumpEntry + ", jumpTableEntryCount=" + jumpTableEntryCount, e);
+      }
       readBlockHeader();
       return;
     }

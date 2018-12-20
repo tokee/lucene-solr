@@ -70,6 +70,72 @@ public class TestIndexedDISI extends LuceneTestCase {
     }
   }
 
+  public void testRandomMixedBlockTypesJump() throws IOException {
+    final int B = 65536;
+    final int BLOCKS = 10;
+    final int RUNS = 10;
+    final StringBuilder sb = new StringBuilder(BLOCKS*7);
+
+    for (int run = 0 ; run < RUNS ; run++) {
+      sb.setLength(0);
+      FixedBitSet set = new FixedBitSet(BLOCKS*B);
+      for (int block = 0 ; block < BLOCKS ; block++) {
+        switch (random().nextInt(4)) {
+          case 0: { // EMPTY
+            sb.append("EMPTY ");
+            break;
+          }
+          case 1: { // ALL
+            sb.append("ALL ");
+            for (int docID = block*B ; docID < (block+1)*B ; docID++) {
+              set.set(docID);
+            }
+            break;
+          }
+          case 2: { // SPARSE ( < 4096 )
+            sb.append("SPARSE ");
+            for (int docID = block*B ; docID < (block+1)*B ; docID += 101) {
+              set.set(docID);
+            }
+            break;
+          }
+          case 3: { // DENSE ( >= 4096 )
+            sb.append("DENSE ");
+            for (int docID = block*B ; docID < (block+1)*B ; docID += 3) {
+              set.set(docID);
+            }
+            break;
+          }
+          default: throw new IllegalStateException("Modulo logic error: there should only be 4 possibilities");
+        }
+      }
+
+      try (Directory dir = newDirectory()) {
+        final int cardinality = set.cardinality();
+        final long offset = 87+random().nextInt(512);
+        long length;
+        int jumpTableentryCount;
+        try (IndexOutput out = dir.createOutput("foo", IOContext.DEFAULT)) {
+          for (int i = 0 ; i < offset ; i++) {
+            out.writeByte((byte) 87); // Filler to mess with the offset
+          }
+          final long observedOffset = out.getFilePointer();
+          jumpTableentryCount = IndexedDISI.writeBitSet(new BitSetIterator(set, cardinality), out);
+          length = out.getFilePointer();
+        }
+        try (IndexInput in = dir.openInput("foo", IOContext.DEFAULT)) {
+          for (int step = 101 ; step < length ; step += 103) {
+//            IndexedDISI disi = new IndexedDISI(in, offset, length-offset, jumpTableentryCount, cardinality);
+            IndexedDISI disi = new IndexedDISI(in.slice("--", offset, length-offset), jumpTableentryCount, cardinality);
+            BitSetIterator disi2 = new BitSetIterator(set, cardinality);
+            int disi2length = set.length();
+            assertAdvanceExact(sb.toString(), disi, disi2, disi2length, step);
+          }
+        }
+      }
+    }
+  }
+
   private void doTestAllSingleJump(FixedBitSet set, Directory dir) throws IOException {
     final int cardinality = set.cardinality();
     long length;
@@ -292,6 +358,24 @@ public class TestIndexedDISI extends LuceneTestCase {
     }
 
     dir.deleteFile("foo");
+  }
+
+  private void assertAdvanceExact(
+      String message, IndexedDISI disi, BitSetIterator disi2, int disi2length, int step) throws IOException {
+    int index = -1;
+    for (int target = 0; target < disi2length; target += step) {
+      int doc = disi2.docID();
+      while (doc < target) {
+        doc = disi2.nextDoc();
+        index++;
+      }
+
+      boolean exists = disi.advanceExact(target);
+      assertEquals(message + " existence equality", doc == target, exists);
+      if (exists) {
+        assertEquals(message + " value equality", index, disi.index());
+      }
+    }
   }
 
   private void assertAdvanceExactRandomized(IndexedDISI disi, BitSetIterator disi2, int disi2length, int step)
